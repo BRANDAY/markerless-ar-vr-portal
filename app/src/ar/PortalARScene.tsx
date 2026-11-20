@@ -74,6 +74,28 @@ export function PortalARScene(props: SceneProps) {
   const floorYRef = useRef<number | null>(null);
   const navigatorRef = useRef<unknown>(props.arSceneNavigator);
   navigatorRef.current = props.arSceneNavigator;
+  const sceneRef = useRef<ViroARScene>(null);
+
+  /**
+   * Asks the native side for the camera pose right now. `onCameraTransformUpdate` is the
+   * normal source, but it may not have fired yet (or not recently) when a provider needs
+   * the pose, e.g. at the moment tracking becomes NORMAL or when "Re-place" is pressed.
+   */
+  const refreshCameraPose = useCallback(async () => {
+    try {
+      const result = await sceneRef.current?.getCameraOrientationAsync();
+      if (result?.position?.length === 3 && result?.forward?.length === 3) {
+        cameraRef.current = {
+          position: result.position as Vec3,
+          rotation: result.rotation as Vec3,
+          forward: result.forward as Vec3,
+          up: result.up as Vec3,
+        };
+      }
+    } catch (error) {
+      appActions.log(`camera pose query failed: ${String(error)}`);
+    }
+  }, []);
 
   // ---- what providers may ask from the AR session -------------------------------------
   const context = useMemo<LocalizationContext>(
@@ -125,22 +147,36 @@ export function PortalARScene(props: SceneProps) {
   useEffect(() => {
     if (relocalizeNonce > 0) {
       appActions.log('re-place / re-localize requested');
-      providerRef.current?.relocalize();
+      refreshCameraPose().finally(() => providerRef.current?.relocalize());
     }
-  }, [relocalizeNonce]);
+  }, [relocalizeNonce, refreshCameraPose]);
 
   // ---- AR session callbacks -----------------------------------------------------------
-  const onTrackingUpdated = useCallback((state: number, reason: number) => {
-    const name = TRACKING_STATE_NAMES[state] ?? 'unavailable';
-    const reasonName = TRACKING_REASON_NAMES[reason] ?? '';
-    const changed = name !== trackingRef.current;
-    trackingRef.current = name;
-    appActions.setTracking(name, reasonName);
-    if (changed) {
+  const onTrackingUpdated = useCallback(
+    (state: number, reason: number) => {
+      const name = TRACKING_STATE_NAMES[state] ?? 'unavailable';
+      const reasonName = TRACKING_REASON_NAMES[reason] ?? '';
+      const changed = name !== trackingRef.current;
+      trackingRef.current = name;
+      appActions.setTracking(name, reasonName);
+      if (!changed) {
+        return;
+      }
       appActions.log(`tracking: ${name.toUpperCase()}${reasonName ? ` (${reasonName})` : ''}`);
-      trackingListenersRef.current.forEach((listener) => listener(name));
-    }
-  }, []);
+      const notify = () => {
+        // Skip if the state changed again while the camera pose was being fetched.
+        if (trackingRef.current === name) {
+          trackingListenersRef.current.forEach((listener) => listener(name));
+        }
+      };
+      if (name === 'normal' && !cameraRef.current) {
+        refreshCameraPose().finally(notify);
+      } else {
+        notify();
+      }
+    },
+    [refreshCameraPose],
+  );
 
   const onCameraTransformUpdate = useCallback(
     (transform: { position: number[]; rotation: number[]; forward: number[]; up: number[] }) => {
@@ -203,6 +239,7 @@ export function PortalARScene(props: SceneProps) {
 
   return (
     <ViroARScene
+      ref={sceneRef}
       onTrackingUpdated={onTrackingUpdated}
       onCameraTransformUpdate={onCameraTransformUpdate}
       onAnchorFound={onPlaneAnchor}
