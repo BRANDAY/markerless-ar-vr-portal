@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# captures and built maps are data, not source
+data/input/*
+!data/input/.gitkeep
+data/maps/*
+!data/maps/.gitkeep
+data/calibration/
+*.log
