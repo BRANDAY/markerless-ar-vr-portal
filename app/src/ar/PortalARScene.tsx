@@ -15,13 +15,14 @@ import type {
   CameraPose,
   LocalizationContext,
   LocalizationProvider,
+  PoseUpdate,
   TrackingState,
   Vec3,
 } from '../localization/types';
 import { toPlaneAnchorData } from '../room/roomGeometry';
 import { roomActions } from '../room/roomStore';
 import { scanController } from '../room/scanController';
-import { appActions, useAppState } from '../state/appStore';
+import { appActions, getAppState, useAppState } from '../state/appStore';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
 import { RoomScanLayer } from './RoomScanLayer';
@@ -70,6 +71,7 @@ export function PortalARScene(props: SceneProps) {
   const attachMode = useAppState((s) => s.attachMode);
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
+  const mode = useAppState((s) => s.mode);
 
   const cameraRef = useRef<CameraPose | null>(null);
   const lastCameraPublishRef = useRef(0);
@@ -126,18 +128,34 @@ export function PortalARScene(props: SceneProps) {
 
   // ---- provider life cycle ------------------------------------------------------------
   const providerRef = useRef<LocalizationProvider | null>(null);
+  /** A correction of the doorway that arrived while the user was inside the virtual world. */
+  const heldPoseRef = useRef<PoseUpdate | null>(null);
+
+  const applyPose = useCallback((update: PoseUpdate) => {
+    // The one and only place where a provider result moves the portal.
+    appActions.setDoorPose(update);
+    appActions.log(
+      `door pose from ${update.source}: pos ${formatVec3(update.pose.position)} ` +
+        `yaw ${update.pose.rotation[1].toFixed(1)}` +
+        (update.quality?.note ? ` (${update.quality.note})` : ''),
+    );
+  }, []);
 
   useEffect(() => {
     const provider = createProvider(providerId);
     providerRef.current = provider;
+    heldPoseRef.current = null;
     const offPose = provider.onPose((update) => {
-      // The one and only place where a provider result moves the portal.
-      appActions.setDoorPose(update);
-      appActions.log(
-        `door pose from ${update.source}: pos ${formatVec3(update.pose.position)} ` +
-          `yaw ${update.pose.rotation[1].toFixed(1)}` +
-          (update.quality?.note ? ` (${update.quality.note})` : ''),
-      );
+      const app = getAppState();
+      if (update.automatic && app.mode === 'VR' && app.door) {
+        // Moving the portal around somebody who stands behind it would throw them out of
+        // the virtual world (or leave them inside for good). The correction waits.
+        heldPoseRef.current = update;
+        appActions.log(`door correction from ${update.source} held back until the user is on the AR side again`);
+        return;
+      }
+      heldPoseRef.current = null;
+      applyPose(update);
     });
     const offStatus = provider.onStatus((status, detail) => {
       appActions.setProviderStatus(status, detail);
@@ -151,7 +169,16 @@ export function PortalARScene(props: SceneProps) {
       provider.stop();
       providerRef.current = null;
     };
-  }, [providerId, context]);
+  }, [providerId, context, applyPose]);
+
+  useEffect(() => {
+    const held = heldPoseRef.current;
+    if (mode === 'AR' && held) {
+      heldPoseRef.current = null;
+      appActions.log('applying the door correction that was held back');
+      applyPose(held);
+    }
+  }, [mode, applyPose]);
 
   useEffect(() => {
     if (relocalizeNonce > 0) {

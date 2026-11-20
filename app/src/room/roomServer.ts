@@ -14,8 +14,8 @@ import {
   localize,
   uploadRecording,
 } from '../server/core/client';
-import { describeJob, isFinalJobState, type ServerJob } from '../server/core/roomPlan';
-import { getDeviceId, SESSION_ID } from '../server/identity';
+import { describeJob, isFinalJobState, type LocalizeOutcome, type ServerJob } from '../server/core/roomPlan';
+import { getDeviceId } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
 import { roomActions, type ServerPlan } from './roomStore';
@@ -193,7 +193,11 @@ export async function cancelUploadOrBuild(): Promise<void> {
   }
 }
 
-export type LocalizeResult = { kind: 'plan'; plan: ServerPlan } | { kind: 'failed'; reason: string };
+export type LocalizeResult =
+  /** The server answered. `plan` is usable only when `outcome.alignmentStatus` is "ok". */
+  | { kind: 'answer'; outcome: LocalizeOutcome; plan: ServerPlan }
+  /** No answer: the clip could not be recorded, or the request failed. */
+  | { kind: 'failed'; reason: string };
 
 function removeQuietly(dir: Directory): void {
   try {
@@ -204,11 +208,15 @@ function removeQuietly(dir: Directory): void {
 }
 
 /**
- * Finds the scanned room again in the current AR session: records a short clip with its
- * camera poses, sends it to `/localize` and returns the room plan and the doorway in this
- * session's frame.
+ * Looks for the scanned room in the current AR session: records a short clip with its
+ * camera poses and sends it to `/localize`. The answer carries the room plan and the
+ * doorway in this session's frame. What to do with the answer is the caller's decision
+ * (`localization/core/relocalization.ts`).
+ *
+ * `sessionId` groups the observations of one AR world frame on the server; it has to
+ * change whenever tracking was interrupted, because the frame may have changed.
  */
-export async function localizeWithClip(mapId: string = DEFAULT_MAP_ID): Promise<LocalizeResult> {
+export async function localizeWithClip(mapId: string, sessionId: string): Promise<LocalizeResult> {
   const baseUrl = serverConnection.getBaseUrl();
   if (!baseUrl) {
     return { kind: 'failed', reason: 'the server is not connected' };
@@ -227,8 +235,7 @@ export async function localizeWithClip(mapId: string = DEFAULT_MAP_ID): Promise<
     form.append('video', filePart(video, 'video.mp4', 'video/mp4') as never);
     form.append('session_jsonl', filePart(session, 'session.jsonl', 'application/x-ndjson') as never);
     form.append('map_id', mapId);
-    // One session per app run: the AR world frame lives as long as the app does.
-    form.append('session_id', SESSION_ID);
+    form.append('session_id', sessionId);
     form.append('device_id', getDeviceId());
     form.append('include_room', 'true');
     const answer = await localize(baseUrl, form);
@@ -236,12 +243,15 @@ export async function localizeWithClip(mapId: string = DEFAULT_MAP_ID): Promise<
       return { kind: 'failed', reason: answer.reason };
     }
     const outcome = answer.value;
-    log(`localize: ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}`);
-    if (outcome.alignmentStatus !== 'ok') {
-      const why = outcome.quality === 'failed' ? outcome.reason || 'the view was not recognised' : `alignment ${outcome.alignmentStatus}`;
-      return { kind: 'failed', reason: why };
-    }
-    return { kind: 'plan', plan: { mapId, origin: 'localize', room: outcome.room, portal: outcome.portal } };
+    log(
+      `localize: ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}` +
+        (outcome.reason ? ` (${outcome.reason})` : ''),
+    );
+    return {
+      kind: 'answer',
+      outcome,
+      plan: { mapId, origin: 'localize', room: outcome.room, portal: outcome.portal },
+    };
   } finally {
     removeQuietly(clip.dir);
   }

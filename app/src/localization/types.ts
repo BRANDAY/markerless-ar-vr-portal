@@ -78,6 +78,12 @@ export interface PoseUpdate {
    */
   opening?: { width: number; height: number };
   quality?: PoseQuality;
+  /**
+   * True when the provider moves a doorway that is already shown on its own account (a
+   * correction after re-localisation), not because the user asked. Such a move waits
+   * while the user is on the virtual side of the portal.
+   */
+  automatic?: boolean;
   /** Which provider produced the pose. */
   source: ProviderId;
   /** `Date.now()` at the moment the pose was computed. */

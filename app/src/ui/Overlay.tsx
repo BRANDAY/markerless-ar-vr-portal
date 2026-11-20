@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
+import type { LocalizationStatus } from '../localization/types';
 import { appActions, useAppState } from '../state/appStore';
 import { ScanPanel } from './ScanPanel';
 import { ServerChip } from './ServerPanel';
@@ -29,6 +30,7 @@ export function Overlay() {
 
       {/* Outside the debug overlay on purpose: the server status is always visible. */}
       <ServerChip />
+      <StatusBanner />
 
       {overlayVisible ? (
         <>
@@ -39,6 +41,40 @@ export function Overlay() {
           <Controls />
         </>
       ) : null}
+    </View>
+  );
+}
+
+const BANNER_TITLES: Partial<Record<LocalizationStatus, string>> = {
+  'waiting-for-tracking': 'Starting',
+  'waiting-for-server': 'Waiting for the server',
+  localizing: 'Looking for the room',
+  lost: 'Check the doorway',
+  error: 'Cannot place the doorway',
+};
+
+/**
+ * What the app is doing about the doorway, in words, whenever that needs the user's
+ * attention. Always visible (also with the debug panel hidden), gone once the doorway
+ * is placed and trusted.
+ */
+function StatusBanner() {
+  const providerId = useAppState((s) => s.providerId);
+  const status = useAppState((s) => s.providerStatus);
+  const detail = useAppState((s) => s.providerDetail);
+  const title = BANNER_TITLES[status];
+  if (!title) {
+    return null;
+  }
+  const serious = status === 'lost' || status === 'error';
+  const again = providerId === 'self-hosted' ? 'Re-localize' : 'Re-place door';
+  return (
+    <View style={[styles.banner, serious ? styles.bannerSerious : null]} pointerEvents="box-none">
+      <View style={styles.bannerText} pointerEvents="none">
+        <Text style={styles.bannerTitle}>{title}</Text>
+        {detail ? <Text style={styles.bannerDetail}>{detail}</Text> : null}
+      </View>
+      {serious ? <Button label={again} onPress={appActions.requestRelocalize} /> : null}
     </View>
   );
 }
@@ -128,7 +164,10 @@ function Controls() {
 
   return (
     <View style={styles.controls} pointerEvents="box-none">
-      <Button label="Re-place door" onPress={appActions.requestRelocalize} />
+      <Button
+        label={providerId === 'self-hosted' ? 'Re-localize' : 'Re-place door'}
+        onPress={appActions.requestRelocalize}
+      />
       <Button
         label={`Attach: ${attachMode}`}
         onPress={() => appActions.setAttachMode(attachMode === 'direct' ? 'parent' : 'direct')}
@@ -185,6 +224,19 @@ const styles = StyleSheet.create({
   modeAr: { backgroundColor: 'rgba(30, 132, 73, 0.9)' },
   modeVr: { backgroundColor: 'rgba(155, 40, 190, 0.95)' },
   modeText: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: 2 },
+  banner: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(120, 85, 0, 0.88)',
+  },
+  bannerSerious: { backgroundColor: 'rgba(150, 30, 30, 0.9)' },
+  bannerText: { flex: 1 },
+  bannerTitle: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  bannerDetail: { color: '#fff', fontSize: 12, lineHeight: 16, marginTop: 2 },
   panel: {
     marginTop: 8,
     padding: 8,

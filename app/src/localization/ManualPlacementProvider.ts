@@ -1,4 +1,5 @@
 import { BaseProvider } from './BaseProvider';
+import { INTERRUPTION_GRACE_MS, TrackingWatch } from './core/relocalization';
 import { add, horizontalDirection, scale, yawFacing } from './math';
 import type { LocalizationContext, ProviderId, TrackingState, Unsubscribe, Vec3 } from './types';
 
@@ -41,6 +42,8 @@ export class ManualPlacementProvider extends BaseProvider {
   private readonly options: ManualPlacementOptions;
   private unsubscribeTracking: Unsubscribe | null = null;
   private placed = false;
+  private watch = new TrackingWatch();
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: Partial<ManualPlacementOptions> = {}) {
     super();
@@ -49,6 +52,7 @@ export class ManualPlacementProvider extends BaseProvider {
 
   protected onStart(context: LocalizationContext): void {
     this.placed = false;
+    this.watch = new TrackingWatch();
     this.setStatus('waiting-for-tracking', 'waiting for tracking NORMAL');
     this.unsubscribeTracking = context.onTrackingState((state) => this.handleTracking(state));
     this.handleTracking(context.getTrackingState());
@@ -58,6 +62,14 @@ export class ManualPlacementProvider extends BaseProvider {
     this.unsubscribeTracking?.();
     this.unsubscribeTracking = null;
     this.placed = false;
+    this.clearGraceTimer();
+  }
+
+  private clearGraceTimer(): void {
+    if (this.graceTimer !== null) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
   }
 
   relocalize(): void {
@@ -72,6 +84,33 @@ export class ManualPlacementProvider extends BaseProvider {
   }
 
   private handleTracking(state: TrackingState): void {
+    // A door placed by hand has nothing to be checked against: when tracking is
+    // interrupted it stays where it is, and the status says that it may be off.
+    const context = this.context;
+    const event = this.watch.onState(state, Date.now());
+    if (event?.kind === 'left-normal' && this.placed) {
+      this.graceTimer = setTimeout(() => {
+        this.graceTimer = null;
+        if (this.context === context && this.placed && this.watch.isInterrupted(Date.now())) {
+          context?.log('manual: tracking lost - the door stays where it was');
+          this.setStatus(
+            'lost',
+            'tracking lost - the door stays where it was, but it may be off. Move the phone slowly over a part of the room with detail',
+          );
+        }
+      }, INTERRUPTION_GRACE_MS + 50);
+    } else if (event?.kind === 'hiccup') {
+      this.clearGraceTimer();
+    } else if (event?.kind === 'recovered') {
+      this.clearGraceTimer();
+      if (this.placed) {
+        context?.log(`manual: tracking is back after ${(event.gapMs / 1000).toFixed(1)} s - the door was kept where it was`);
+        this.setStatus(
+          'localized',
+          'tracking is back; the door was kept where it was - press "Re-place door" if it has moved',
+        );
+      }
+    }
     if (state === 'normal' && !this.placed) {
       this.place();
     }

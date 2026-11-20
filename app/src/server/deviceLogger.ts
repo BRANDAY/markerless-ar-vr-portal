@@ -61,7 +61,7 @@ class DeviceLogger {
     const connection = serverConnection.getView().connection;
     const { step, detail } = scenarioStep({
       serverConnected: connection.state === 'connected',
-      recording: scan.recording === 'recording' || scan.recording === 'starting',
+      recording: scan.recording === 'recording', // a clip for /localize never reaches this state
       uploadPhase: scan.upload.phase,
       uploadText: scan.upload.text,
       inside: app.mode === 'VR',
