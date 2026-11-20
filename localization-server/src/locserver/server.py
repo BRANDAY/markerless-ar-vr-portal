@@ -19,6 +19,7 @@ from . import API_VERSION, SERVICE_ID, __version__, config, netinfo
 from . import geometry as g
 from .capture import Frame, VideoCapture, rotate_image_cw, rotate_intrinsics_cw, sharpness
 from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
+from .jobs import JobManager
 from .localize import DeviceCalibrationStore, LocalizeOptions, Localizer
 from .mapstore import LocMap, check_id, list_map_dirs, load_map
 from .responses import (
@@ -29,8 +30,10 @@ from .responses import (
     localization_dict,
     mat,
     parse_ar_pose,
+    resolve_portal,
     strip_private,
 )
+from .roomplan import empty_room, opening_by_id
 
 log = logging.getLogger("locserver.server")
 
@@ -38,13 +41,18 @@ MAX_IMAGE_BYTES = 25 * 2**20
 MAX_VIDEO_BYTES = 150 * 2**20
 SESSION_TTL_S = 30 * 60
 SESSION_MAX_OBS = 60
+MAX_MESH_BYTES = 200 * 2**20
+CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal"]
+API_REVISION = 2
 
 
 class State:
     def __init__(self, maps_dir: Path, device: str = "auto", max_keypoints: int = 2048, pipe=None, localizer=None,
-                 calibration_dir: Path | None = None, server_name: str | None = None):
-        """``pipe`` / ``localizer`` can be injected (the API tests use stubs without models)."""
+                 calibration_dir: Path | None = None, server_name: str | None = None, work_dir: Path | None = None,
+                 job_runner=None):
+        """``pipe`` / ``localizer`` / ``job_runner`` can be injected (the API tests use stubs without models)."""
         self.maps_dir = Path(maps_dir)
+        self.work_dir = Path(work_dir or config.work_dir())
         self.server_name = server_name or config.server_name()
         self.pipe = pipe or FeaturePipeline(device, max_keypoints=max_keypoints)
         self.loc_opts = LocalizeOptions()
@@ -56,6 +64,7 @@ class State:
         self.gpu_lock = threading.Lock()  # one inference at a time (4 GB VRAM)
         self.started = time.time()
         self.reload()
+        self.jobs = JobManager(self.maps_dir, self.work_dir, self.reload_one, device, job_runner)
         self._warm_up()
 
     def _warm_up(self) -> None:
@@ -81,6 +90,12 @@ class State:
                 log.error("cannot load map %s: %s", d, e)
         self.maps = maps
         return sorted(maps)
+
+    def reload_one(self, map_id: str) -> None:
+        """(Re)load one map from disk - called when a background job has finished it."""
+        self.maps = {**self.maps, map_id: load_map(self.maps_dir / map_id)}
+        for k in [k for k, s in self.sessions.items() if s["map_id"] == map_id]:
+            del self.sessions[k]  # observations of the replaced map are meaningless now
 
     def get_map(self, map_id: str | None) -> LocMap:
         if not map_id:
@@ -132,6 +147,35 @@ def _anchor_json(lmap: LocMap, name: str) -> dict:
     return {"map_id": lmap.map_id, "name": name, "frame": "map", **a}
 
 
+def _map_extras(m: LocMap) -> dict:
+    room = m.room()
+    return {
+        "label": m.meta.get("label"),
+        "gravity_aligned": bool(m.meta.get("up")) or bool(room and room.get("status") != "unavailable"),
+        "room_status": room.get("status", "unavailable") if room else "unavailable",
+        "portal_source": resolve_portal(m)["source"],
+    }
+
+
+def _save_upload(upload: UploadFile, path: Path, limit: int, what: str) -> int:
+    """Stream an upload to disk, refusing more than ``limit`` bytes."""
+    n = 0
+    with open(path, "wb") as fh:
+        while chunk := upload.file.read(2**20):
+            n += len(chunk)
+            if n > limit:
+                raise HTTPException(413, f"{what} is larger than the limit of {limit // 2**20} MB")
+            fh.write(chunk)
+    return n
+
+
+def _mesh_name(upload: UploadFile, mesh_format: str | None) -> str:
+    ext = (mesh_format or Path(upload.filename or "").suffix.lstrip(".") or "bin").lower()
+    if not ext.isalnum() or len(ext) > 8:
+        ext = "bin"
+    return f"mesh.{ext}"
+
+
 def pick_clip_frames(frames: list[Frame], n: int) -> list[Frame]:
     """The sharpest frame of each of ``n`` equal parts of a clip."""
     if len(frames) <= n:
@@ -168,11 +212,14 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             "maps_dir": str(st.maps_dir),
             "sessions": len(st.sessions),
             "uptime_s": round(time.time() - st.started, 1),
+            "api_revision": API_REVISION,
+            "capabilities": CAPABILITIES,
+            "jobs": st.jobs.counts(),
         }
 
     @app.get("/maps")
     def maps():
-        return {"maps": [m.summary() for m in st.maps.values()]}
+        return {"maps": [{**m.summary(), **_map_extras(m)} for m in st.maps.values()]}
 
     @app.post("/maps/reload")
     def maps_reload():
@@ -181,7 +228,134 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
     @app.get("/maps/{map_id}")
     def map_info(map_id: str):
         m = st.get_map(map_id)
-        return {**m.meta, "num_images": len(m.images), "anchors": m.anchors()}
+        return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
+
+    # ------------------------------------------- recording upload + jobs --- #
+    @app.post("/maps/{map_id}/recording", status_code=202)
+    def recording_upload(
+        map_id: str,
+        video: UploadFile = File(..., description="video.mp4 of the recording"),
+        session_jsonl: UploadFile = File(..., description="session.jsonl of the same recording"),
+        mesh: UploadFile | None = File(None, description="optional room mesh (OBJ/PLY) of the same AR session"),
+        mesh_format: str | None = Form(None),
+        replace: bool = Form(False),
+        display_rotation_cw: int | None = Form(None),
+        device_id: str | None = Form(None),
+        label: str | None = Form(None),
+        max_frames: int = Form(200),
+        detect_openings: bool = Form(True),
+    ):
+        """Build a map from a room recording in the background. Answers at once with a job."""
+        from .recording import parse_session_jsonl
+
+        try:
+            check_id(map_id, "map id")
+            if device_id:
+                check_id(device_id, "device_id")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        if map_id.startswith("."):
+            raise HTTPException(422, "a map id must not start with '.'")
+        if display_rotation_cw is not None and display_rotation_cw % 90:
+            raise HTTPException(422, "display_rotation_cw must be 0, 90, 180 or 270")
+        if not 30 <= max_frames <= 400:
+            raise HTTPException(422, "max_frames must be between 30 and 400")
+
+        def refuse_if_busy():
+            if (map_id in st.maps or (st.maps_dir / map_id).exists()) and not replace:
+                raise HTTPException(409, f"map {map_id!r} exists; send replace=true to rebuild it")
+            active = st.jobs.active_for(map_id)
+            if active is not None:
+                raise HTTPException(409, f"a job for map {map_id!r} is already {active.state}: job_id {active.job_id}")
+
+        refuse_if_busy()
+        job_id, d = st.jobs.new_job_dir()
+        try:
+            _save_upload(video, d / "video.mp4", config.max_recording_bytes(), "the recording")
+            _save_upload(session_jsonl, d / "session.jsonl", 200 * 2**20, "session.jsonl")
+            try:
+                slog = parse_session_jsonl(d / "session.jsonl")
+            except (OSError, ValueError) as e:
+                raise HTTPException(422, f"cannot read session.jsonl: {e}")
+            if slog.intrinsics is None or len(slog.poses) < 10:
+                raise HTTPException(422, f"session.jsonl needs a header with intrinsics and at least 10 pose lines "
+                                         f"(found intrinsics: {slog.intrinsics is not None}, poses: {len(slog.poses)})")
+            params = {"display_rotation_cw": display_rotation_cw, "device_id": device_id, "label": label,
+                      "max_frames": max_frames, "detect_openings": detect_openings, "mesh": None, "mesh_format": mesh_format}
+            if mesh is not None:
+                mpath = d / _mesh_name(mesh, mesh_format)
+                _save_upload(mesh, mpath, MAX_MESH_BYTES, "the mesh")
+                params["mesh"] = str(mpath)
+            refuse_if_busy()
+        except HTTPException:
+            shutil.rmtree(d, ignore_errors=True)
+            raise
+        st.jobs.submit(job_id, "build_map", map_id, params)
+        return {"job": st.jobs.get(job_id)}
+
+    @app.get("/jobs")
+    async def jobs_list(map_id: str | None = None):
+        return {"jobs": st.jobs.list(map_id)}
+
+    @app.get("/jobs/{job_id}")
+    async def job_get(job_id: str):
+        j = st.jobs.get(job_id)
+        if j is None:
+            raise HTTPException(404, "unknown job")
+        return j
+
+    @app.post("/jobs/{job_id}/cancel")
+    def job_cancel(job_id: str):
+        j = st.jobs.cancel(job_id)
+        if j is None:
+            raise HTTPException(404, "unknown job")
+        return j
+
+    # ------------------------------------------------- room plan + portal --- #
+    @app.get("/maps/{map_id}/room")
+    def room_get(map_id: str):
+        m = st.get_map(map_id)
+        return {"map_id": m.map_id, "room": m.room() or empty_room("not computed")}
+
+    @app.post("/maps/{map_id}/room/rebuild", status_code=202)
+    def room_rebuild(
+        map_id: str,
+        mesh: UploadFile | None = File(None),
+        mesh_format: str | None = Form(None),
+        detect_openings: bool = Form(True),
+    ):
+        m = st.get_map(map_id)
+        active = st.jobs.active_for(m.map_id)
+        if active is not None:
+            raise HTTPException(409, f"a job for map {m.map_id!r} is already {active.state}: job_id {active.job_id}")
+        job_id, d = st.jobs.new_job_dir()
+        params = {"detect_openings": detect_openings, "mesh": None, "mesh_format": mesh_format}
+        try:
+            if mesh is not None:
+                mpath = d / _mesh_name(mesh, mesh_format)
+                _save_upload(mesh, mpath, MAX_MESH_BYTES, "the mesh")
+                params["mesh"] = str(mpath)
+        except HTTPException:
+            shutil.rmtree(d, ignore_errors=True)
+            raise
+        st.jobs.submit(job_id, "room_plan", m.map_id, params)
+        return {"job": st.jobs.get(job_id)}
+
+    @app.get("/maps/{map_id}/portal")
+    def portal_get(map_id: str):
+        return strip_private(resolve_portal(st.get_map(map_id)))
+
+    @app.put("/maps/{map_id}/portal")
+    def portal_put(map_id: str, body: dict = Body(...)):
+        """Choose which opening carries the portal: ``{"opening_id": "o1"}``; ``null`` = automatic."""
+        m = st.get_map(map_id)
+        if "opening_id" not in body:
+            raise HTTPException(422, "body needs 'opening_id' (an id from the room plan, or null)")
+        oid = body["opening_id"]
+        if oid is not None and opening_by_id(m.room(), str(oid)) is None:
+            raise HTTPException(404, f"the room plan of map {m.map_id!r} has no opening {oid!r}")
+        m.set_portal_selection(None if oid is None else str(oid))
+        return strip_private(resolve_portal(m))
 
     @app.put("/maps/{map_id}/scale")
     def map_scale(map_id: str, body: dict = Body(...)):
@@ -309,7 +483,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 obs.append(Observation(T, parse_ar_pose(o["ar_pose"]), float(o.get("weight", 1.0))))
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(422, f"bad observations: {e}")
-        al = compute_alignment(m, obs, st.align_opts)
+        al = compute_alignment(m, obs, st.align_opts, include_room=bool(body.get("include_room", True)))
         _maybe_persist_scale(m, al, bool(body.get("persist_scale")))
         return {"map_id": m.map_id, "alignment": strip_private(al)}
 
@@ -343,6 +517,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         session_id: str | None = Form(None),
         max_frames: int = Form(3),
         persist_scale: bool = Form(False),
+        include_room: bool = Form(True, description="add the room plan in AR-world coordinates to the alignment"),
     ):
         t_req = time.perf_counter()
         m = st.get_map(map_id)
@@ -477,7 +652,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             out["session"] = {"session_id": session_id, "num_observations": len(obs)}
         has_ar = T_ar_req is not None or pairing == "session_jsonl"
         if has_ar or (session_id and obs):
-            al = compute_alignment(m, obs, st.align_opts)
+            al = compute_alignment(m, obs, st.align_opts, include_room=include_room)
             _maybe_persist_scale(m, al, persist_scale)
             al["ar_pose_pairing"] = pairing
             al["from_weak_localization_only"] = bool(new_obs) and all(r.quality != "good" for _, r in results if r.success)

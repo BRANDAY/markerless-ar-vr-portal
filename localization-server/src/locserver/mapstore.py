@@ -31,6 +31,10 @@ ANCHOR_RE = MAP_ID_RE
 FORMAT_VERSION = 1
 
 
+ROOM_FILE = "room.json"
+PORTAL_FILE = "portal.json"
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -137,6 +141,35 @@ class LocMap:
     def anchor_T(entry: dict) -> np.ndarray:
         return g.make_T(g.quat_to_rotmat(entry["quaternion_xyzw"]), entry["position"])
 
+    # ---------------------------------------------------- room and portal --- #
+    def room(self) -> dict | None:
+        """The room plan (``room.json``, frame ``map``) or None. Re-read when the file changes."""
+        f = self.path / ROOM_FILE
+        try:
+            mtime = f.stat().st_mtime_ns
+        except OSError:
+            return None
+        cached = getattr(self, "_room_cache", None)
+        if cached is None or cached[0] != mtime:
+            try:
+                cached = (mtime, json.loads(f.read_text(encoding="utf-8-sig")))
+            except (OSError, ValueError):
+                return None
+            self._room_cache = cached
+        return cached[1]
+
+    def portal_selection(self) -> str | None:
+        """Id of the opening the user chose for the portal (None = automatic)."""
+        f = self.path / PORTAL_FILE
+        try:
+            return json.loads(f.read_text(encoding="utf-8-sig")).get("opening_id") if f.exists() else None
+        except (OSError, ValueError):
+            return None
+
+    def set_portal_selection(self, opening_id: str | None) -> None:
+        with self._lock:
+            _write_json(self.path / PORTAL_FILE, {"opening_id": opening_id, "updated_utc": utc_now()})
+
     # -------------------------------------------------------------- scale --- #
     def set_scale(self, scale_m_per_unit: float, source: str) -> None:
         """Persist a metres-per-map-unit calibration for a non-metric map."""
@@ -236,4 +269,7 @@ def list_map_dirs(maps_dir: Path) -> list[Path]:
     maps_dir = Path(maps_dir)
     if not maps_dir.exists():
         return []
-    return sorted(p for p in maps_dir.iterdir() if (p / "map.json").exists() and (p / "features.npz").exists())
+    return sorted(
+        p for p in maps_dir.iterdir()
+        if not p.name.startswith(".") and (p / "map.json").exists() and (p / "features.npz").exists()
+    )

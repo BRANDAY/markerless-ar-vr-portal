@@ -15,6 +15,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "python-multipart",
+    "transformers>=4.50",
 ]
 
 [project.scripts]

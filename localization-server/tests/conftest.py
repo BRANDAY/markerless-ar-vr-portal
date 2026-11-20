@@ -87,7 +87,7 @@ def api(maps_dir, tmp_path):
     from locserver.server import State, create_app
 
     stub = StubLocalizer()
-    state = State(maps_dir, pipe=StubPipe(), localizer=stub, calibration_dir=tmp_path / "calib")
+    state = State(maps_dir, pipe=StubPipe(), localizer=stub, calibration_dir=tmp_path / "calib", work_dir=tmp_path / "work")
     client = TestClient(create_app(state))
     client.stub = stub
     client.state_obj = state

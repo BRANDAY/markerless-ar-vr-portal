@@ -54,3 +54,12 @@ def server_name() -> str:
 
 def setup_logging(level: str = "INFO") -> None:
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S")
+
+
+def max_recording_bytes() -> int:
+    """Upper size of an uploaded room recording (env LOCSERVER_MAX_RECORDING_MB, default 2048)."""
+    try:
+        mb = float(os.environ.get("LOCSERVER_MAX_RECORDING_MB", "2048"))
+    except ValueError:
+        mb = 2048.0
+    return int(max(1.0, mb) * 2**20)

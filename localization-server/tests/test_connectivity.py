@@ -27,7 +27,7 @@ def test_health_works_without_any_map_and_with_custom_name(tmp_path, monkeypatch
     from locserver.server import State, create_app
 
     state = State(tmp_path / "no_maps_here", pipe=StubPipe(), localizer=StubLocalizer(),
-                  calibration_dir=tmp_path / "calib", server_name="Lab laptop")
+                  calibration_dir=tmp_path / "calib", server_name="Lab laptop", work_dir=tmp_path / "work")
     h = TestClient(create_app(state)).get("/health").json()
     assert h["status"] == "ok" and h["maps"] == [] and h["server_name"] == "Lab laptop"
 

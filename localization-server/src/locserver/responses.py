@@ -13,6 +13,7 @@ import numpy as np
 from . import geometry as g
 from .localize import LocalizationResult, LocalizeOptions
 from .mapstore import LocMap
+from .roomplan import opening_by_id, transform_room
 
 
 def mat(T: np.ndarray) -> list[list[float]]:
@@ -98,7 +99,50 @@ def anchors_in_arworld(lmap: LocMap, sim: g.Sim3) -> dict:
     }
 
 
-def compute_alignment(lmap: LocMap, observations: list[Observation], opts: AlignOptions | None = None) -> dict:
+def resolve_portal(lmap: LocMap) -> dict:
+    """Where the portal stands, in map coordinates: manual anchor > selected opening > best opening > none.
+
+    The pose is the doorway frame of the app: origin on the floor in the middle
+    of the threshold, +Y up, +Z into the scanned room. ``_T`` (4x4) is private.
+    """
+    out = {"map_id": lmap.map_id, "frame": "map", "source": "none", "opening_id": None, "position": None,
+           "rotation_euler_deg": None, "quaternion_xyzw": None, "width": None, "height": None, "confidence": None,
+           "reason": None, "_T": None}
+    manual = lmap.anchors().get("portal")
+    if manual is not None:
+        T = LocMap.anchor_T(manual)
+        return {**out, "source": "manual", **anchor_pose_dict(T), "_T": T}
+    room = lmap.room()
+    if not room or room.get("status") == "unavailable":
+        why = (room or {}).get("reason") or "not computed"
+        return {**out, "reason": f"the map has no room plan ({why})"}
+    chosen = opening_by_id(room, lmap.portal_selection())
+    source = "selected"
+    if chosen is None:
+        chosen, source = opening_by_id(room, room.get("best_opening_id")), "auto"
+    if chosen is None:
+        n = len(room.get("openings", []))
+        why = "no door opening was found in this room" if n == 0 else             f"{n} possible opening(s) found, none confident enough to use automatically"
+        return {**out, "reason": why}
+    pp = chosen["portal_pose"]
+    T = g.make_T(g.quat_to_rotmat(pp["quaternion_xyzw"]), pp["position"])
+    return {**out, "source": source, "opening_id": chosen["id"], **anchor_pose_dict(T), "width": chosen["width"],
+            "height": chosen["height"], "confidence": chosen["confidence"], "_T": T}
+
+
+def portal_in_arworld(portal: dict, sim: g.Sim3) -> dict:
+    out = {k: v for k, v in portal.items() if k not in ("_T", "map_id")}
+    out["frame"] = "arworld"
+    if portal["_T"] is not None:
+        out.update(anchor_pose_dict(sim.transform_pose(portal["_T"])))
+        for k in ("width", "height"):
+            if out[k] is not None:
+                out[k] = round(float(out[k]) * sim.scale, 4)
+    return out
+
+
+def compute_alignment(lmap: LocMap, observations: list[Observation], opts: AlignOptions | None = None,
+                      include_room: bool = True) -> dict:
     """``arworld <- map`` from the observations of one AR session, as API JSON."""
     opts = opts or AlignOptions()
     out: dict = {
@@ -164,6 +208,12 @@ def compute_alignment(lmap: LocMap, observations: list[Observation], opts: Align
         out["translation"] = vec(sim.t)
         out["T_arworld_from_map"] = mat(sim.matrix())
         out["anchors"] = anchors_in_arworld(lmap, sim)
+        portal = portal_in_arworld(resolve_portal(lmap), sim)
+        out["portal"] = portal
+        if portal["source"] not in ("none", "manual"):  # v1 clients read anchors.portal
+            out["anchors"]["portal"] = {k: portal[k] for k in ("position", "rotation_euler_deg", "quaternion_xyzw")}
+        room = lmap.room() if include_room else None
+        out["room"] = transform_room(room, sim) if room and room.get("status") != "unavailable" else None
     out["_sim3"] = sim if r.scale_source != "unknown" else None  # stripped before sending
     return out
 

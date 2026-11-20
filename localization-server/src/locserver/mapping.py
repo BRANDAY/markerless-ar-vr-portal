@@ -101,9 +101,16 @@ def build_map(
     pipe: FeaturePipeline,
     opts: BuildOptions | None = None,
     capture: Capture | None = None,
+    progress=None,
 ) -> LocMap:
-    """Build a map from a capture and write it to ``map_dir``. Returns the loaded map."""
+    """Build a map from a capture and write it to ``map_dir``. Returns the loaded map.
+
+    ``progress(stage, fraction, message)`` is called while working; stages are
+    ``frames``, ``features``, ``matching``, ``sfm`` and ``finalize``.
+    """
     opts = opts or BuildOptions()
+    progress = progress or (lambda stage, fraction, message: None)
+    progress("frames", 0.0, "reading the capture")
     check_id(map_id, "map id")
     map_dir = Path(map_dir)
     work = map_dir / "_work"
@@ -132,10 +139,14 @@ def build_map(
     sizes = {s.frame.image.shape[:2] for s in selected}
     timings["frames_s"] = time.perf_counter() - t0
     log.info("selected %d frames (%s)", len(names), sel_stats)
+    progress("frames", 1.0, f"{len(names)} frames selected")
 
     # 2. local features ------------------------------------------------------ #
     t0 = time.perf_counter()
-    feats: dict[str, Features] = {n: pipe.extract(frames[n].frame.image) for n in names}
+    feats: dict[str, Features] = {}
+    for k, n in enumerate(names):
+        feats[n] = pipe.extract(frames[n].frame.image)
+        progress("features", (k + 1) / len(names), f"features of frame {k + 1} of {len(names)}")
     pipe.sync()
     timings["extract_s"] = time.perf_counter() - t0
     log.info("features: median %d keypoints/image", int(np.median([len(f.keypoints) for f in feats.values()])))
@@ -186,6 +197,8 @@ def build_map(
             if len(m) >= opts.min_matches:
                 db.write_matches(ids[names[i]], ids[names[j]], m.astype(np.uint32))
                 kept_pairs.append((names[i], names[j]))
+            if (k + 1) % 10 == 0 or k + 1 == len(pairs):
+                progress("matching", (k + 1) / len(pairs), f"matched {k + 1} of {len(pairs)} image pairs")
             if (k + 1) % 250 == 0:
                 log.info("matched %d / %d pairs", k + 1, len(pairs))
     pipe.sync()
@@ -199,6 +212,7 @@ def build_map(
     tvg = pycolmap.TwoViewGeometryOptions()
     tvg.ransac.max_num_trials = 20000
     tvg.ransac.min_inlier_ratio = 0.1
+    progress("sfm", 0.0, "verifying matches")
     pycolmap.verify_matches(db_path, pairs_file, tvg)
     timings["verify_s"] = time.perf_counter() - t0
 
@@ -209,7 +223,19 @@ def build_map(
     if use_priors:
         mopts.use_prior_position = True
         mopts.use_robust_loss_on_prior_position = True
-    recs = pycolmap.incremental_mapping(db_path, img_dir, work / "models", mopts)
+    registered = [0]
+
+    def _on_image(first: bool = False) -> None:
+        registered[0] = 2 if first else registered[0] + 1
+        # several models may be tried, so the count can exceed the number of images
+        frac = min(0.97, 0.05 + 0.92 * registered[0] / len(names))
+        progress("sfm", frac, f"reconstructed {min(registered[0], len(names))} of {len(names)} frames")
+
+    progress("sfm", 0.05, "starting the reconstruction")
+    recs = pycolmap.incremental_mapping(
+        db_path, img_dir, work / "models", mopts,
+        initial_image_pair_callback=lambda: _on_image(True), next_image_callback=_on_image,
+    )
     timings["sfm_s"] = time.perf_counter() - t0
     if not recs:
         raise RuntimeError("SfM failed: no model could be initialised (too little overlap or texture)")
@@ -268,6 +294,7 @@ def build_map(
             log.warning("metric alignment failed (%s); the map stays non-metric", e)
 
     # 7. export --------------------------------------------------------------- #
+    progress("sfm", 1.0, f"{len(reg)} of {len(names)} frames reconstructed")
     t0 = time.perf_counter()
     images: list[MapImage] = []
     for im in reg:
@@ -328,6 +355,7 @@ def build_map(
         "mean_reprojection_error_px": float(rec.compute_mean_reprojection_error()),
         "mean_track_length": float(rec.compute_mean_track_length()),
         **metric_info,
+        **({"up": [0.0, 1.0, 0.0]} if metric_info.get("metric") and capture.info.kind == "viro_recording" else {}),
         "bounds": {
             "points_p02": [float(v) for v in np.percentile(pts, 2, axis=0)],
             "points_p98": [float(v) for v in np.percentile(pts, 98, axis=0)],
