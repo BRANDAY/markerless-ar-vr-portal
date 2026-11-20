@@ -5,7 +5,6 @@ import {
   ViroBox,
   ViroDirectionalLight,
   ViroSphere,
-  ViroText,
   ViroTrackingStateConstants,
 } from '@reactvision/react-viro';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -270,14 +269,6 @@ export function PortalARScene(props: SceneProps) {
         radius={0.11}
         materials={['arSphere']}
         lightReceivingBitMask={LIGHT_MASK_AR}
-      />
-      <ViroText
-        text="FESB AR Portal"
-        position={[0, 0.05, -1.2]}
-        width={1.2}
-        height={0.3}
-        style={{ fontSize: 10, color: '#ffffff', textAlign: 'center', textAlignVertical: 'center' }}
-        outerStroke={{ type: 'Outline', width: 2, color: '#000000' }}
       />
 
       {door ? (
