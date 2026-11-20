@@ -195,11 +195,28 @@ def main(argv: list[str] | None = None) -> int:
         total = cap.info.num_frames or 0
         cand = [i for i in np.linspace(0, total - 1, a.gt_frames * 3).round().astype(int) if i not in used]
         want = set(cand[:: max(1, len(cand) // a.gt_frames)][: a.gt_frames])
-        queries = []
+        queries, map_gt = [], {}
+        to_cv = g.make_T(g.GL_FROM_CV, np.zeros(3))
         for fr in cap.frames(step=1):
-            if fr.index in want and fr.T_world_from_arcam is not None:
-                T_world_from_cvcam = fr.T_world_from_arcam @ g.make_T(g.GL_FROM_CV, np.zeros(3))
-                queries.append({"name": f"{fr.index:06d}", "image": fr.image, "T_map_from_cvcam": T_world_from_cvcam})
+            if fr.T_world_from_arcam is None:
+                continue
+            if fr.index in want:
+                queries.append({"name": f"{fr.index:06d}", "image": fr.image, "T_map_from_cvcam": fr.T_world_from_arcam @ to_cv})
+            elif fr.index in used:
+                map_gt[fr.index] = fr.T_world_from_arcam @ to_cv
+        # The pose source (motion-capture markers, ARCore) and the camera's optical frame can
+        # differ by a small fixed rotation. Estimate it on the *map* images and remove it from
+        # the query ground truth, so that it is not counted as a localisation error.
+        offs = []
+        for im in full.images:
+            gt = map_gt.get(int(Path(im.name).stem))
+            if gt is not None and np.linalg.norm(gt[:3, 3] - im.center) < 0.05:
+                offs.append(gt[:3, :3].T @ im.T_cvcam_from_map[:3, :3].T)
+        R_off = g.mean_rotation(offs) if len(offs) >= 10 else np.eye(3)
+        gt_offset_deg = g.rotation_angle_deg(R_off)
+        for q in queries:
+            q["T_map_from_cvcam"] = g.make_T(q["T_map_from_cvcam"][:3, :3] @ R_off, q["T_map_from_cvcam"][:3, 3])
+        protocol += f" (constant GT rotation offset of {gt_offset_deg:.2f} deg removed, from {len(offs)} map images)"
         test_map, n_map = full, len(full.images)
     else:
         protocol = f"A: held-out map images ({a.split}) vs. SfM poses"

@@ -101,7 +101,7 @@ COLMAP binary, ffmpeg, Docker or compiler is needed.
 cd localization-server
 . .\env.ps1        # puts venv, caches and model weights on E:\VR-FESB (edit the file to change)
 uv sync            # creates the environment and installs everything (~3 GB download)
-uv run pytest      # 61 tests, a few seconds, no GPU needed
+uv run pytest      # 63 tests, a few seconds, no GPU needed
 ```
 
 `env.ps1` must be dot-sourced in every new PowerShell window. It sets:
@@ -148,9 +148,17 @@ far below the median sharpness are rejected, images are scaled to
 `--max-size 1024`; ALIKED features are extracted; each frame is matched with its
 6 successors and its 8 most similar other frames (loop closure); COLMAP
 verifies the matches and runs incremental SfM with a single shared camera whose
-focal length and radial distortion are self-calibrated. If the capture carries
-metric camera poses, the model is aligned to them with a RANSAC similarity fit
-and the map becomes metric; `--no-poses` skips that.
+focal length and radial distortion are self-calibrated. In a sequential capture,
+short runs of images that "jump" off the camera path (a step more than 8× the
+median step away and back) are treated as wrongly registered and left out of
+the map (`dropped_outlier_images` in `map.json`).
+
+If the capture carries metric camera poses (AR recording, test data), they are
+used twice: as position priors inside COLMAP's bundle adjustment (σ = 5 cm,
+robust loss), which stops the model from drifting, and for a final RANSAC
+similarity fit that makes the map metric. `map.json` reports how well the model
+agrees with those poses (`metric_alignment`: inliers within 10 cm, RMS, max).
+`--no-pose-priors` keeps only the final fit, `--no-poses` ignores the poses.
 
 A plain video cannot tell how large the room is, so its map is **not metric**
 (`"metric": false` in `GET /maps`). The scale is then obtained from the phone's
@@ -591,6 +599,9 @@ from the same walk and lighting.
 Protocol B localises frames that never entered SfM at all and compares with
 the capture's own metric poses (motion capture for TUM, ARCore for a ViroReact
 recording). This is the honest number; it includes the error of the map itself.
+A small constant rotation between the pose source's body frame and the camera's
+optical frame is estimated on the map images and removed from the query ground
+truth (its size is printed), so that it is not counted as localisation error.
 
 `--perturb` degrades the query images before localisation: `dark`, `bright`,
 `low_contrast`, `gamma_bright`, `warm_tint`, `blur`, `downscale`, `noise`,

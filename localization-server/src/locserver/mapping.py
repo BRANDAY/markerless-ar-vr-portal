@@ -35,7 +35,16 @@ class BuildOptions:
     vlad_clusters: int = 32
     intrinsics: dict | None = None  # fx, fy, cx, cy for the *native* frame size
     use_metric_poses: bool = True  # use AR / ground-truth poses of the capture if present
+    # ...also as position priors inside bundle adjustment (prevents SfM drift):
+    use_pose_priors: bool = True
+    pose_prior_sigma_m: float = 0.05
     metric_ransac_threshold_m: float = 0.10
+    # Sequential captures: drop short runs of images that "jump" away from the camera path.
+    drop_jump_factor: float = 8.0  # a jump is a step larger than this x the median step
+    drop_max_run: int = 8  # only runs up to this many images are dropped
+    # Images with fewer triangulated keypoints than this are poorly registered and
+    # useless as localisation references; they are left out of the map.
+    min_image_points3D: int = 75
     keep_work: bool = False
     num_threads: int = max(1, min(8, (os.cpu_count() or 4) - 2))
 
@@ -47,6 +56,28 @@ def _cam_from_world(image) -> np.ndarray:
     T = np.eye(4)
     T[:3, :4] = np.asarray(cfw.matrix(), dtype=float)
     return T
+
+
+def find_jump_outliers(centers: np.ndarray, jump_factor: float = 8.0, max_run: int = 8) -> list[int]:
+    """Indices of images that left the camera path of a sequential capture.
+
+    ``centers`` are camera centres in capture order. A walking camera moves in
+    small steps; a wrongly registered image (or a short run of them) shows up as
+    a jump away from the path and a jump back. The sequence is cut at every step
+    larger than ``jump_factor`` x the median step; every piece of at most
+    ``max_run`` images other than the largest piece is reported.
+    """
+    centers = np.asarray(centers, dtype=float)
+    if len(centers) < 5:
+        return []
+    step = np.linalg.norm(np.diff(centers, axis=0), axis=1)
+    med = float(np.median(step))
+    if med <= 0:
+        return []
+    cuts = np.flatnonzero(step > jump_factor * med) + 1
+    pieces = np.split(np.arange(len(centers)), cuts)
+    largest = max(pieces, key=len)
+    return [int(i) for p in pieces if p is not largest and len(p) <= max_run for i in p]
 
 
 def choose_pairs(n: int, global_desc: np.ndarray, opts: BuildOptions) -> list[tuple[int, int]]:
@@ -131,8 +162,22 @@ def build_map(
     mode = pycolmap.CameraMode.SINGLE if len(sizes) == 1 else pycolmap.CameraMode.PER_IMAGE
     pycolmap.Database.open(db_path).close()  # import_images needs an existing database
     pycolmap.import_images(db_path, img_dir, mode, names, reader)
+    n_posed = sum(frames[n].frame.T_world_from_arcam is not None for n in names)
+    use_priors = bool(opts.use_metric_poses and opts.use_pose_priors and n_posed >= max(3, 0.8 * len(names)))
     with pycolmap.Database.open(db_path) as db:
-        ids = {im.name: im.image_id for im in db.read_all_images()}
+        db_images = {im.name: im for im in db.read_all_images()}
+        ids = {n: im.image_id for n, im in db_images.items()}
+        if use_priors:
+            for n in names:
+                T = frames[n].frame.T_world_from_arcam
+                if T is None:
+                    continue
+                prior = pycolmap.PosePrior()
+                prior.position = np.asarray(T[:3, 3], dtype=float).reshape(3, 1)
+                prior.position_covariance = np.eye(3) * opts.pose_prior_sigma_m**2
+                prior.coordinate_system = pycolmap.PosePriorCoordinateSystem.CARTESIAN
+                prior.corr_data_id = db_images[n].data_id
+                db.write_pose_prior(prior)
         for n in names:
             db.write_keypoints(ids[n], to_colmap_xy(feats[n].keypoints).astype(np.float32))
         kept_pairs = []
@@ -161,6 +206,9 @@ def build_map(
     mopts = pycolmap.IncrementalPipelineOptions()
     mopts.num_threads = opts.num_threads
     mopts.min_num_matches = opts.min_matches
+    if use_priors:
+        mopts.use_prior_position = True
+        mopts.use_robust_loss_on_prior_position = True
     recs = pycolmap.incremental_mapping(db_path, img_dir, work / "models", mopts)
     timings["sfm_s"] = time.perf_counter() - t0
     if not recs:
@@ -169,8 +217,25 @@ def build_map(
     log.info("SfM: %d models, largest has %d / %d images", len(recs), rec.num_reg_images(), len(names))
 
     # 6. metric alignment (only when the capture carries metric poses) -------- #
-    metric_info: dict = {"metric": False, "scale_m_per_unit": None, "scale_source": None}
+    metric_info: dict = {"metric": False, "scale_m_per_unit": None, "scale_source": None, "pose_priors_used": use_priors}
     reg = sorted((im for im in rec.images.values() if im.has_pose), key=lambda im: im.name)
+
+    # 5b. sequential captures: images that jumped off the camera path are not exported
+    dropped: list[str] = [im.name for im in reg if im.num_points3D < opts.min_image_points3D]
+    if dropped:
+        log.warning("dropping %d images with < %d 3D points: %s", len(dropped), opts.min_image_points3D, dropped)
+        reg = [im for im in reg if im.name not in set(dropped)]
+    if capture.info.kind != "images":
+        bad = find_jump_outliers(
+            np.array([im.projection_center() for im in reg]), opts.drop_jump_factor, opts.drop_max_run
+        )
+        if bad:
+            log.warning("dropping %d images that jumped off the camera path: %s", len(bad), [reg[i].name for i in bad])
+            dropped += [reg[i].name for i in bad]
+            reg = [im for i, im in enumerate(reg) if i not in set(bad)]
+    if len(reg) < 3:
+        raise RuntimeError("SfM registered too few usable images")
+    dropped_set = set(dropped)
     posed = [im for im in reg if frames[im.name].frame.T_world_from_arcam is not None]
     if opts.use_metric_poses and len(posed) >= 3:
         src = np.array([im.projection_center() for im in posed])
@@ -180,6 +245,7 @@ def build_map(
             rec.transform(pycolmap.Sim3d(sim.scale, pycolmap.Rotation3d(sim.R), sim.t))
             res = np.linalg.norm(sim.apply(src) - dst, axis=1)
             metric_info = {
+                "pose_priors_used": use_priors,
                 "metric": True,
                 "scale_m_per_unit": 1.0,
                 "scale_source": f"capture poses ({capture.info.kind})",
@@ -195,7 +261,9 @@ def build_map(
                 if capture.info.kind != "tum"
                 else "world frame of the capture poses (motion-capture frame: z up)",
             }
-            reg = sorted((im for im in rec.images.values() if im.has_pose), key=lambda im: im.name)
+            reg = sorted(
+                (im for im in rec.images.values() if im.has_pose and im.name not in dropped_set), key=lambda im: im.name
+            )
         except ValueError as e:
             log.warning("metric alignment failed (%s); the map stays non-metric", e)
 
@@ -252,6 +320,7 @@ def build_map(
         },
         "num_images_selected": len(names),
         "num_images_registered": len(images),
+        "dropped_outlier_images": dropped,
         "num_sfm_models": len(recs),
         "num_pairs_matched": len(pairs),
         "num_pairs_kept": len(kept_pairs),

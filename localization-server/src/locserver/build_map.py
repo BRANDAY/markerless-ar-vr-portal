@@ -42,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--retrieval-k", type=int, default=d.retrieval_k)
     ap.add_argument("--intrinsics", default=None, help="fx,fy,cx,cy of the native frames (optional prior)")
     ap.add_argument("--no-poses", action="store_true", help="ignore metric poses of the capture (arbitrary-scale map)")
+    ap.add_argument("--no-pose-priors", action="store_true",
+                    help="use the capture's metric poses only for the final similarity alignment, not inside SfM")
     ap.add_argument("--recording-rotation", type=int, default=None, choices=[0, 90, 180, 270],
                     help="ViroReact recording only: rotate frames clockwise by this instead of the container hint")
     ap.add_argument("--keep-work", action="store_true", help="keep the COLMAP database of the build")
@@ -65,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     opts = BuildOptions(
         target_fps=a.fps, every=a.every, max_frames=a.max_frames, max_size=a.max_size, blur_ratio=a.blur_ratio,
         seq_window=a.seq_window, retrieval_k=a.retrieval_k, intrinsics=parse_intrinsics(a.intrinsics),
-        use_metric_poses=not a.no_poses, keep_work=a.keep_work,
+        use_metric_poses=not a.no_poses, use_pose_priors=not a.no_pose_priors, keep_work=a.keep_work,
     )
     capture = None
     if a.recording_rotation is not None:

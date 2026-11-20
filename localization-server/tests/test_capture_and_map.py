@@ -172,6 +172,20 @@ def test_recording_without_poses_is_rejected(tmp_path):
         ViroRecordingCapture(rec)
 
 
+def test_jump_outliers_in_a_camera_path():
+    from locserver.mapping import find_jump_outliers
+
+    t = np.linspace(0, 4, 60)
+    path = np.stack([np.cos(t), np.sin(t), 0.1 * t], 1)  # smooth walk, steps of ~7 cm
+    assert find_jump_outliers(path) == []
+    bad = path.copy()
+    bad[20:23] += [25.0, 0, 0]  # three images registered in a wrong place
+    bad[40] += [0, 1.5, 0]  # and a single one
+    assert find_jump_outliers(bad) == [20, 21, 22, 40]
+    gap = np.concatenate([path[:30], path[30:] + [3.0, 0, 0]])  # two long pieces: not an outlier run
+    assert find_jump_outliers(gap) == []
+
+
 # ------------------------------------------------------------- mapstore --- #
 def test_map_roundtrip_anchors_and_scale(tmp_path):
     m = make_map(tmp_path / "m", "m", metric=False)
