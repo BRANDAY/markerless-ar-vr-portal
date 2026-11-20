@@ -105,6 +105,17 @@ let state: AppState = {
 const listeners = new Set<() => void>();
 let nextLogId = 1;
 
+type LogListener = (text: string, timeMs: number) => void;
+const logListeners = new Set<LogListener>();
+
+/** Called for every line of the event log, e.g. to forward it to the server's monitoring panel. */
+export function addLogListener(listener: LogListener): () => void {
+  logListeners.add(listener);
+  return () => {
+    logListeners.delete(listener);
+  };
+}
+
 function setState(patch: Partial<AppState>): void {
   state = { ...state, ...patch };
   listeners.forEach((listener) => listener());
@@ -132,7 +143,9 @@ export function useAppState<T>(selector: (s: AppState) => T): T {
 
 export const appActions = {
   log(text: string): void {
-    const entry: LogEntry = { id: nextLogId++, t: (Date.now() - startedAtMs) / 1000, text };
+    const now = Date.now();
+    const entry: LogEntry = { id: nextLogId++, t: (now - startedAtMs) / 1000, text };
+    logListeners.forEach((listener) => listener(text, now));
     // Mirrored to logcat (tag ReactNativeJS) so a device session can be analysed afterwards.
     console.log(`[portal] ${entry.t.toFixed(1)}s ${text}`);
     const log = [...state.log, entry];

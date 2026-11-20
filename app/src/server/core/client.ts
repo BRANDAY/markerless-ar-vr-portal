@@ -1,12 +1,16 @@
 /**
  * ALL HTTP traffic to the localization server goes through this module: the health
  * check (stage 2a) and, for the room scan (stage 2b), the recording upload, build jobs,
- * the room plan, the portal and `/localize`.
+ * the room plan, the portal, `/localize` and the device log.
+ *
+ * Every request carries the headers that tell the server which device is talking
+ * (`setClientIdentity`), so that its monitoring panel can list the phones.
  *
  * Pure TypeScript on top of the standard `fetch` / `AbortController`, so it runs
  * unchanged in React Native and in Node (tests use a local mock server). Uploads use
  * `XMLHttpRequest` where it exists (React Native), because `fetch` reports no progress.
  */
+import { type ClientIdentity, identityHeaders, type LogReceipt, parseLogReceipt } from './deviceLog';
 import { type ServerInfo, validateHealth } from './health';
 import {
   parseJob,
@@ -18,6 +22,18 @@ import {
   type ServerPortal,
   type ServerRoom,
 } from './roomPlan';
+
+let identity: Record<string, string> = {};
+
+/** Who this client is; from now on sent as `X-Device-Id`, `X-Session-Id`... with every request. */
+export function setClientIdentity(client: ClientIdentity | null): void {
+  identity = identityHeaders(client);
+}
+
+/** Headers of every request: JSON answers wanted, and the identity of the device. */
+function baseHeaders(): Record<string, string> {
+  return { Accept: 'application/json', ...identity };
+}
 
 export type ProbeResult =
   | { kind: 'ok'; info: ServerInfo; latencyMs: number }
@@ -58,7 +74,7 @@ export async function probeHealth(baseUrl: string, options: ProbeOptions): Promi
   try {
     const response = await fetchImpl(`${baseUrl}/health`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: baseHeaders(),
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -150,7 +166,7 @@ async function requestJson<T>(
     options.signal?.addEventListener('abort', onOuterAbort);
   }
   try {
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers = baseHeaders();
     if (init.body) {
       headers['Content-Type'] = 'application/json';
     }
@@ -203,7 +219,7 @@ async function postMultipart<T>(
     try {
       const response = await fetchImpl(url, {
         method: 'POST',
-        headers: { Accept: 'application/json' },
+        headers: baseHeaders(),
         body: form as FormData,
         signal: options.signal,
       });
@@ -224,7 +240,9 @@ async function postMultipart<T>(
       resolve(result);
     };
     xhr.open('POST', url);
-    xhr.setRequestHeader('Accept', 'application/json');
+    for (const [name, value] of Object.entries(baseHeaders())) {
+      xhr.setRequestHeader(name, value);
+    }
     if (xhr.upload && options.onProgress) {
       const onProgress = options.onProgress;
       xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total);
@@ -283,4 +301,22 @@ export function getPortal(baseUrl: string, mapId: string, options?: RequestOptio
 /** `POST /localize`: the form carries a clip with its `session.jsonl` (or an image with `ar_pose`). */
 export function localize(baseUrl: string, form: unknown, options?: UploadOptions): Promise<ApiResult<LocalizeOutcome>> {
   return postMultipart(`${baseUrl}/localize`, form, parseLocalize, options);
+}
+
+/**
+ * `POST /devices/{device_id}/log`: a batch of the app's log events and its current state.
+ * A server without the capability `device_log` answers 404.
+ */
+export function postDeviceLog(
+  baseUrl: string,
+  deviceId: string,
+  body: Record<string, unknown>,
+  options?: RequestOptions,
+): Promise<ApiResult<LogReceipt>> {
+  return requestJson(
+    `${baseUrl}/devices/${enc(deviceId)}/log`,
+    { method: 'POST', body: JSON.stringify(body) },
+    parseLogReceipt,
+    { timeoutMs: 3000, ...options },
+  );
 }

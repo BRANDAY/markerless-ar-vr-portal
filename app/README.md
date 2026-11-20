@@ -191,8 +191,9 @@ connection code, run in Node), `npm run assets` (regenerate textures and the doo
 - *Re-place door*: asks the provider for a new pose; the manual provider puts the
   doorway 2 m in front of the camera again.
 - *Attach: direct / parent*: how the portal is attached to the scene graph (below).
-- *Provider: …*: cycles through the providers; `manual` places the door, `self-hosted`
-  reports the server connection, the other two are stubs.
+- *Provider: …*: switches between `manual` (places the door in front of the camera) and
+  `self-hosted` (the door goes into the doorway the server found). The two stubs
+  (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered.
 
 Expected behaviour: move the phone slowly until tracking becomes NORMAL. A box and a
 sphere appear about 1.2 m in front of the starting position; the door

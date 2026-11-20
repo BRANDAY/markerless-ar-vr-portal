@@ -1,6 +1,7 @@
 # Capture format — what the app records and sends for a room scan
 
-Version 1, **draft**. Written for the localization server (`POST /maps/{map_id}/recording`
+Version 1, checked against captures from a phone on 2026-11-20 (two short ones, 15 and
+18 frames; a full room scan has not been examined yet). Written for the localization server (`POST /maps/{map_id}/recording`
 in `localization-server/docs/api-v2.md`): the server's upload handler follows this
 document.
 
@@ -12,8 +13,8 @@ Every statement below carries its source:
 - **[app]** produced by this app's own code, so it is as described;
 - **[device]** checked in a capture made on a phone (Xiaomi 14 Ultra, Android 16).
 
-Nothing is marked [device] yet. The section [Open points](#open-points) lists what the
-first capture from a phone has to settle; this document is updated then.
+The section [Checked on a device](#checked-on-a-device) lists what the first captures
+settled and what is still open.
 
 ## 1. A capture
 
@@ -24,7 +25,8 @@ files/captures/capture-YYYYMMDD-HHMMSS/        local time of the start
   video.mp4        camera video                                   [lib]
   session.jsonl    camera intrinsics, one pose per video frame    [lib]
   planes.json      the planes the AR session detected             [app]
-  world_mesh.*     the AR engine's fused mesh of the room         [lib], may be missing
+  world_mesh.bin   the AR engine's fused mesh of the room         [device], may be missing
+  world_mesh.ply   the same mesh converted by the app             [app], may be missing
   capture.json     bookkeeping: times, recorder result            [app]
 ```
 
@@ -39,12 +41,12 @@ Mapping to the upload request of `api-v2.md`:
 | --- | --- |
 | `video` | `video.mp4` |
 | `session_jsonl` | `session.jsonl` |
-| `mesh` | `world_mesh.*` if it exists and is OBJ or PLY (see section 5); otherwise not sent |
+| `mesh` + `mesh_format=ply` | `world_mesh.ply` if it exists (see section 5); otherwise not sent |
 | `planes` (proposed, not in the draft contract) | `planes.json` |
 
 The app currently sends `video`, `session_jsonl`, `mesh` + `mesh_format` (only when a
-`world_mesh.obj` or `world_mesh.ply` exists), `replace=true` and `label`; `planes.json`
-stays on the phone until the contract has a field for it.
+`world_mesh.ply` exists), `replace=true`, `device_id` and `label`; `planes.json` stays on
+the phone until the contract has a field for it.
 
 `planes.json` is a proposal to the server: it is small, always available (the fused mesh
 is not), already sorted into walls / floor / ceiling, and a wall plane with a hole or a
@@ -62,18 +64,30 @@ Everything in a capture is in **the AR world frame of the session that recorded 
   and the mesh. A new app start is a new frame.
 
 Rotations in the app's own files are ViroReact Euler angles in degrees `[x, y, z]`,
-applied as `R = Rz · Ry · Rx`. Quaternions are `[x, y, z, w]` (see open point 2).
+applied as `R = Rz · Ry · Rx`. Quaternions are `[x, y, z, w]` [device].
 
-## 3. `video.mp4` and `session.jsonl` [lib]
+## 3. `video.mp4` and `session.jsonl` [device]
 
 The recorder takes ARCore's camera image (not the rendered screen: **no virtual
-objects** in the video) and encodes it as H.264 in an MP4 container.
+objects** in the video) and encodes it as H.264 (`avc1`) in an MP4 container.
 
-- Pixels are in the **sensor's native orientation** (landscape for a phone held upright);
-  the upright orientation is written as a rotation hint in the container. The app is
-  locked to portrait.
-- Resolution and frame rate: whatever the recorder chooses — see open point 4.
-- No audio track is expected (open point 5).
+- **1920 x 1080 pixels in the sensor's native orientation** (landscape, although the
+  phone is held upright). The container carries a rotation of **90 degrees clockwise**
+  (track matrix `[0 1; -1 0]`): a player that honours it shows an upright 1080 x 1920
+  picture. The app is locked to portrait.
+- **Variable frame rate.** The time between frames in the two captures was 33 to 133 ms
+  (15 frames in 0.87 s, about 16 frames per second on average); the track's time scale
+  is 90 000. Do not assume 30 fps: take frame times from the container or from the `t` of
+  the pose lines.
+- One video track, **no audio track**. The recorder does not ask for the microphone: the
+  permission `RECORD_AUDIO` is declared by the library but was never requested or granted.
+
+**Image and pose are in different orientations.** The pose of a frame (below) is given
+for the camera frame of the *upright* picture (X right, Y up on the portrait screen),
+while the stored pixels and the intrinsics are those of the *landscape* sensor image. To
+use them together, either rotate each frame 90 degrees clockwise and the intrinsics with
+it (`fx' = fy`, `fy' = fx`, `cx' = height - cy`, `cy' = cx`, size 1080 x 1920), or keep
+the landscape image and turn the camera frame by 90 degrees about its Z axis.
 
 `session.jsonl` is one JSON object per line. Line types, with the recorder's format
 strings:
@@ -88,13 +102,24 @@ strings:
 ```
 
 - `header`: first line, once. `intrinsics` are in pixels of the video frame as stored
-  (sensor-native orientation); `width` × `height` is that frame's size.
+  (landscape, 1920 x 1080). Seen on the Xiaomi 14 Ultra: `fx` 1315.49, `fy` 1304.20,
+  `cx` 970.97, `cy` 549.04. `extrinsics` is the constant shown above; `depth` is `false`.
 - `pose`: one line per encoded video frame, in order — the n-th `pose` line belongs to
-  the n-th frame. `t` is a timestamp in nanoseconds; a frame's time in the video is
-  `t − t(first pose)`. `position` is the camera position in the AR world frame, metres.
-  `orientation` is the camera orientation as a quaternion (order: open point 2).
-  `gravity` is a 3-vector (frame and sign: open point 3).
-- `imu`: raw accelerometer / gyroscope samples. Not needed for the map.
+  the n-th frame (15 lines for 15 frames, 18 for 18).
+  - `t`: nanoseconds of a clock that counts from the phone's start (not the time of
+    day); a frame's time in the video is `t − t(first pose)`.
+  - `position`: camera position in the AR world frame, metres.
+  - `orientation`: unit quaternion **`[x, y, z, w]`**, rotation **from the camera frame
+    to the world frame**. The camera frame is X right, Y up, −Z forward **as seen on the
+    upright (portrait) screen**. Check from a capture: with the phone held upright,
+    `R · [0, 1, 0]` was `[0.26, 0.97, 0.03]` (up) and `R · [0, 0, −1]` matched the
+    viewing direction the app showed.
+  - `gravity`: the accelerometer reading at that frame in the camera frame above, m/s²,
+    length 9.81, **pointing up** (it is the reaction to gravity, not gravity itself):
+    `R · gravity` was `[−0.31, 9.80, −0.05]` and `[−0.09, 9.80, 0.17]`. In the **first**
+    pose line it is `[0, 0, 0]`.
+- `imu`: raw accelerometer (m/s²) and gyroscope (rad/s) samples, about 57 per second,
+  same clock as the poses. Not needed for the map.
 
 ## 4. `planes.json` [app]
 
@@ -144,10 +169,10 @@ moment the recording stopped. UTF-8 JSON, one object:
   (`position + R · vertex_local`). The polygon is simple (no holes) and need not be
   convex. If the engine gave no polygon, it is the rectangle of the plane's extent.
 - `planes[].normal`: unit vector, `R · [0, 1, 0]`. For a wall it points away from the
-  wall into the room (ARCore's convention; open point 6).
+  wall into the room (ARCore's convention; not yet checked on a device, see below).
 - `planes[].alignment`, `classification`: as reported by the engine (`Vertical`,
-  `HorizontalUpward`, `HorizontalDownward`, `Horizontal`; classification is usually empty
-  on Android).
+  `HorizontalUpward`, `HorizontalDownward`, `Horizontal`). The floor planes of the first
+  captures had the classification `Floor` [device].
 - `corners`: where two walls meet. `position` is on the floor (`y` = `floor_y`, or the
   lowest point of the two walls when the floor is unknown); `height_m` is how far the
   lower of the two walls reaches above it. Two walls give a corner when their directions
@@ -161,19 +186,39 @@ moment the recording stopped. UTF-8 JSON, one object:
 Planes describe only what the AR session found: weakly textured walls are often missing
 or partial, and the planes of one wall can overlap.
 
-## 5. `world_mesh.*` [lib]
+## 5. `world_mesh.bin` and `world_mesh.ply` [device]
 
-The AR engine can fuse its depth images into one mesh of the room ("world mesh",
-accumulated while the scan mode is on). The app asks the engine to write it to a file
-with `snapshotWorldMeshToFile` and copies that file into the capture as
-`world_mesh.<extension the engine chose>`.
+The AR engine fuses its depth images into one mesh of the room ("world mesh",
+accumulated while the scan mode is on; voxel size 4 cm, depth range 5 m). On the Xiaomi
+14 Ultra it reported the source `depth`, and after ten seconds of looking around about
+100 000 triangles. The app asks the engine to write the mesh to a file
+(`snapshotWorldMeshToFile` with an identity transform, so the mesh stays in the AR world
+frame) and copies that file into the capture as `world_mesh.bin`.
 
-Known from the library: the mesh comes from ARCore's depth images (source `depth`) or,
-without depth, from the plane polygons (source `plane`); voxel size 4 cm; depth range
-5 m. **Not known**: the file format, and whether the call works outside the library's own
-cloud-scan workflow at all (the app passes an identity transform so that the mesh stays
-in the AR world frame). See open point 1. Until that is settled the server must not rely
-on a mesh being present.
+`world_mesh.bin` is the engine's own format, "RVWM" version 1, little-endian. The layout
+below was worked out from two snapshots (the library does not document it):
+
+```
+bytes 0-3     "RVWM"
+byte  4       version = 1
+bytes 5-8     V = number of vertices   (uint32)
+bytes 9-12    T = number of triangles  (uint32)
+V x 3 float32    positions x, y, z   metres, AR world frame
+V x float32      one value per vertex, 0...1 (presumably the depth confidence; not verified)
+T x 3 uint32     vertex indices of the triangles
+```
+
+Sizes seen: 239 kB (6 560 vertices, 11 170 triangles) and 1.86 MB (50 321 vertices,
+88 212 triangles).
+
+`world_mesh.ply` is the same mesh converted by the app (`src/room/meshFormat.ts`), and
+the file that is uploaded as `mesh`: binary little-endian PLY, vertex properties
+`float x, y, z, confidence`, faces as `list uchar int vertex_indices`, coordinates
+unchanged. It is missing if the conversion failed (the reason is in `capture.json`).
+
+The mesh exists only while the scan mode is on; a recording made with the scan mode off
+has no mesh. Not checked yet: how well the mesh agrees with the camera poses and with
+the real walls.
 
 ## 6. `capture.json` [app]
 
@@ -193,19 +238,32 @@ on a mesh being present.
 on what happened to the mesh snapshot; `mesh_stats` is the engine's last report. For
 people and debugging, not for the server.
 
-## Open points
+## Checked on a device
 
-Settled by the first capture pulled from a phone:
+Xiaomi 14 Ultra, Android 16, two captures of 2026-11-20 (15 and 18 frames, phone held
+upright). The six points that were open in the draft:
 
-1. **World mesh**: does `snapshotWorldMeshToFile` produce a file with an identity
-   transform; format (OBJ, PLY, something else); frame and units; size for a room.
-2. **Quaternion order** of `pose.orientation` (`[x, y, z, w]` assumed) and whether it is
-   the camera-to-world rotation of ARCore's camera frame (X right, Y up, −Z forward in
-   sensor or in display orientation).
-3. **`gravity`**: frame and sign.
-4. **Video**: resolution, frame rate, the rotation hint's value for a phone held upright,
-   and whether the number of `pose` lines equals the number of video frames.
-5. **Audio**: whether the file has an audio track, and whether the recorder asks for the
-   microphone permission.
-6. **Planes**: whether `vertices` are plane-local with `y` ≈ 0 as assumed, and which way
-   wall normals point.
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | World mesh: does the snapshot work with an identity transform, which format | **Settled.** It works; the file is the engine's binary "RVWM" format, not OBJ or PLY. The app converts it to PLY (section 5) |
+| 2 | Quaternion order and frame of `pose.orientation` | **Settled.** `[x, y, z, w]`, camera to world, camera frame of the upright screen (section 3) |
+| 3 | `gravity`: frame and sign | **Settled.** Camera frame, pointing up, 9.81 m/s²; zero in the first pose line (section 3) |
+| 4 | Video: resolution, frame rate, rotation, poses per frame | **Settled.** 1920 x 1080 landscape with a 90° clockwise rotation tag; variable frame rate, about 16 fps; one pose line per frame (section 3) |
+| 5 | Audio track, microphone permission | **Settled.** No audio track, the microphone is not asked for (section 3) |
+| 6 | Planes: are `vertices` plane-local, which way do wall normals point | **Half settled.** The anchors' vertices are plane-local with `y` = 0, and `center` is `[0, 0, 0]`. **Open:** the direction of wall normals - no vertical plane was detected in these captures |
+
+Changed against the draft, for whoever reads the files:
+
+- the camera frame of the poses is that of the **upright** picture, while pixels and
+  intrinsics are **landscape** - they have to be brought together (section 3);
+- the frame rate is variable and about half of what a 30 fps assumption gives;
+- `gravity` points up and is zero in the first pose line;
+- the mesh arrives as `world_mesh.ply` (binary PLY with an extra `confidence` property),
+  no longer "OBJ or PLY, format unknown".
+
+Still open:
+
+- wall normals (point 6) and whether vertical planes are found at all in a normal room;
+- a full recording of one to two minutes: its size, frame count, and how the upload and
+  the server cope with it;
+- how well the mesh matches the poses and the room.

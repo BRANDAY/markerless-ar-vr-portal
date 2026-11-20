@@ -13,6 +13,7 @@ import {
 
 import { PortalARScene } from './src/ar/PortalARScene';
 import { useRoomScan } from './src/room/roomStore';
+import { deviceLogger } from './src/server/deviceLogger';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions } from './src/state/appStore';
 import { Overlay } from './src/ui/Overlay';
@@ -129,8 +130,9 @@ export default function App() {
 
   // Independent of the camera permission and of the AR session: try the saved server
   // address and keep the heartbeat running while the app is in the foreground.
+  // The device's identity is loaded first, so that every request to the server carries it.
   useEffect(() => {
-    void serverConnection.start(appActions.log);
+    void deviceLogger.start(appActions.log).then(() => serverConnection.start(appActions.log));
   }, []);
 
   // The AR view is mounted only once the camera permission is granted: starting an

@@ -11,6 +11,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import { appActions } from '../state/appStore';
 import { getPlaneAnchors, getRoomScanState, roomActions, type MeshInfo } from './roomStore';
+import { meshToPly, parseRvwm } from './meshFormat';
 
 /** The subset of ViroReact's `arSceneNavigator` object used by the scan. */
 interface ScanNavigator {
@@ -168,7 +169,31 @@ async function snapshotMeshInto(dir: Directory): Promise<string> {
     target.delete();
   }
   source.copy(target);
-  return `saved ${target.name} (${(Number(target.size ?? 0) / 1024).toFixed(0)} kB, from ${result.filePath})`;
+  try {
+    source.delete(); // the engine writes every snapshot to a new file in the cache
+  } catch {
+    // left for Android's cache clean-up
+  }
+  const kB = (file: File) => `${(Number(new File(file.uri).size ?? 0) / 1024).toFixed(0)} kB`;
+  let note = `saved ${target.name} (${kB(target)})`;
+  // The server and mesh tools read PLY; the engine's own format is kept next to it.
+  try {
+    const mesh = parseRvwm(await target.bytes());
+    if (mesh) {
+      const ply = new File(dir, 'world_mesh.ply');
+      if (ply.exists) {
+        ply.delete();
+      }
+      ply.create();
+      ply.write(meshToPly(mesh));
+      note += ` and world_mesh.ply (${kB(ply)}): ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles`;
+    } else {
+      note += '; not converted to PLY: the file is not an RVWM version 1 mesh';
+    }
+  } catch (error) {
+    note += `; not converted to PLY (${String(error)})`;
+  }
+  return note;
 }
 
 /** The newest capture that can be uploaded, or null. */

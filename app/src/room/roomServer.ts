@@ -15,6 +15,7 @@ import {
   uploadRecording,
 } from '../server/core/client';
 import { describeJob, isFinalJobState, type ServerJob } from '../server/core/roomPlan';
+import { getDeviceId, SESSION_ID } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
 import { roomActions, type ServerPlan } from './roomStore';
@@ -22,8 +23,6 @@ import { getLastCaptureDir, recordClip } from './scanController';
 
 /** The map this app scans into and localises against. */
 export const DEFAULT_MAP_ID = 'room';
-/** One per app run: the AR world frame lives as long as the app does. */
-const SESSION_ID = `app-${Date.now().toString(36)}`;
 const JOB_POLL_INTERVAL_MS = 1500;
 /** This many polls in a row without an answer end the waiting (the build itself goes on). */
 const MAX_FAILED_POLLS = 8;
@@ -123,15 +122,14 @@ export async function uploadLastCapture(): Promise<void> {
   const form = new FormData();
   form.append('video', filePart(video, 'video.mp4', 'video/mp4') as never);
   form.append('session_jsonl', filePart(session, 'session.jsonl', 'application/x-ndjson') as never);
-  for (const extension of ['obj', 'ply']) {
-    const mesh = new File(dir, `world_mesh.${extension}`);
-    if (mesh.exists) {
-      form.append('mesh', filePart(mesh, mesh.name, 'application/octet-stream') as never);
-      form.append('mesh_format', extension);
-      break;
-    }
+  // The engine's own mesh file (world_mesh.bin) is not sent: the app converts it to PLY.
+  const mesh = new File(dir, 'world_mesh.ply');
+  if (mesh.exists) {
+    form.append('mesh', filePart(mesh, mesh.name, 'application/octet-stream') as never);
+    form.append('mesh_format', 'ply');
   }
   form.append('replace', 'true');
+  form.append('device_id', getDeviceId());
   form.append('label', `phone scan ${dir.name}`);
 
   const total = Number(video.size ?? 0) + Number(session.size ?? 0);
@@ -229,7 +227,9 @@ export async function localizeWithClip(mapId: string = DEFAULT_MAP_ID): Promise<
     form.append('video', filePart(video, 'video.mp4', 'video/mp4') as never);
     form.append('session_jsonl', filePart(session, 'session.jsonl', 'application/x-ndjson') as never);
     form.append('map_id', mapId);
+    // One session per app run: the AR world frame lives as long as the app does.
     form.append('session_id', SESSION_ID);
+    form.append('device_id', getDeviceId());
     form.append('include_room', 'true');
     const answer = await localize(baseUrl, form);
     if (!answer.ok) {

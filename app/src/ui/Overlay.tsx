@@ -1,7 +1,7 @@
 import { type ComponentRef, useCallback, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { PROVIDER_IDS } from '../localization';
+import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import { appActions, useAppState } from '../state/appStore';
 import { ScanPanel } from './ScanPanel';
@@ -121,8 +121,9 @@ function Controls() {
   const frame = useAppState((s) => s.frame);
 
   const nextProvider = () => {
-    const index = PROVIDER_IDS.indexOf(providerId);
-    appActions.setProvider(PROVIDER_IDS[(index + 1) % PROVIDER_IDS.length]);
+    // From a provider that is not in the list (a stub) the switch goes to the first one.
+    const index = SELECTABLE_PROVIDER_IDS.indexOf(providerId);
+    appActions.setProvider(SELECTABLE_PROVIDER_IDS[(index + 1) % SELECTABLE_PROVIDER_IDS.length]);
   };
 
   return (
