@@ -27,6 +27,14 @@ export type ViewMode = 'AR' | 'VR';
  */
 export type AttachMode = 'direct' | 'parent';
 
+/**
+ * What is behind the portal:
+ *  - 'sponza': the atrium of the Sponza Palace (`src/environments/SponzaAtrium.tsx`);
+ *  - 'test-room': the small room made of primitives from stage 1 (loads instantly; kept to
+ *    tell a portal problem from a problem with the big model).
+ */
+export type EnvironmentId = 'sponza' | 'test-room';
+
 export interface LogEntry {
   id: number;
   /** Seconds since app start. */
@@ -51,6 +59,7 @@ export interface AppState {
   relocalizeNonce: number;
 
   attachMode: AttachMode;
+  environment: EnvironmentId;
   overlayVisible: boolean;
   logVisible: boolean;
   log: LogEntry[];
@@ -75,6 +84,7 @@ let state: AppState = {
   relocalizeNonce: 0,
 
   attachMode: 'direct',
+  environment: 'sponza',
   overlayVisible: true,
   logVisible: true,
   log: [],
@@ -162,6 +172,13 @@ export const appActions = {
     if (attachMode !== state.attachMode) {
       // Re-mounting the portal resets the native "inside the portal" state.
       setState({ attachMode, mode: 'AR' });
+    }
+  },
+
+  setEnvironment(environment: EnvironmentId): void {
+    if (environment !== state.environment) {
+      // The portal is re-mounted with the new world; that resets "inside the portal".
+      setState({ environment, mode: 'AR' });
     }
   },
 

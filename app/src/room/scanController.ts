@@ -44,6 +44,8 @@ let meshTimer: ReturnType<typeof setInterval> | null = null;
 let lastMeshSummary = '';
 let captureDir: Directory | null = null;
 let captureStartedUtc = '';
+/** The newest capture with a video: what "Upload" sends. */
+let lastCaptureDir: Directory | null = null;
 
 const log = (text: string) => appActions.log(`scan: ${text}`);
 
@@ -169,6 +171,50 @@ async function snapshotMeshInto(dir: Directory): Promise<string> {
   return `saved ${target.name} (${(Number(target.size ?? 0) / 1024).toFixed(0)} kB, from ${result.filePath})`;
 }
 
+/** The newest capture that can be uploaded, or null. */
+export function getLastCaptureDir(): Directory | null {
+  return lastCaptureDir;
+}
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Records a short clip (video + poses) for `/localize` into the cache folder. The caller
+ * deletes the folder when it is done with it.
+ */
+export async function recordClip(seconds: number): Promise<{ dir: Directory } | { error: string }> {
+  if (!navigator?.startRecording || !navigator.stopRecording) {
+    return { error: 'recording is not offered by this ViroReact build' };
+  }
+  if (getRoomScanState().recording !== 'idle') {
+    return { error: 'a recording is already running' };
+  }
+  roomActions.setRecording('starting');
+  try {
+    if ((await navigator.isRecordingSupported?.()) === false) {
+      return { error: 'recording is not possible right now (the AR session must be tracking)' };
+    }
+    const root = new Directory(Paths.cache, 'localize');
+    root.create({ intermediates: true, idempotent: true });
+    const dir = new Directory(root, `clip-${Date.now()}`);
+    dir.create({ intermediates: true, idempotent: true });
+    const started = await navigator.startRecording(nativePath(dir.uri));
+    if (!started.success) {
+      return { error: `the clip did not start: ${started.error ?? 'no reason given'}` };
+    }
+    await wait(seconds * 1000);
+    const stopped = await navigator.stopRecording();
+    if (!stopped.success) {
+      return { error: `the clip did not finish: ${stopped.error ?? 'no reason given'}` };
+    }
+    return { dir };
+  } catch (error) {
+    return { error: String(error) };
+  } finally {
+    roomActions.setRecording('idle');
+  }
+}
+
 export const scanController = {
   /** Called by the AR scene with the object ViroReact injects as `arSceneNavigator`. */
   attach(value: unknown): void {
@@ -275,6 +321,10 @@ async function stopRecording(): Promise<void> {
         `recording stopped: ${Number(result.durationSec ?? 0).toFixed(1)} s, ${result.frames ?? '?'} frames` +
           (result.bytes ? `, ${(result.bytes / 1e6).toFixed(1)} MB` : ''),
       );
+    }
+    if (dir && result?.success) {
+      lastCaptureDir = dir;
+      roomActions.setLastCapture(dir.name);
     }
     if (dir) {
       writePlanes(dir);

@@ -5,6 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import type { ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import { buildRoom, EMPTY_ROOM, type PlaneAnchorData, type RoomModel } from './roomGeometry';
 
 /** What the AR engine says about its fused room mesh. */
@@ -21,6 +22,27 @@ export interface MeshInfo {
 
 export type RecordingPhase = 'idle' | 'starting' | 'recording' | 'stopping';
 
+/**
+ * The server's result for this room, already in the AR world frame of the CURRENT session:
+ * either straight from a build (the recording was made in this session, so the map frame
+ * is this session's frame) or from `/localize`.
+ */
+export interface ServerPlan {
+  mapId: string;
+  origin: 'build' | 'localize';
+  room: ServerRoom | null;
+  portal: ServerPortal | null;
+}
+
+/** Sending a capture to the server and waiting for the map. */
+export interface UploadState {
+  phase: 'idle' | 'uploading' | 'building' | 'done' | 'failed';
+  /** One line for the panel. */
+  text: string;
+  /** 0..1, or null when unknown. */
+  progress: number | null;
+}
+
 export interface RoomScanState {
   /** Scan mode: highlights drawn, world mesh switched on. */
   scanning: boolean;
@@ -34,6 +56,12 @@ export interface RoomScanState {
   recording: RecordingPhase;
   /** `Date.now()` when the running recording started. */
   recordingSince: number | null;
+  /** Name of the newest capture that has a video, i.e. can be uploaded. */
+  lastCapture: string | null;
+  upload: UploadState;
+  serverPlan: ServerPlan | null;
+  /** Draw the server's plan in the scene. */
+  planVisible: boolean;
 }
 
 /** The room model is rebuilt at most this often while planes keep changing. */
@@ -48,6 +76,10 @@ let state: RoomScanState = {
   mesh: null,
   recording: 'idle',
   recordingSince: null,
+  lastCapture: null,
+  upload: { phase: 'idle', text: '', progress: null },
+  serverPlan: null,
+  planVisible: true,
 };
 
 const anchors = new Map<string, PlaneAnchorData>();
@@ -78,14 +110,16 @@ export function getPlaneAnchors(): PlaneAnchorData[] {
   return Array.from(anchors.values());
 }
 
+export function subscribeRoomScan(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export function useRoomScan<T>(selector: (s: RoomScanState) => T): T {
   return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribeRoomScan,
     () => selector(state),
     () => selector(state),
   );
@@ -129,6 +163,22 @@ export const roomActions = {
 
   setMesh(mesh: MeshInfo | null): void {
     setState({ mesh });
+  },
+
+  setLastCapture(lastCapture: string | null): void {
+    setState({ lastCapture });
+  },
+
+  setUpload(upload: UploadState): void {
+    setState({ upload });
+  },
+
+  setServerPlan(serverPlan: ServerPlan | null): void {
+    setState({ serverPlan });
+  },
+
+  togglePlan(): void {
+    setState({ planVisible: !state.planVisible });
   },
 
   setRecording(recording: RecordingPhase): void {

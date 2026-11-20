@@ -72,6 +72,11 @@ export interface PoseQuality {
 export interface PoseUpdate {
   /** Doorway pose in AR-world coordinates of the current session. */
   pose: Pose;
+  /**
+   * Size of the real doorway at that pose, metres - when the provider knows it (a server
+   * that found the opening in the room). The frame is then made to fit it.
+   */
+  opening?: { width: number; height: number };
   quality?: PoseQuality;
   /** Which provider produced the pose. */
   source: ProviderId;

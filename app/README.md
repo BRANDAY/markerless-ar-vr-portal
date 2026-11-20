@@ -23,9 +23,9 @@ camera by a stand-in provider (see [Status](#status-against-the-assignment)).
 | Task | State |
 | --- | --- |
 | 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`); camera feed and tracking confirmed on a device |
-| 2. Recognise a previously scanned room without markers | **Not implemented.** The app can find and talk to the localization server (stage 2a, [Connect to the localization server](#connect-to-the-localization-server)); it does not send it any images yet |
-| 3. Doorway at the same real-world pose in every session | **Not implemented.** Depends on task 2; the doorway pose already flows through one place |
-| 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`, `src/ar/VirtualRoom.tsx`); confirmed on a device, one visual defect at the crossing (see below) |
+| 2. Recognise a previously scanned room without markers | **Written, not yet run on a device.** The app scans the room (planes, video with camera poses), sends the recording to the localization server, which builds the map and the room plan; in a later session a short clip sent to `/localize` finds the room again ([Scan a room](#scan-a-room-and-put-the-door-into-the-real-doorway)) |
+| 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** The portal is placed in the real door opening the server found in the scanned room, with the frame sized to that opening (`self-hosted` provider) |
+| 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`); the walk-through was confirmed on a device with the stage-1 test room, one visual defect at the crossing (see below). The world behind the door is now the atrium of the Sponza Palace (`src/environments/`), not yet seen on a device |
 | 5. Tests: restart, angles, lighting, tracking loss | Not started (needs tasks 2–3 and a device) |
 
 ## Stack
@@ -341,7 +341,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`, 35 tests, including a local mock of the server contract):
+  in Node (`npm test`; 62 tests in all with those of `src/room/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -373,6 +373,52 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
   connection and currently reports "connected, localisation not implemented yet
   (stage 2b)".
 
+## Scan a room and put the door into the real doorway
+
+Stage 2b. **None of this has run on a phone yet**; what is known comes from the library's
+sources and from unit tests.
+
+1. Connect to the server (previous section). Its `/health` must announce the capability
+   `recording_upload` (localization server with API revision 2).
+2. **Scan room** switches the scan mode on: every plane the AR session has found is
+   highlighted — walls cyan, floor green, ceiling violet, other surfaces yellow — and a
+   red cube with a post marks each corner where two walls meet. The planes belong to the
+   AR session, which keeps them while the phone looks elsewhere, so the picture of the
+   room builds up as you turn and stays in place. The panel shows the counts and the
+   state of the AR engine's fused room mesh; **Mesh lines** draws that mesh as a
+   wireframe, **Reset mesh** forgets it, **Save mesh** writes planes and mesh to a capture
+   folder without recording.
+3. **Record**, then walk slowly through the room for one to two minutes, looking at the
+   walls; show every wall, the floor edges and the corners, and the whole door from at
+   least two places 1.5 m or more away. Turning on the spot is not enough — the server
+   needs sideways movement. **Stop rec** ends it. The capture is a folder in the app's
+   private storage; its content is specified in
+   [`docs/capture-format.md`](docs/capture-format.md).
+4. **Upload as "room"** sends the video and the poses. The panel shows the upload in
+   percent, then the build on the server: overall percent, "step 3/7 matching", the
+   remaining time. A build takes minutes (13 minutes for the server's test sequence on a
+   GTX 1050 Ti). **Cancel** stops the upload or the build.
+5. When the build has succeeded the server's room plan is drawn in orange (walls, corner
+   posts, floor outline; door openings in white), the provider switches to `self-hosted`
+   and the portal is placed in the door opening the server found, with the frame scaled
+   to the opening's width and height. **Plan: on/off** hides the plan.
+6. In a later session choose the provider `self-hosted`: once tracking is NORMAL the app
+   records a 2.5 s clip, sends it to `/localize` and places plan and portal from the
+   answer. **Re-place door** tries again.
+
+If the server found **no door opening**, nothing is placed. The status line says so and
+tells what to do: switch the provider to `manual` to place the door by hand, or scan
+again with the whole door in view. The app never substitutes a position of its own.
+
+How the pieces fit: `src/room/roomGeometry.ts` builds the phone-side room model from the
+plane anchors (pure, unit-tested); `src/room/scanController.ts` drives the AR engine's
+recorder and mesh; `src/room/roomServer.ts` decides what is sent and what the answers
+mean; all HTTP is in `src/server/core/client.ts` and the parsing of the server's answers
+in `src/server/core/roomPlan.ts` (both unit-tested against a local mock);
+`src/ar/RoomScanLayer.tsx` and `src/ar/ServerRoomLayer.tsx` draw the two room models.
+
+The map is always called `room`, and a new upload replaces it.
+
 ## Project structure
 
 ```
@@ -396,7 +442,9 @@ src/
   ar/
     PortalARScene.tsx         ViroARScene: task-1 objects, tracking/camera/plane feeds, provider life cycle
     DoorPortal.tsx            ViroPortalScene + ViroPortal + door model; the two attach modes
-    VirtualRoom.tsx           the virtual room (primitives, own lights)
+    VirtualRoom.tsx           the stage-1 test room (primitives, own lights), kept as a fallback
+    RoomScanLayer.tsx         highlights of the planes and corners the phone detects
+    ServerRoomLayer.tsx       the room plan computed by the server
     doorGeometry.ts           door / room dimensions, light bit masks
     materials.ts              ViroMaterials and animations
   localization/
@@ -407,6 +455,12 @@ src/
     stubs.ts                  ReactVision VPS / ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
+  environments/               worlds behind the portal (maintained separately): SponzaAtrium.tsx
+  room/
+    roomGeometry.ts           room model from plane anchors: walls, floor, corners (unit-tested)
+    roomStore.ts              state of the scan, upload and server plan
+    scanController.ts         world mesh, session recording, capture folders
+    roomServer.ts             upload, build progress, room plan, localisation by clip
   server/
     core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network, state machine
     ServerConnection.ts       heartbeat, automatic search, saved address
@@ -415,6 +469,9 @@ src/
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
   ui/Overlay.tsx              mode badge, status panel, event log, buttons
   ui/ServerPanel.tsx          server status chip and server settings
+  ui/ScanPanel.tsx            room-scan buttons, numbers, upload and build progress
+docs/
+  capture-format.md           what a capture contains (for the server's upload handler)
 ```
 
 ## Localization provider interface
@@ -546,9 +603,12 @@ be decided on the device.
 
 ## Assets and licences
 
-All 3D assets are original and generated by `scripts/generate-assets.mjs` (committed for
-convenience; `npm run assets` reproduces them byte for byte). No third-party models,
-textures or images of real places are used.
+The door frame and the stage-1 test room are original and generated by
+`scripts/generate-assets.mjs` (committed for convenience; `npm run assets` reproduces
+them byte for byte). The world behind the portal is a third-party model: the atrium of
+the Sponza Palace after the "Crytek Sponza" model (CC BY 3.0) — files, credits and
+licences in `assets/environments/sponza_atrium/` (`LICENSES.md`), description in
+`src/environments/README.md`.
 
 | File | Source | Licence |
 | --- | --- | --- |
@@ -628,6 +688,14 @@ server on `localhost`, and `usesCleartextTraffic="true"` in the merged manifests
 debug and release variants were checked on the development PC.
 
 ## Not verified yet
+
+- **all of stage 2b**: plane highlights and corner markers on a device (including the
+  orientation of vertical planes), the AR engine's room mesh and whether it can be saved
+  to a file, the session recording and its `session.jsonl`, the upload of a large video,
+  the build progress, the server's room plan drawn in the session, the portal in the real
+  doorway and its scaled frame, localisation by clip in a later session;
+- **the Sponza atrium** in ViroReact: loading time, frame rate, whether the hall is
+  visible through the doorway from outside (see `src/environments/README.md`);
 
 - **parts of the server connection** (stage 2a), see
   [Server connection on a device](#server-connection-on-a-device): typing an address

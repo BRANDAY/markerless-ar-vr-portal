@@ -63,6 +63,14 @@ ViroMaterials.createMaterials({
   scanCeilingLine: { ...SCAN_LINE, diffuseColor: '#a78bfa' },
   scanSurfaceLine: { ...SCAN_LINE, diffuseColor: '#facc15' },
   scanCorner: { lightingModel: 'Constant', diffuseColor: '#ff3b6b' },
+
+  // ---- Room plan computed by the server ----
+  planWall: { ...SCAN_FILL, diffuseColor: 'rgba(255, 159, 28, 0.22)' },
+  planWallLine: { ...SCAN_LINE, diffuseColor: '#ff9f1c' },
+  planOpening: { ...SCAN_FILL, diffuseColor: 'rgba(255, 255, 255, 0.30)' },
+  planOpeningLine: { ...SCAN_LINE, diffuseColor: '#ffffff' },
+  planFloorLine: { ...SCAN_LINE, diffuseColor: '#ffd166' },
+  planCorner: { lightingModel: 'Constant', diffuseColor: '#ffd166' },
 });
 
 ViroAnimations.registerAnimations({

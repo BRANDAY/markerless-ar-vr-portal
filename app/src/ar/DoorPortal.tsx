@@ -9,18 +9,22 @@ import { useCallback, useMemo } from 'react';
 
 import { add, rotateByViroEuler } from '../localization/math';
 import type { Pose, Vec3 } from '../localization/types';
-import { appActions, type AttachMode } from '../state/appStore';
-import { DOOR_ORIGIN_HEIGHT } from './doorGeometry';
+import { SponzaAtrium } from '../environments/SponzaAtrium';
+import { appActions, type AttachMode, type EnvironmentId } from '../state/appStore';
+import { DOOR, DOOR_ORIGIN_HEIGHT } from './doorGeometry';
 import { VirtualRoom } from './VirtualRoom';
 
 interface DoorPortalProps {
   /** Doorway pose: on the floor, middle of the threshold, local +Z towards the AR side. */
   pose: Pose;
   attachMode: AttachMode;
+  environment: EnvironmentId;
+  /**
+   * Size of the real doorway the frame has to fit, metres. Without it the frame has the
+   * size it was modelled with.
+   */
+  opening?: { width: number; height: number };
 }
-
-/** From the door pose (floor level) up to the portal origin (centre of the opening). */
-const ORIGIN_OFFSET: Vec3 = [0, DOOR_ORIGIN_HEIGHT, 0];
 
 /**
  * The walk-through doorway: door frame + the virtual room seen through it.
@@ -31,8 +35,11 @@ const ORIGIN_OFFSET: Vec3 = [0, DOOR_ORIGIN_HEIGHT, 0];
  *     ViroPortal
  *       Viro3DObject door_frame.obj     frame + transparent "window" quad
  *     ViroSkyBox                        background of the inner world (hides the camera feed)
- *     ViroNode (y = -DOOR_ORIGIN_HEIGHT)
- *       VirtualRoom                     floor-level coordinates
+ *     ViroNode (y = -origin height)
+ *       SponzaAtrium | VirtualRoom      floor-level coordinates
+ *
+ * The frame model is scaled in X and Y to the size of the real doorway. That also scales
+ * the thickness of its posts; a frame built for scaling replaces it later.
  *
  * `attachMode` only changes WHO carries the door pose:
  *   'direct' - the ViroPortalScene itself (direct child of ViroARScene);
@@ -40,7 +47,13 @@ const ORIGIN_OFFSET: Vec3 = [0, DOOR_ORIGIN_HEIGHT, 0];
  * Both must look identical; the switch exists to compare how the native side behaves when
  * the pose is updated (auto-anchoring of scene children, portals under moving parents).
  */
-export function DoorPortal({ pose, attachMode }: DoorPortalProps) {
+export function DoorPortal({ pose, attachMode, environment, opening }: DoorPortalProps) {
+  const scaleX = opening ? opening.width / DOOR.openingWidth : 1;
+  const scaleY = opening ? opening.height / DOOR.openingHeight : 1;
+  /** From the door pose (floor level) up to the portal origin (centre of the opening). */
+  const originHeight = DOOR_ORIGIN_HEIGHT * scaleY;
+  const originOffset = useMemo<Vec3>(() => [0, originHeight, 0], [originHeight]);
+
   const onPortalEnter = useCallback(() => {
     appActions.setMode('VR');
     appActions.log('portal ENTER -> VR');
@@ -52,8 +65,8 @@ export function DoorPortal({ pose, attachMode }: DoorPortalProps) {
   }, []);
 
   const directPosition = useMemo(
-    () => add(pose.position, rotateByViroEuler(ORIGIN_OFFSET, pose.rotation)),
-    [pose],
+    () => add(pose.position, rotateByViroEuler(originOffset, pose.rotation)),
+    [pose, originOffset],
   );
 
   const portal = (position: Vec3, rotation: Vec3) => (
@@ -68,6 +81,7 @@ export function DoorPortal({ pose, attachMode }: DoorPortalProps) {
         <Viro3DObject
           source={require('../../assets/models/door_frame.obj')}
           type="OBJ"
+          scale={[scaleX, scaleY, 1]}
           materials={['doorFrame']}
           onError={(event) =>
             appActions.log(`door model ERROR: ${JSON.stringify(event?.nativeEvent ?? {})}`)
@@ -76,8 +90,16 @@ export function DoorPortal({ pose, attachMode }: DoorPortalProps) {
         />
       </ViroPortal>
       <ViroSkyBox color="#070716" />
-      <ViroNode position={[0, -DOOR_ORIGIN_HEIGHT, 0]}>
-        <VirtualRoom />
+      <ViroNode position={[0, -originHeight, 0]}>
+        {environment === 'sponza' ? (
+          <SponzaAtrium
+            onLoadStart={() => appActions.log('environment: loading the Sponza atrium...')}
+            onLoadEnd={() => appActions.log('environment: Sponza atrium loaded')}
+            onError={(message) => appActions.log(`environment ERROR: ${message}`)}
+          />
+        ) : (
+          <VirtualRoom />
+        )}
       </ViroNode>
     </ViroPortalScene>
   );
@@ -85,7 +107,7 @@ export function DoorPortal({ pose, attachMode }: DoorPortalProps) {
   if (attachMode === 'parent') {
     return (
       <ViroNode position={pose.position} rotation={pose.rotation}>
-        {portal(ORIGIN_OFFSET, [0, 0, 0])}
+        {portal(originOffset, [0, 0, 0])}
       </ViroNode>
     );
   }

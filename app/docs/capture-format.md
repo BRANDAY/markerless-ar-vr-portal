@@ -42,6 +42,10 @@ Mapping to the upload request of `api-v2.md`:
 | `mesh` | `world_mesh.*` if it exists and is OBJ or PLY (see section 5); otherwise not sent |
 | `planes` (proposed, not in the draft contract) | `planes.json` |
 
+The app currently sends `video`, `session_jsonl`, `mesh` + `mesh_format` (only when a
+`world_mesh.obj` or `world_mesh.ply` exists), `replace=true` and `label`; `planes.json`
+stays on the phone until the contract has a field for it.
+
 `planes.json` is a proposal to the server: it is small, always available (the fused mesh
 is not), already sorted into walls / floor / ceiling, and a wall plane with a hole or a
 gap between two wall planes is a direct hint for a door opening.

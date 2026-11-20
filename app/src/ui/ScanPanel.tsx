@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useRoomScan } from '../room/roomStore';
+import { cancelUploadOrBuild, DEFAULT_MAP_ID, uploadLastCapture } from '../room/roomServer';
+import { roomActions, useRoomScan } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 
 /** Room-scan controls and numbers, part of the debug overlay. */
@@ -14,6 +15,11 @@ export function ScanPanel() {
   const mesh = useRoomScan((s) => s.mesh);
   const recording = useRoomScan((s) => s.recording);
   const recordingSince = useRoomScan((s) => s.recordingSince);
+  const lastCapture = useRoomScan((s) => s.lastCapture);
+  const upload = useRoomScan((s) => s.upload);
+  const serverPlan = useRoomScan((s) => s.serverPlan);
+  const planVisible = useRoomScan((s) => s.planVisible);
+  const busy = upload.phase === 'uploading' || upload.phase === 'building';
 
   // Re-render once a second while recording, for the timer.
   const [, tick] = useState(0);
@@ -53,6 +59,22 @@ export function ScanPanel() {
           mesh   {meshLine}
           {scanning ? `   depth ${depthReady ? 'ready' : 'not reported'}` : ''}
         </Text>
+        {upload.phase !== 'idle' ? (
+          <Text style={[styles.line, upload.phase === 'failed' ? styles.failed : null]}>
+            server {upload.phase === 'uploading' ? 'upload' : 'map'}: {upload.text}
+          </Text>
+        ) : null}
+        {serverPlan ? (
+          <Text style={styles.line}>
+            plan   {serverPlan.room ? `${serverPlan.room.status}: ${serverPlan.room.walls.length} walls, ${serverPlan.room.corners.length} corners, ${serverPlan.room.openings.length} openings` : 'no room plan'}
+            {`, doorway ${serverPlan.portal?.source ?? 'none'}`}
+          </Text>
+        ) : null}
+        {busy && upload.progress !== null ? (
+          <View style={styles.barTrack}>
+            <View style={[styles.barFill, { width: `${Math.round(upload.progress * 100)}%` }]} />
+          </View>
+        ) : null}
       </View>
       <View style={styles.buttons} pointerEvents="box-none">
         <ScanButton
@@ -66,6 +88,14 @@ export function ScanPanel() {
           disabled={recording === 'starting' || recording === 'stopping'}
           onPress={() => void scanController.toggleRecording()}
         />
+        {busy ? (
+          <ScanButton label="Cancel" onPress={() => void cancelUploadOrBuild()} />
+        ) : lastCapture && recording === 'idle' ? (
+          <ScanButton label={`Upload as "${DEFAULT_MAP_ID}"`} onPress={() => void uploadLastCapture()} />
+        ) : null}
+        {serverPlan ? (
+          <ScanButton label={planVisible ? 'Plan: on' : 'Plan: off'} active={planVisible} onPress={roomActions.togglePlan} />
+        ) : null}
         {scanning ? (
           <>
             <ScanButton label={wireframe ? 'Mesh lines: on' : 'Mesh lines'} active={wireframe} onPress={scanController.toggleWireframe} />
@@ -99,6 +129,9 @@ const styles = StyleSheet.create({
   box: { marginTop: 8 },
   numbers: { padding: 6, borderRadius: 8, backgroundColor: 'rgba(0, 0, 0, 0.55)' },
   line: { color: '#fff', fontFamily: 'monospace', fontSize: 11, lineHeight: 15 },
+  failed: { color: '#ff8a80' },
+  barTrack: { height: 6, marginTop: 4, borderRadius: 3, backgroundColor: 'rgba(255, 255, 255, 0.2)' },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: '#22d3ee' },
   buttons: { marginTop: 6, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   button: {
     paddingHorizontal: 12,

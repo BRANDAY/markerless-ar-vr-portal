@@ -25,6 +25,7 @@ import { appActions, useAppState } from '../state/appStore';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
 import { RoomScanLayer } from './RoomScanLayer';
+import { ServerRoomLayer } from './ServerRoomLayer';
 import './materials';
 
 /** The overlay shows the camera position at most this often. */
@@ -67,6 +68,7 @@ export function PortalARScene(props: SceneProps) {
   const relocalizeNonce = useAppState((s) => s.relocalizeNonce);
   const door = useAppState((s) => s.door);
   const attachMode = useAppState((s) => s.attachMode);
+  const environment = useAppState((s) => s.environment);
 
   const cameraRef = useRef<CameraPose | null>(null);
   const lastCameraPublishRef = useRef(0);
@@ -288,10 +290,17 @@ export function PortalARScene(props: SceneProps) {
       />
 
       <RoomScanLayer />
+      <ServerRoomLayer />
 
       {door ? (
-        // `key` re-mounts the portal when the attach mode changes, so each mode starts clean.
-        <DoorPortal key={attachMode} pose={door.pose} attachMode={attachMode} />
+        // `key` re-mounts the portal when the attach mode or the world changes, so each starts clean.
+        <DoorPortal
+          key={`${attachMode}-${environment}`}
+          pose={door.pose}
+          attachMode={attachMode}
+          environment={environment}
+          opening={door.opening}
+        />
       ) : null}
     </ViroARScene>
   );

@@ -126,6 +126,7 @@ const GOOD_HEALTH = {
   device: 'cuda',
   device_name: 'Some GPU',
   maps: ['room_a', 'room_b'],
+  capabilities: [],
   uptime_s: 12.3,
 };
 
@@ -142,6 +143,7 @@ describe('validateHealth', () => {
       device: 'cuda',
       deviceName: 'Some GPU',
       maps: ['room_a', 'room_b'],
+      capabilities: [],
     });
   });
   test('optional fields may be missing or oddly shaped', () => {
@@ -184,6 +186,7 @@ const INFO: ServerInfo = {
   device: 'cpu',
   deviceName: '',
   maps: [],
+  capabilities: [],
 };
 const ADDRESS = { scheme: 'http' as const, host: '198.51.100.5', port: 8077 };
 const OK: ProbeResult = { kind: 'ok', info: INFO, latencyMs: 12 };

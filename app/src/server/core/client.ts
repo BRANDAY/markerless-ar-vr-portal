@@ -1,11 +1,23 @@
 /**
- * ALL HTTP traffic to the localization server goes through this module.
- * Stage 2a has one request (`GET /health`); stage 2b adds `POST /localize` here.
+ * ALL HTTP traffic to the localization server goes through this module: the health
+ * check (stage 2a) and, for the room scan (stage 2b), the recording upload, build jobs,
+ * the room plan, the portal and `/localize`.
  *
  * Pure TypeScript on top of the standard `fetch` / `AbortController`, so it runs
- * unchanged in React Native and in Node (tests use a local mock server).
+ * unchanged in React Native and in Node (tests use a local mock server). Uploads use
+ * `XMLHttpRequest` where it exists (React Native), because `fetch` reports no progress.
  */
 import { type ServerInfo, validateHealth } from './health';
+import {
+  parseJob,
+  parseLocalize,
+  parsePortal,
+  parseRoom,
+  type LocalizeOutcome,
+  type ServerJob,
+  type ServerPortal,
+  type ServerRoom,
+} from './roomPlan';
 
 export type ProbeResult =
   | { kind: 'ok'; info: ServerInfo; latencyMs: number }
@@ -77,4 +89,198 @@ export async function probeHealth(baseUrl: string, options: ProbeOptions): Promi
     clearTimeout(timer);
     options.signal?.removeEventListener('abort', onOuterAbort);
   }
+}
+
+// ---- room scan (api-v2) -----------------------------------------------------------------
+
+export type ApiResult<T> =
+  | { ok: true; value: T }
+  /** `status` is the HTTP status, or null when there was no HTTP answer at all. */
+  | { ok: false; status: number | null; reason: string };
+
+export interface RequestOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+export interface UploadOptions {
+  signal?: AbortSignal;
+  /** Bytes handed to the network so far, and the total. Only where the platform reports it. */
+  onProgress?: (sentBytes: number, totalBytes: number) => void;
+  fetchImpl?: typeof fetch;
+}
+
+const JSON_TIMEOUT_MS = 8000;
+
+/** The server reports errors as `{"detail": "text"}`. */
+function errorReason(status: number, body: unknown): string {
+  const detail = body && typeof body === 'object' ? (body as Record<string, unknown>).detail : undefined;
+  return typeof detail === 'string' && detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`;
+}
+
+function parsed<T>(status: number, body: unknown, parse: (body: unknown) => T | null): ApiResult<T> {
+  if (status < 200 || status >= 300) {
+    return { ok: false, status, reason: errorReason(status, body) };
+  }
+  const value = parse(body);
+  return value === null
+    ? { ok: false, status, reason: 'the answer does not have the expected shape' }
+    : { ok: true, value };
+}
+
+async function requestJson<T>(
+  url: string,
+  init: { method: string; body?: string },
+  parse: (body: unknown) => T | null,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? JSON_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onOuterAbort = () => controller.abort();
+  if (options.signal?.aborted) {
+    controller.abort();
+  } else {
+    options.signal?.addEventListener('abort', onOuterAbort);
+  }
+  try {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (init.body) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const response = await fetchImpl(url, {
+      method: init.method,
+      headers,
+      body: init.body,
+      signal: controller.signal,
+    });
+    const body: unknown = await response.json().catch(() => null);
+    return parsed(response.status, body, parse);
+  } catch (error) {
+    const reason = timedOut
+      ? `no answer within ${timeoutMs} ms`
+      : options.signal?.aborted
+        ? 'cancelled'
+        : (error instanceof Error ? error.message : String(error)) || 'network error';
+    return { ok: false, status: null, reason };
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', onOuterAbort);
+  }
+}
+
+/** The part of `XMLHttpRequest` used here (the type is not available in the Node test build). */
+interface XhrLike {
+  open(method: string, url: string): void;
+  setRequestHeader(name: string, value: string): void;
+  send(body: unknown): void;
+  abort(): void;
+  status: number;
+  responseText: string;
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+  onabort: (() => void) | null;
+  ontimeout: (() => void) | null;
+  upload?: { onprogress: ((event: { loaded: number; total: number }) => void) | null };
+}
+
+/** `POST` of a multipart form; no timeout, because an upload takes as long as it takes. */
+async function postMultipart<T>(
+  url: string,
+  form: unknown,
+  parse: (body: unknown) => T | null,
+  options: UploadOptions = {},
+): Promise<ApiResult<T>> {
+  const Xhr = (globalThis as { XMLHttpRequest?: new () => XhrLike }).XMLHttpRequest;
+  if (!Xhr || options.fetchImpl) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    try {
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: form as FormData,
+        signal: options.signal,
+      });
+      const body: unknown = await response.json().catch(() => null);
+      return parsed(response.status, body, parse);
+    } catch (error) {
+      const reason = options.signal?.aborted
+        ? 'cancelled'
+        : (error instanceof Error ? error.message : String(error)) || 'network error';
+      return { ok: false, status: null, reason };
+    }
+  }
+  return new Promise((resolve) => {
+    const xhr = new Xhr();
+    const onOuterAbort = () => xhr.abort();
+    const finish = (result: ApiResult<T>) => {
+      options.signal?.removeEventListener('abort', onOuterAbort);
+      resolve(result);
+    };
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (xhr.upload && options.onProgress) {
+      const onProgress = options.onProgress;
+      xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total);
+    }
+    xhr.onload = () => {
+      let body: unknown = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        // not JSON: `parsed` reports the status or the wrong shape
+      }
+      finish(parsed(xhr.status, body, parse));
+    };
+    xhr.onerror = () => finish({ ok: false, status: null, reason: 'network error during the upload' });
+    xhr.ontimeout = () => finish({ ok: false, status: null, reason: 'the upload timed out' });
+    xhr.onabort = () => finish({ ok: false, status: null, reason: 'cancelled' });
+    if (options.signal?.aborted) {
+      finish({ ok: false, status: null, reason: 'cancelled' });
+      return;
+    }
+    options.signal?.addEventListener('abort', onOuterAbort);
+    xhr.send(form);
+  });
+}
+
+const enc = encodeURIComponent;
+
+/** `POST /maps/{map_id}/recording`: the form carries `video`, `session_jsonl` and options. */
+export function uploadRecording(
+  baseUrl: string,
+  mapId: string,
+  form: unknown,
+  options?: UploadOptions,
+): Promise<ApiResult<ServerJob>> {
+  return postMultipart(`${baseUrl}/maps/${enc(mapId)}/recording`, form, parseJob, options);
+}
+
+export function getJob(baseUrl: string, jobId: string, options?: RequestOptions): Promise<ApiResult<ServerJob>> {
+  return requestJson(`${baseUrl}/jobs/${enc(jobId)}`, { method: 'GET' }, parseJob, options);
+}
+
+export function cancelJob(baseUrl: string, jobId: string, options?: RequestOptions): Promise<ApiResult<ServerJob>> {
+  return requestJson(`${baseUrl}/jobs/${enc(jobId)}/cancel`, { method: 'POST' }, parseJob, options);
+}
+
+/** `GET /maps/{map_id}/room`: the plan in the map frame. */
+export function getRoom(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<ServerRoom>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}/room`, { method: 'GET' }, parseRoom, options);
+}
+
+/** `GET /maps/{map_id}/portal`: the doorway in the map frame (`source: "none"` = not found). */
+export function getPortal(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<ServerPortal>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}/portal`, { method: 'GET' }, parsePortal, options);
+}
+
+/** `POST /localize`: the form carries a clip with its `session.jsonl` (or an image with `ar_pose`). */
+export function localize(baseUrl: string, form: unknown, options?: UploadOptions): Promise<ApiResult<LocalizeOutcome>> {
+  return postMultipart(`${baseUrl}/localize`, form, parseLocalize, options);
 }

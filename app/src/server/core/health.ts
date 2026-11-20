@@ -25,6 +25,8 @@ export interface ServerInfo {
   deviceName: string;
   /** Ids of the maps the server has loaded. */
   maps: string[];
+  /** v2 features the server announces (`recording_upload`, `jobs`, `room_plan`, `auto_portal`); empty on a v1 server. */
+  capabilities: string[];
 }
 
 export type HealthVerdict =
@@ -87,6 +89,9 @@ export function validateHealth(body: unknown): HealthVerdict {
     device: asString(json.device),
     deviceName: asString(json.device_name),
     maps: readMaps(json.maps),
+    capabilities: Array.isArray(json.capabilities)
+      ? json.capabilities.filter((c): c is string => typeof c === 'string')
+      : [],
   };
 
   if (!SUPPORTED_API_VERSIONS.includes(apiVersion)) {
