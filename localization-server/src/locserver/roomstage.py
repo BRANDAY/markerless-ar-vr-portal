@@ -31,6 +31,10 @@ from .roomplan import DepthView, PlanOptions, compute_room_plan, empty_room, tra
 log = logging.getLogger(__name__)
 
 ROOM_FILE = "room.json"
+# A depth image is trusted when it reproduces the map points seen in it this well. Measured on the
+# test sequence against Kinect depth: views inside these limits were 1-6 % off, the others up to 34 %.
+STRICT_INLIER_FRACTION = 0.70
+STRICT_MEDIAN_REL_ERROR = 0.040
 Progress = Callable[[str, float, str], None]
 
 
@@ -95,7 +99,8 @@ def depth_view_from_disparity(disp: np.ndarray, im, fx, fy, cx, cy, out_long_sid
     if fit is None:
         return None, dict(info, used=False, reason="too few 3D points to scale the depth")
     a, b, frac, err = fit
-    info.update(inlier_fraction=round(frac, 3), median_rel_error=round(err, 4))
+    info.update(inlier_fraction=round(frac, 3), median_rel_error=round(err, 4),
+                strict=bool(frac >= STRICT_INLIER_FRACTION and err <= STRICT_MEDIAN_REL_ERROR))
     if frac < 0.35 or err > 0.12:
         return None, dict(info, used=False, reason="depth does not agree with the map points")
     s = out_long_side / max(h, w)
@@ -279,6 +284,7 @@ def compute_room_for_map(
     depth_provider: Callable | None = None,
     box_provider: Callable | None = None,
     views_out: str | Path | None = None,
+    refine_with_map_points: bool = True,
 ) -> tuple[dict, list[str]]:
     """Room plan of a map (frame ``map``) and a list of warnings. Does not write anything.
 
@@ -302,6 +308,7 @@ def compute_room_for_map(
     # ---- depth ---- #
     views: list[DepthView] = []
     used_images = []
+    strict: list[bool] = []
     net = None
     try:
         if depth_provider is None:
@@ -320,10 +327,19 @@ def compute_room_for_map(
             else:
                 v, info = depth_view_from_disparity(net.disparity(bgr), im, fx, fy, cx, cy, unit_m=unit)
                 rejected += v is None
+                if v is not None:
+                    strict.append(info["strict"])
             if v is not None:
                 views.append(v)
                 used_images.append((im, bgr))
         sources.append("measured_depth" if depth_provider is not None else "mono_depth")
+        if strict and sum(strict) >= max(8, 0.4 * len(strict)):
+            rejected += len(strict) - sum(strict)
+            views = [v for v, ok in zip(views, strict) if ok]
+            used_images = [u for u, ok in zip(used_images, strict) if ok]
+        elif strict:
+            warnings.append(f"only {sum(strict)} of {len(strict)} depth images agree well with the map points; "
+                            "all of them were used, expect wall positions to be off by 10-30 cm")
         if rejected:
             warnings.append(f"depth of {rejected} of {len(keys)} key frames did not agree with the map points and was not used")
     finally:
@@ -373,7 +389,13 @@ def compute_room_for_map(
     progress("room_plan", 0.7, "fitting floor, walls and openings")
     if views_out is not None:
         save_views(views_out, views)
-    room = compute_room_plan(views, up, extra_p, extra_n, opts)
+    ids = np.concatenate([im.point3D_ids for im in lmap.images])
+    xyz = np.concatenate([im.xyz for im in lmap.images]).astype(float)
+    _, first = np.unique(ids, return_index=True)
+    first = first[(ids[first] >= 0) & np.isfinite(xyz[first]).all(1)]
+    if refine_with_map_points and len(first):
+        sources.append("sfm_points")
+    room = compute_room_plan(views, up, extra_p, extra_n, opts, xyz[first] * unit if refine_with_map_points else None)
     if unit != 1.0:  # the plan was computed in metres; the map frame uses map units
         room = dict(transform_room(room, g.Sim3(1.0 / unit, np.eye(3), np.zeros(3)), frame="map"), stats=room.get("stats"))
     room["sources"] = sources

@@ -86,7 +86,7 @@ class Box:
 class DoorNet:
     """Door / doorway boxes in an image."""
 
-    def __init__(self, device: str = "auto", box_threshold: float = 0.30, text_threshold: float = 0.25):
+    def __init__(self, device: str = "auto", box_threshold: float = 0.35, text_threshold: float = 0.25):
         import torch
         from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 

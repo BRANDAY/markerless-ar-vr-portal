@@ -141,3 +141,30 @@ def test_transform_room_to_another_frame(plain):
     assert near(wa["corners"], sim.apply(np.array(w["corners"])), 1e-3)
     half = transform_room(room, g.Sim3(0.5, np.eye(3), np.zeros(3)))
     assert half["walls"][0]["width"] == pytest.approx(w["width"] / 2, abs=1e-3)
+
+
+def test_map_points_correct_walls_that_dense_depth_put_in_the_wrong_place():
+    """Depth 6 % too long everywhere (a typical error of a depth network far from the scale anchors)."""
+    truth = make_room()
+    views = make_views(truth)
+    for v in views:
+        v.depth = v.depth * 1.06
+    rng = np.random.default_rng(1)
+    # triangulated points: posters and sockets on the four walls, 150 each, 5 mm noise
+    lx, lz, _ = truth["size"]
+    y = rng.uniform(truth["floor_y"] + 0.4, truth["floor_y"] + 2.2, 600)
+    t = rng.uniform(0.2, 0.8, 600)
+    walls = np.concatenate([
+        np.stack([t[:150] * lx, y[:150], np.zeros(150)], 1), np.stack([t[150:300] * lx, y[150:300], np.full(150, lz)], 1),
+        np.stack([np.zeros(150), y[300:450], t[300:450] * lz], 1), np.stack([np.full(150, lx), y[450:], t[450:] * lz], 1)])
+    walls += 0.005 * rng.standard_normal(walls.shape)
+
+    def worst(room):
+        return max(min(np.linalg.norm(np.array(k["bottom"])[[0, 2]] - c[[0, 2]]) for k in room["corners"]) for c in truth["corners"])
+
+    plain_room = compute_room_plan(views, UP)
+    fixed = compute_room_plan(views, UP, sparse_points=walls)
+    assert len(plain_room["corners"]) == 4 and len(fixed["corners"]) == 4
+    assert worst(plain_room) > 0.08 and worst(fixed) < 0.03, (worst(plain_room), worst(fixed))
+    assert fixed["stats"]["walls_refined_with_map_points"] == 4
+    assert near(fixed["openings"][0]["center_bottom"][2], 0.0, 0.03)  # the doorway moved back onto the real wall

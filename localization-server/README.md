@@ -87,6 +87,9 @@ images → match local features → PnP), built from these parts:
 | PyTorch 2.14.1 + cu126 | inference | BSD-3-Clause | <https://pytorch.org> |
 | FastAPI / Uvicorn | HTTP API | MIT / BSD-3-Clause | |
 | OpenCV | image and video decoding | Apache-2.0 | |
+| Depth Anything V2 **Small** | dense depth of key frames, for the room plan only | Apache-2.0 (the Base/Large variants are non-commercial and are not used) | <https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf> |
+| Grounding DINO **tiny** | door boxes in key frames, for the room plan only | Apache-2.0 | <https://huggingface.co/IDEA-Research/grounding-dino-tiny> |
+| Hugging Face `transformers` | runs the two models above | Apache-2.0 | <https://github.com/huggingface/transformers> |
 
 No SuperGlue and no SuperPoint are used (both are non-commercial); every
 component above is permissively licensed. This project itself: Apache-2.0.
@@ -356,7 +359,107 @@ automatically", which asks every address of the phone's own /24 network for
 
 ---
 
+## Room plan and automatic doorway (API v2)
+
+The app can upload a recording of the room; the server builds the map in the
+background and works out a simple plan of the room from it: floor, ceiling,
+walls (rectangles), corners and **door openings**. The portal is then placed
+into the best opening automatically - nobody has to position it by hand. If no
+doorway is found the answer says so (`source: "none"`); a position is never
+made up. The full contract for the client is in
+[`docs/api-v2.md`](docs/api-v2.md); this section is the server-side view.
+
+```powershell
+# what the app does (reference client): upload, follow the progress, print the plan
+uv run python scripts\demo_room_upload.py <folder with video.mp4 + session.jsonl> --map-id room
+
+# recompute the plan of an existing map by hand, with a top-down picture
+uv run python scripts\room_plan.py room --plot plan.png
+
+# fetch the two extra models before the first use (otherwise downloaded on first use: 752 MB)
+uv run python scripts\get_models.py
+```
+
+**How it works** (`src/locserver/roomplan.py`, `roomstage.py`):
+
+1. *Dense depth.* Up to 40 key frames of the map go through Depth Anything V2
+   Small, which gives depth only up to an unknown scale and shift per image.
+   Both are fitted to the map's own 3D points visible in that image, so the
+   depth becomes metric and consistent with the map. Images whose depth does
+   not reproduce those points well (fewer than 70 % within 8 %, or a median
+   error above 4 %) are left out.
+2. *Floor, ceiling, walls.* The recording's ARCore poses make the map metric
+   and gravity-aligned, so the floor is simply the lowest strong horizontal
+   level and walls are vertical planes. Walls are found by RANSAC on the points
+   with a horizontal normal; a plane only seen *through* another wall (the
+   corridor behind an open door) and a plane with a parallel one close behind
+   it (a cupboard) are discarded. Corners are intersections of neighbouring
+   walls.
+3. *Open doorways - geometry.* Every depth ray that crosses a wall plane says
+   either "the surface is here" or "I measured something well behind it". A
+   floor-standing, door-sized block of the second kind is an opening; a window
+   does not reach the floor and is ignored.
+4. *Closed doors - image detector.* Grounding DINO looks for "door / doorway"
+   in the key frames. Each box is projected onto the wall it looks at
+   (perspective-correct), must stand on the floor and have a door's size, and
+   must not float in front of the wall (an open door leaf does). Boxes are
+   merged across frames; one frame alone never suffices.
+5. *Confidence.* Both kinds of evidence are combined; the best opening is used
+   automatically from confidence 0.5.
+
+A room mesh from the phone (OBJ/PLY, optional upload) adds points to step 2.
+
+The build runs in a separate process (`locserver.jobworker`), one at a time;
+`/health`, the job polling and `/localize` stay responsive. The localisation
+models and the room-plan models are never on the GPU in the same process.
+
+### Measured (room plan)
+
+*Synthetic rooms* (`tests/test_roomplan.py`, exact ground truth, depth rendered
+by ray casting; with 1 % depth noise, a rotated room, a cupboard and a window):
+the tests require corners within 6-12 cm, the floor within 3 cm, the doorway's
+position within 8-12 cm and its width and height within 12 cm (these are the
+asserted limits, not a statistic); a closed door is found only with detector
+boxes; a room with a closed door and no detector reports no opening.
+
+*Public sequence* (TUM `freiburg1_room`: a cluttered office filmed with a
+hand-held Kinect - no door ground truth, walls mostly hidden behind desks and
+shelves, so this is a hard case and only the walls can be checked). Reference:
+the same code fed with the Kinect's measured depth instead of the depth network.
+
+| | Result |
+|---|---|
+| Network depth vs. Kinect depth, per key frame | median error 3.5 %; 7 of 40 frames (one stretch of the walk where the map itself is weak) were 25-34 % off |
+| ...after leaving out frames by the rule of step 1 (17 of 40 dropped) | every remaining frame within 1-6 % |
+| Main wall (4.9 m), network depth vs. Kinect depth | 5.9 cm, 0.7 deg (20.6 cm, 4.0 deg before that rule) |
+| Other walls | found with Kinect depth (4 walls), **not** with network depth: only 2 of them were seen in the frames that passed |
+| Floor level (true value 0 in this dataset) | 7 cm (network depth), 5 cm (Kinect depth) |
+| Door detector on the 40 key frames | at score 0.30 it also fires on monitors, windows with blinds and posters (0.33-0.40); wooden-framed glass panels reach 0.48-0.53; the one real open doorway in view scores 0.58 - hence the 0.42 threshold and the three-frames rule |
+| Time for the room plan (GTX 1050 Ti, 40 key frames) | 65-190 s |
+| End to end through the running server: a synthetic recording in the ViroReact format cut from the same sequence (29 frames used), uploaded with `scripts\demo_room_upload.py` | upload, 7 stages with percentages, map + plan after 134-160 s; the plan comes out in the +Y-up frame of the recording: 2 walls, 1 corner, one open-doorway candidate with confidence 0.46 - below 0.5, so the portal honestly reports `source: "none"` ("not confident enough") |
+| Repeatability: the same recording built twice (SfM is not deterministic) | floor level -0.815 / -0.814 m, wall lengths within 4 cm. The second build first reported "floor not found" (26 supporting points, limit then 30): the floor is barely visible in this desk-level footage; the rule was loosened afterwards |
+| Server responsiveness during a build | 514 polls of `/health` + `/jobs/{id}` during one build: worst 139 ms and 22 ms. In the very first build a single poll took 17 s; it was not reproduced and its cause was not found |
+
+**What this says about a real room: nothing yet.** No recording from the phone
+exists so far. Expect the result to depend mostly on how the room was filmed
+(see below) and on how much bare wall is visible.
+
+### Recording advice (what makes or breaks the plan)
+
+* **Walk, do not only turn.** Turning on the spot gives no parallax; the map's
+  3D points become unreliable, the depth fitted to them is wrong by tens of
+  per cent and the walls move with it. An arc or loop of a few metres is enough.
+* Show the floor-wall edges and the whole door (both jambs, the top, the floor
+  in front of it) from at least two positions 1.5 m or more away.
+* Record the door in the state it will have later: an open doorway is found by
+  geometry, a closed door only by the detector.
+
+---
+
 ## API reference
+
+Endpoints for the room recording, jobs, room plan and portal are described in
+[`docs/api-v2.md`](docs/api-v2.md); everything below is v1 and unchanged.
 
 All responses are JSON. Errors use HTTP status codes with `{"detail": "..."}`
 (404 unknown map/anchor, 413 upload too large, 422 bad input).
@@ -929,7 +1032,10 @@ run time.
 | LightGlue (code, commit `5a650c4`) | <https://github.com/cvg/LightGlue> | < 1 MB | same |
 | ALIKED weights `aliked-n16.pth` | <https://github.com/Shiaoming/ALIKED/raw/main/models/aliked-n16.pth> | 2.6 MB | `TORCH_HOME\hub\checkpoints` (default `%USERPROFILE%\.cache\torch`) |
 | LightGlue weights `aliked_lightglue.pth` (v0.1_arxiv) | <https://github.com/cvg/LightGlue/releases/download/v0.1_arxiv/aliked_lightglue.pth> | 45.4 MB | same |
-| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive, 0.56 GB extracted (`scripts\get_test_data.ps1`) | `data\datasets\tum_fr1_room` |
+| `transformers` (PyPI) with `tokenizers`, `huggingface_hub`, `safetensors` | <https://pypi.org> | ~60 MB | the virtual environment |
+| Depth Anything V2 Small weights (`model.safetensors` + config) | <https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf> | 95 MB | `HF_HOME` (default `%USERPROFILE%\.cache\huggingface`) |
+| Grounding DINO tiny weights (`model.safetensors` + config, tokenizer) | <https://huggingface.co/IDEA-Research/grounding-dino-tiny> | 657 MB | same |
+| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped (for the room-plan check extract it too: `tar -xzf fr1_room.tgz rgbd_dataset_freiburg1_room/depth rgbd_dataset_freiburg1_room/depth.txt`) | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive, 0.56 GB extracted (`scripts\get_test_data.ps1`) | `data\datasets\tum_fr1_room` |
 
 The test sequence is from: J. Sturm et al., "A Benchmark for the Evaluation of
 RGB-D SLAM Systems", IROS 2012.
@@ -968,6 +1074,17 @@ RGB-D SLAM Systems", IROS 2012.
 * **Accuracy needs parallax.** Far-away, low-texture or repetitive views
   (blank walls, ceilings, identical cabinet doors) give weak or failed results;
   the verdict thresholds are tuned on one public sequence only.
+* **The room plan has never seen a real phone recording.** It is verified on
+  synthetic rooms and, for the walls only, on one public sequence. Known weak
+  points: walls hidden behind furniture are not found or are found at the
+  furniture; white walls give the map few 3D points, which is exactly where the
+  depth has to be extrapolated; glass doors, mirrors and floor-length windows
+  confuse both depth and detector; the detector's idea of a "door" includes
+  cupboard doors and wooden panels (the size and floor checks remove most, not
+  all). A wrong doorway is possible - the app should let the user reject it
+  (`PUT /maps/{id}/portal`, or the manual anchor).
+* **Rooms are assumed to have a flat floor and vertical walls**; one room per
+  map; no curved walls, no stairs, no sloped ceilings.
 * **One room, one server.** Retrieval is a VLAD index held in memory; fine for
   a few hundred map images, not for a building. One localisation runs at a time
   (4 GB VRAM); requests queue.

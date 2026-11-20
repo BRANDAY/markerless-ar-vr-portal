@@ -49,6 +49,8 @@ class PlanOptions:
     horizontal_cos: float = 0.8  # |n.up| above this: floor / ceiling point
     vertical_cos: float = 0.35  # |n.up| below this: wall point
     level_bin_m: float = 0.02
+    level_min_points: int = 20  # voxels (5 cm) that must support the floor / the ceiling
+    floor_min_below_camera_m: float = 0.9  # the floor is at least this far below the median camera height
     wall_dist_m: float = 0.08
     wall_normal_deg: float = 25.0
     wall_min_length_m: float = 0.8
@@ -66,7 +68,9 @@ class PlanOptions:
     door_default_height_m: float = 2.0
     column_open_fraction: float = 0.7
     column_solid_fraction: float = 0.15
-    detector_min_score: float = 0.30
+    detector_min_score: float = 0.42  # below this the open-vocabulary detector also fires on monitors, posters, windows
+    refine_max_shift_m: float = 0.35  # how far the triangulated map points may move a wall
+    refine_min_points: int = 12
     auto_portal_min_confidence: float = 0.5
     seed: int = 0
 
@@ -187,7 +191,7 @@ def cloud_from_views(views: list[DepthView], opts: PlanOptions):
 def _level(h: np.ndarray, lo: float, hi: float, opts: PlanOptions, prefer: str):
     """Strongest level of ``h`` in ``[lo, hi]`` -> (level, support) or None. ``prefer``: 'low' | 'high'."""
     h = h[(h >= lo) & (h <= hi)]
-    if len(h) < 30:
+    if len(h) < opts.level_min_points:
         return None
     b = opts.level_bin_m
     edges = np.arange(h.min() - 5 * b, h.max() + 6 * b, b)
@@ -344,6 +348,48 @@ def _drop_furniture(walls: list[Wall], opts: PlanOptions) -> list[Wall]:
         if not furniture:
             keep.append(a)
     return keep
+
+
+def refine_walls(walls: list[Wall], sparse: np.ndarray, opts: PlanOptions) -> int:
+    """Move every wall onto the triangulated map points that lie on it. Returns how many were moved.
+
+    Dense depth from a network is smooth but can be several per cent off at the
+    distance of a wall; the sparse structure-from-motion points are few but
+    accurate to centimetres. ``sparse`` is Nx3 in the plan frame.
+    """
+    moved = 0
+    for w in walls:
+        u, h = sparse[:, :2] @ w.t, sparse[:, 2]
+        sd = sparse[:, :2] @ w.n - w.d
+        sel = (u >= w.u0) & (u <= w.u1) & (h > w.h0 + 0.2) & (h < w.h1 - 0.1) & (np.abs(sd) <= opts.refine_max_shift_m)
+        if sel.sum() < opts.refine_min_points:
+            continue
+        b = 0.02
+        edges = np.arange(-opts.refine_max_shift_m, opts.refine_max_shift_m + b, b)
+        hist = np.convolve(np.histogram(sd[sel], edges)[0], np.ones(3), "same")
+        if hist.max() < opts.refine_min_points:
+            continue
+        # Several layers are common (the wall, a shelf in front of it, things seen through a window).
+        # Which of them is the wall cannot be told from sparse points, so only a single clear layer is used.
+        peaks = np.flatnonzero((hist >= max(opts.refine_min_points, 0.3 * hist.max())) & (hist > np.roll(hist, 1)) & (hist >= np.roll(hist, -1)))
+        if len(peaks) > 1 and np.ptp(edges[peaks]) > 0.08:
+            continue
+        k = int(np.argmax(hist))
+        shift = float(np.median(sd[sel][np.abs(sd[sel] - (edges[k] + b / 2)) <= 0.04]))
+        w.d += shift
+        moved += 1
+        on = (u >= w.u0) & (u <= w.u1) & (h > w.h0 + 0.2) & (h < w.h1 - 0.1) & (np.abs(sparse[:, :2] @ w.n - w.d) <= 0.06)
+        if on.sum() >= 30 and np.ptp(u[on]) >= 1.5:  # enough points along the wall to also correct its direction
+            P = sparse[on, :2]
+            c = P.mean(0)
+            _, _, vt = np.linalg.svd(P - c, full_matrices=False)
+            n = np.array([-vt[0, 1], vt[0, 0]])
+            n = n if n @ w.n > 0 else -n
+            if n @ w.n > np.cos(np.radians(8)):
+                ends = [w.point(w.u0, 0)[:2], w.point(w.u1, 0)[:2]]
+                w.n, w.d = n, float(c @ n)
+                w.u0, w.u1 = sorted(float(e @ w.t) for e in ends)
+    return moved
 
 
 def snap_walls(walls: list[Wall], opts: PlanOptions) -> tuple[list[Wall], list[dict]]:
@@ -555,6 +601,8 @@ def openings_from_detector(walls: list[Wall], views: list[DepthView], B: np.ndar
                 return (yk * p0[2] - p0[1]) / (ch[1] - yk * ch[2])
 
             cut = {"l": x0 < 0.02, "r": x1 > 0.98, "t": y0 < 0.02, "b": y1 > 0.98}
+            if (cut["t"] and cut["b"]) or sum(cut.values()) > 2:
+                continue  # neither the lintel nor the threshold is in the picture: size and position are unknown
             uc = float((o + tw * dc)[:2] @ w.t)
             top_abs = h_at(y0, uc)
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -641,7 +689,10 @@ def merge_openings(geo: list[dict], det: list[dict], opts: PlanOptions) -> list[
     out += [dict(b, geometry=None) for k, b in enumerate(det) if k not in used]
     for o in out:
         pg = 0.7 * o["geometry"] if o["geometry"] is not None else 0.0
-        pd = 0.85 * min(1.0, o["detector"] / 0.6) * min(1.0, 0.4 + 0.2 * o["views"]) if o["detector"] is not None else 0.0
+        # 0.30 is the detector's noise level, 0.60 a clear door; one view alone is never enough for "auto"
+        pd = 0.0
+        if o["detector"] is not None:
+            pd = 0.85 * float(np.clip((o["detector"] - 0.30) / 0.30, 0.0, 1.0)) * min(1.0, 0.4 + 0.2 * o["views"])
         o["confidence"] = round(float(1 - (1 - pg) * (1 - pd)), 3)
         if not o["top_known"] or o["top"] is None or not (opts.door_height_m[0] - 0.15 <= o["top"] <= opts.door_height_m[1] + 0.15):
             o["top"], o["top_known"] = opts.door_default_height_m, False
@@ -680,8 +731,14 @@ def empty_room(reason: str, status: str = "unavailable", up=(0.0, 1.0, 0.0)) -> 
 
 
 def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | None = None,
-                      extra_normals: np.ndarray | None = None, opts: PlanOptions | None = None) -> dict:
-    """The room plan (API JSON, frame ``map``) from posed metric depth images."""
+                      extra_normals: np.ndarray | None = None, opts: PlanOptions | None = None,
+                      sparse_points: np.ndarray | None = None) -> dict:
+    """The room plan (API JSON, frame ``map``) from posed metric depth images.
+
+    ``extra_points`` / ``extra_normals``: oriented points of a room mesh.
+    ``sparse_points``: accurate but sparse 3D points (the map's triangulated
+    keypoints), used to correct the position of the walls.
+    """
     opts = opts or PlanOptions()
     B = plan_basis(up)
     room = empty_room("too few points", up=B[2])
@@ -699,7 +756,10 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     cam_lo, cam_hi = float(cams[:, 2].min()), float(cams[:, 2].max())
 
     # floor and ceiling
-    fl = _level(q[qn[:, 2] > opts.horizontal_cos, 2], -np.inf, cam_lo - 0.4, opts, "low")
+    # The floor lies well below the hand-held camera (a table top 0.7 m under it does not qualify)
+    # and below its lowest position.
+    floor_max = min(cam_lo - 0.15, float(np.median(cams[:, 2])) - opts.floor_min_below_camera_m)
+    fl = _level(q[qn[:, 2] > opts.horizontal_cos, 2], -np.inf, floor_max, opts, "low")
     if fl is None:
         room["reason"] = "the floor was not found (it has to be visible in the recording)"
         return room
@@ -714,6 +774,7 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     n2 = n2 / np.linalg.norm(n2, axis=1, keepdims=True)
     walls = fit_walls(q[wall_pts], n2, floor, top, opts)
     walls = _drop_furniture(_drop_duplicates(drop_outside_walls(walls, views, B, opts), opts), opts)
+    refined = refine_walls(walls, np.asarray(sparse_points, float) @ B.T, opts) if sparse_points is not None and len(sparse_points) else 0
     walls, corners = snap_walls(walls, opts)
     for k, w in enumerate(walls):
         w.id = f"w{k}"
@@ -768,7 +829,7 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     if openings and openings[0]["confidence"] >= opts.auto_portal_min_confidence:
         room["best_opening_id"] = "o0"
     room["thresholds"] = {"auto_portal_min_confidence": opts.auto_portal_min_confidence}
-    room["stats"] = {"views": len(views), "points": int(len(pts)), "options": {k: v for k, v in asdict(opts).items() if k != "seed"}}
+    room["stats"] = {"views": len(views), "points": int(len(pts)), "walls_refined_with_map_points": int(refined), "options": {k: v for k, v in asdict(opts).items() if k != "seed"}}
     return room
 
 

@@ -1,9 +1,9 @@
 # API v2 — room recording, room plan, automatic doorway
 
-**Status: DRAFT (2026-11-20).** Written before the implementation so that the
-mobile client can be coded against it. The table at the end says what is
-implemented; shapes may still gain fields, but documented fields will not
-change meaning without a note in the change log at the bottom.
+**Status: implemented (2026-11-20), not yet tried with a recording from a
+phone.** The table at the end says what was verified and how. Shapes may still
+gain fields, but documented fields will not change meaning without a note in
+the change log at the bottom.
 
 Everything in the v1 reference (`README.md`, "API reference") stays valid.
 v2 only **adds** endpoints and response fields.
@@ -81,8 +81,12 @@ changes nothing.
 
 ### What the recording has to contain
 
-* 60–120 s, the user turns/walks slowly through the room; every wall, the
-  floor–wall edges and the room corners should be seen at least once.
+* 60–120 s, the user **walks** slowly through the room (an arc or a loop of a
+  few metres) while looking at the walls; every wall, the floor–wall edges and
+  the room corners should be seen at least once. Turning on the spot is not
+  enough: without sideways movement the map has no parallax, its 3D points are
+  unreliable and the walls end up in the wrong place (measured on the test
+  sequence, see README).
 * The door: fully in view (both jambs, the top, the floor in front of it) from
   at least two positions ≥ 1.5 m away. Record it in the state it will have when
   the portal is used (open or closed) — a closed door is found by the image
@@ -199,10 +203,12 @@ sequence the whole build took 13 min on a GTX 1050 Ti):
 A map whose room plan could not be computed is still a valid localisation map
 (`state: "succeeded"`, `room.status: "unavailable"`, a line in `warnings`).
 
-Polling: every 1–2 s. `GET /jobs/{id}` never waits for the build. The last 20
-jobs are kept (also across a server restart, where unfinished ones become
-`failed` / `server_restarted`). `/localize` on other maps keeps working during
-a build, but is slower (one GPU).
+Polling: every 1–2 s. `GET /jobs/{id}` never waits for the build (the build
+runs in a separate process). The last 20 jobs are kept (also across a server
+restart, where unfinished ones become `failed` / `server_restarted`).
+`/localize` keeps working during a build, but is slower (one GPU). The
+uploaded recording of the newest job of each map is kept on the server
+(`work/jobs/<job_id>/`), so a failed build can be examined.
 
 ---
 
@@ -263,6 +269,11 @@ POST /maps/{map_id}/room/rebuild    -> 202 {"job": Job}   (kind "room_plan"; opt
 
 ### Semantics
 
+* Extra fields, informational: `openings[].height_measured` (false = the top
+  of the opening was not seen and `height` is the default 2.0 m), `key_frames`
+  (names of the map images the plan was computed from), `stats`.
+  `sources` lists what went into the plan: `mono_depth` (depth network),
+  `door_detector`, `sfm_points` (the map's 3D points), `mesh`.
 * `status`: `ok` — floor and at least two walls; `partial` — something is
   missing (e.g. only the floor, or one wall), lists contain what was found;
   `unavailable` — nothing usable, `reason` says why (`"not computed"`,
@@ -303,7 +314,11 @@ POST /maps/{map_id}/room/rebuild    -> 202 {"job": Job}   (kind "room_plan"; opt
     before walking in), the virtual room extends to −Z.
   * `confidence` 0..1. `evidence.geometry` / `evidence.detector` are the
     individual scores (`null` = that method did not see it), `views` = number
-    of key frames supporting it.
+    of key frames supporting it. Rule of thumb: an open doorway seen from two
+    places reaches 0.5 by geometry alone; a closed door needs the detector to
+    be sure of it (score ≥ 0.5) in at least three key frames; both together
+    give 0.85 and more. A single detection never reaches the automatic
+    threshold.
   * Sorted by `confidence`, best first. `best_opening_id` is the first one if
     its confidence ≥ `thresholds.auto_portal_min_confidence`, else `null`.
 * Ids (`w0`, `c0`, `o0`) are stable for one computed plan and change when the
@@ -426,19 +441,24 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 
 ## 8. Implementation status
 
-| Part | State |
-|---|---|
-| `capabilities`, `api_revision`, `jobs` in `/health` | planned |
-| `POST /maps/{id}/recording`, `/jobs` | planned |
-| Room plan (floor, walls, corners) | planned |
-| Openings: geometry | planned |
-| Openings: image detector | planned |
-| `mesh` input | planned — waits for `app/docs/capture-format.md`; OBJ/PLY reader meanwhile |
-| `/maps/{id}/portal`, `/localize` additions | planned |
+| Part | State | Verified how |
+|---|---|---|
+| `capabilities`, `api_revision`, `jobs` in `/health` | done | tests |
+| `POST /maps/{id}/recording`, `/jobs`, cancel, queue, restart handling | done | tests with a stub builder; one real build through the running server from a synthetic recording in the ViroReact format (README, "Room plan") |
+| Room plan: floor, ceiling, walls, corners | done | synthetic rooms (exact ground truth); public TUM sequence against its Kinect depth |
+| Openings: geometry (open doorways) | done | synthetic rooms only |
+| Openings: image detector (closed doors) | done | synthetic boxes in tests; the real detector only looked at on TUM frames (no door ground truth there) |
+| `mesh` input | OBJ/PLY reader done, tested on hand-made files | waits for `app/docs/capture-format.md` and a real snapshot |
+| `/maps/{id}/portal`, `/localize` / `/align` / `/sessions` additions | done | tests |
 
-Verification so far: none on a real room. Until the app delivers recordings,
-the geometry is checked on synthetic rooms and on the public TUM sequence.
+**Not verified: anything on a real room recorded with the phone.** No such
+recording exists yet. In particular unknown: how well the depth network and
+the door detector behave in the owner's room, and whether ARCore poses are good
+enough over a whole scan.
 
 ## Change log
 
 * 2026-11-20 — first draft.
+* 2026-11-20 — implemented. Added (no changes to drafted fields):
+  `openings[].height_measured`, `key_frames`, `stats`, source `sfm_points`;
+  recording advice changed from "turns/walks" to "walks" (parallax is needed).
