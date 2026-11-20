@@ -216,7 +216,7 @@ Quick check without a phone:
 
 ```powershell
 curl.exe http://localhost:8077/health
-curl.exe -F "image=@data\maps\tum_room\images\000400.jpg" -F "map_id=tum_room" http://localhost:8077/localize
+curl.exe -F "image=@data\maps\tum_room\images\000404.jpg" -F "map_id=tum_room" http://localhost:8077/localize   # a mapping frame: must be "good"
 uv run locserver-localize some_photo.jpg --map-id tum_room      # same thing without the server
 ```
 
