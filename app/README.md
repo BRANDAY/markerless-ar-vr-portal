@@ -108,10 +108,10 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
   and all dependencies, compiles the native modules); a rebuild after a JavaScript change
   took **1 min 41 s**. The debug APK is **68 MB** (`arm64-v8a` only, unstripped debug
   libraries, Hermes bytecode bundle 1.9 MB).
-- Disk used on that machine: Gradle user home 3.8 GB, npm cache 0.5 GB, the three SDK
-  packages plus `node_modules` about 4 GB, build output inside the project (`android/`
-  and `node_modules/*/android/build`) about 1.8 GB. Have roughly 10 GB free before the
-  first build.
+- Disk used on that machine, measured after the build: Gradle user home 3.8 GB, npm
+  cache 0.5 GB, the three SDK packages 2.6 GB (the NDK alone is 2.3 GB), `node_modules`
+  0.8 GB (including the native build output of the modules), the generated `android/`
+  folder with its build output 0.9 GB. Have roughly 10 GB free before the first build.
 - The debug APK is **self-contained**: the JavaScript bundle is embedded, so the app
   starts without a development server (see `plugins/withAndroidBuildTuning.js`).
 - Build limits written by that plugin into `android/gradle.properties`: Gradle heap
