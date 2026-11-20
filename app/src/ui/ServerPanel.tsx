@@ -64,18 +64,11 @@ function ServerSettings({ onClose }: { onClose: () => void }) {
   );
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState(false);
-  const [phoneNetwork, setPhoneNetwork] = useState('');
-
+  // The phone changes Wi-Fi networks and addresses on its own: keep the line current.
+  const [phoneNetwork, setPhoneNetwork] = useState(() => serverConnection.describePhoneNetwork());
   useEffect(() => {
-    let alive = true;
-    serverConnection.describePhoneNetwork().then((text) => {
-      if (alive) {
-        setPhoneNetwork(text);
-      }
-    });
-    return () => {
-      alive = false;
-    };
+    const timer = setInterval(() => setPhoneNetwork(serverConnection.describePhoneNetwork()), 2000);
+    return () => clearInterval(timer);
   }, []);
   const searching = connection.state === 'searching';
 
@@ -183,7 +176,8 @@ function ServerSettings({ onClose }: { onClose: () => void }) {
 
             {searching && connection.scan ? (
               <Text style={styles.message}>
-                Searching the Wi-Fi network: {connection.scan.scanned} of {connection.scan.total} addresses checked
+                Searching the Wi-Fi network: {connection.scan.scanned} of {connection.scan.total} addresses
+                checked. This can take up to a minute: a faster search makes some routers cut the phone off.
               </Text>
             ) : null}
             {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -209,7 +203,7 @@ function ServerSettings({ onClose }: { onClose: () => void }) {
                 ))
               : null}
 
-            {phoneNetwork ? <Text style={styles.fact}>{phoneNetwork}</Text> : null}
+            <Text style={styles.fact}>{phoneNetwork}</Text>
             <Text style={styles.help}>
               The phone and the computer must be on the same network. The last address that
               worked is remembered and tried first at the next start.

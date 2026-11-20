@@ -1,0 +1,16 @@
+// Local Expo module, found by Expo autolinking in the app's `modules/` folder.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'hr.fesb.arportal'
+version = '1.0.0'
+
+android {
+  namespace "hr.fesb.arportal.wifiroute"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

@@ -8,7 +8,6 @@
  * Nothing here knows an address in advance: it comes from the user, from the automatic
  * search or from the file written after an earlier successful connection.
  */
-import * as Network from 'expo-network';
 import { AppState } from 'react-native';
 
 import { DEFAULT_PORT, formatAddress, sameAddress, toBaseUrl, type ServerAddress } from './core/address';
@@ -21,13 +20,16 @@ import {
   type ConnectionSnapshot,
 } from './core/connectionMachine';
 import {
-  DEFAULT_SCAN_CONCURRENCY,
+  DEFAULT_SCAN_START_INTERVAL_MS,
   DEFAULT_SCAN_TIMEOUT_MS,
+  scanDurationSeconds,
   scanHosts,
   type DiscoveredServer,
 } from './core/discovery';
+import { describePhoneNetwork } from './core/phoneNetwork';
 import { enumerateSubnet24 } from './core/subnet';
 import { loadSavedAddress, saveAddress } from './storage';
+import { getPhoneNetworkState, startWifiRoute } from './wifiRoute';
 
 /** How often a configured server is checked while the app is in the foreground. */
 export const HEARTBEAT_INTERVAL_MS = 3000;
@@ -109,6 +111,10 @@ class ServerConnection {
     this.started = true;
     this.log = log;
     AppState.addEventListener('change', (next) => this.onAppState(next));
+    // The server is on the Wi-Fi network; the phone's default network may be mobile data.
+    if (!startWifiRoute()) {
+      log('server: could not ask Android for the Wi-Fi network - requests use the default network');
+    }
 
     const saved = await loadSavedAddress(log);
     this.savedAddress = saved;
@@ -203,19 +209,8 @@ class ServerConnection {
    * The phone's own network, for the settings panel: knowing the phone's address lets the
    * user compare networks and, if needed, reach the phone from the computer.
    */
-  async describePhoneNetwork(): Promise<string> {
-    try {
-      const network = await Network.getNetworkStateAsync();
-      const onLan =
-        network.type === Network.NetworkStateType.WIFI ||
-        network.type === Network.NetworkStateType.ETHERNET;
-      if (!onLan) {
-        return 'This phone: not on Wi-Fi';
-      }
-      return `This phone: ${await Network.getIpAddressAsync()} (Wi-Fi)`;
-    } catch {
-      return 'This phone: network state unknown';
-    }
+  describePhoneNetwork(): string {
+    return describePhoneNetwork(getPhoneNetworkState());
   }
 
   // ---- user actions --------------------------------------------------------------------
@@ -268,16 +263,15 @@ class ServerConnection {
       return report;
     };
 
-    let ownAddress: string;
-    try {
-      const network = await Network.getNetworkStateAsync();
-      if (network.type !== Network.NetworkStateType.WIFI && network.type !== Network.NetworkStateType.ETHERNET) {
-        return fail(NOT_ON_WIFI);
-      }
-      ownAddress = await Network.getIpAddressAsync();
-    } catch (error) {
-      return fail(`Could not read the phone's network state (${String(error)})`);
+    // Read fresh every time: the phone changes Wi-Fi networks and addresses on its own.
+    const phone = getPhoneNetworkState();
+    if (!phone) {
+      return fail("Could not read the phone's network state. Type the address in instead.");
     }
+    if (!phone.wifiConnected || !phone.address) {
+      return fail(NOT_ON_WIFI);
+    }
+    const ownAddress = phone.address;
     const subnet = enumerateSubnet24(ownAddress);
     if (!subnet.ok) {
       return fail(`${subnet.error}. Type the address in instead.`);
@@ -286,7 +280,16 @@ class ServerConnection {
     const abort = new AbortController();
     this.searchAbort = abort;
     this.setSearchReport(null);
-    this.log(`server search: probing ${subnet.prefix}.1-254 on port ${port} (phone is ${ownAddress})`);
+    const worstCase = scanDurationSeconds(
+      subnet.hosts.length,
+      DEFAULT_SCAN_START_INTERVAL_MS,
+      DEFAULT_SCAN_TIMEOUT_MS,
+    );
+    this.log(
+      `server search: probing ${subnet.prefix}.1-254 on port ${port}, nearest to the phone ` +
+        `(${ownAddress}) first, up to ${worstCase} s` +
+        (phone.defaultNetwork === 'wifi' ? '' : ` (default network: ${phone.defaultNetwork}, bound to Wi-Fi: ${phone.boundToWifi})`),
+    );
     this.dispatch({ type: 'search-started', total: subnet.hosts.length });
 
     let outcome;
@@ -294,8 +297,9 @@ class ServerConnection {
       outcome = await scanHosts({
         hosts: subnet.hosts,
         port,
-        concurrency: DEFAULT_SCAN_CONCURRENCY,
+        startIntervalMs: DEFAULT_SCAN_START_INTERVAL_MS,
         timeoutMs: DEFAULT_SCAN_TIMEOUT_MS,
+        stopAtFirstCompatible: true,
         probe: (baseUrl, options) => probeHealth(baseUrl, options),
         signal: abort.signal,
         onProgress: (scanned) => this.dispatch({ type: 'search-progress', scanned }),
@@ -311,7 +315,9 @@ class ServerConnection {
       message = `Search cancelled after ${outcome.scanned} of ${outcome.total} addresses.`;
       failed = compatible.length === 0;
     } else if (compatible.length === 1) {
-      message = `Found ${compatible[0].info.serverName} at ${formatAddress(compatible[0].address)}.`;
+      message =
+        `Found ${compatible[0].info.serverName} at ${formatAddress(compatible[0].address)} ` +
+        `after ${outcome.scanned} of ${outcome.total} addresses.`;
     } else if (compatible.length > 1) {
       message = `Found ${compatible.length} servers - choose one.`;
     } else if (outcome.found.length > 0) {
@@ -321,8 +327,8 @@ class ServerConnection {
       message =
         `No server answered on ${subnet.prefix}.x port ${port}. Check that the server is running, ` +
         'that the computer is on the same network and that its firewall allows the port. ' +
-        `If all that is fine, type the computer's address in, or run "ping ${ownAddress}" on the ` +
-        'computer and search again.';
+        "If all that is fine, type the computer's address in: on some networks devices cannot " +
+        'be searched for, only addressed directly.';
       failed = true;
     }
     const report: SearchReport = { prefix: subnet.prefix, port, found: outcome.found, message, failed };

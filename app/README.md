@@ -36,7 +36,8 @@ camera by a stand-in provider (see [Status](#status-against-the-assignment)).
 | React Native | 0.88.1 | New Architecture (the only mode in this version) |
 | React | 19.3.0 | |
 | ViroReact | `@reactvision/react-viro` 3.2.2 | AR renderer on top of ARCore |
-| Expo modules | `expo-network` 58.0.5, `expo-file-system` 58.0.14, `expo-build-properties` 58.0.12 | phone's IP address; saved server address; cleartext HTTP switch |
+| Expo modules | `expo-file-system` 58.0.14, `expo-build-properties` 58.0.12 | saved server address; cleartext HTTP switch |
+| Own native module | `modules/wifi-route` (Kotlin, Android) | keeps the app's connections on Wi-Fi, reports the phone's Wi-Fi address |
 | TypeScript | 6.0.x | |
 | Android | compileSdk 37, targetSdk 36, minSdk 24 | build-tools 37.0.0, NDK 27.1.12297006 |
 | Gradle / AGP | 9.4.1 / 9.2.1 | downloaded by the wrapper |
@@ -193,8 +194,8 @@ connection code, run in Node), `npm run assets` (regenerate textures and the doo
 - *Provider: …*: cycles through the providers; `manual` places the door, `self-hosted`
   reports the server connection, the other two are stubs.
 
-Expected behaviour: move the phone slowly until tracking becomes NORMAL. A box, a
-sphere and a text label appear about 1.2 m in front of the starting position; the door
+Expected behaviour: move the phone slowly until tracking becomes NORMAL. A box and a
+sphere appear about 1.2 m in front of the starting position; the door
 frame appears 2 m ahead, standing on the floor and facing you, showing a violet room
 with a checkerboard floor. Walk through the frame: the badge switches to VR and the
 room surrounds you. Turn around: the doorway shows the camera image, with "EXIT TO AR"
@@ -218,7 +219,9 @@ are on. Stage 2a only establishes and monitors this connection.
    ```
 
    It prints the addresses of the computer.
-2. Put the phone on the **same Wi-Fi network** as the computer.
+2. Put the phone on the **same Wi-Fi network** as the computer (the computer may be on a
+   cable of the same router). Mobile data can stay switched on: the app sends its
+   requests over Wi-Fi even when the phone prefers mobile data.
 3. Allow the port through the computer's firewall, once (administrator PowerShell). This
    is a system setting, so no script here does it:
 
@@ -231,11 +234,12 @@ are on. Stage 2a only establishes and monitors this connection.
    in Settings → Network & internet → the connection's properties, or — only on a network
    you trust — create the rule with `-Profile Private,Public`. Remove the rule with
    `Remove-NetFirewallRule -DisplayName "locserver 8077"`.
-4. In the app tap the server chip, then **Find automatically**. The app reads the phone's
-   own IPv4 address, asks every other address of that /24 network (253 of them) for
-   `GET /health` on the port, 24 at a time with a 500 ms timeout — about 6 seconds — and
-   accepts only an answer that identifies itself as this project's server. One server
-   found: it connects. Several: pick one from the list (each shows its name).
+4. In the app tap the server chip, then **Find automatically**. The app takes the phone's
+   own Wi-Fi address and asks the other 253 addresses of that /24 network for
+   `GET /health` on the port, nearest addresses first, a new one every 0.2 s. It accepts
+   only an answer that identifies itself as this project's server, connects to the first
+   one that does and stops. This takes **up to about a minute** (52 s for the whole
+   network) and is slow on purpose — see [Why the search is slow](#why-the-search-is-slow).
 5. Or type the computer's address into the field (`host` or `host:port`, `http://`
    optional; the port defaults to 8077) and press **Test connection**. On Windows the
    address is the "IPv4 Address" line of `ipconfig` for the Wi-Fi/Ethernet adapter.
@@ -259,24 +263,68 @@ background). One missed check is tolerated; after two in a row the chip turns re
 it turns green again by itself when the server is back. Every change is written to the
 event log.
 
+The bottom of the settings panel shows the phone's own Wi-Fi address, refreshed every two
+seconds, and says so when the phone currently prefers mobile data.
+
+### Why the search is slow
+
+The first version of the search asked 24 addresses at a time (about 48 a second) and was
+done in 6 seconds — and on the test network it never found the server and broke the
+phone's Wi-Fi. What was measured there (Xiaomi 14 Ultra on the Wi-Fi of a home router,
+computer on a cable of the same router):
+
+- A connection attempt to an address nobody uses makes the phone send 3 ARP broadcasts
+  ("who has this address?"). A /24 is almost entirely such addresses, so the fast search
+  produced about 145 broadcasts a second.
+- Counting the broadcasts that arrive at the computer while the phone tries unused
+  addresses at a fixed pace: at 5 addresses a second all of them arrived (183 counted, 180
+  expected), at 8 a second also (183 of 177), at 15 a second only the first 57 of 180, at
+  30 and 48 a second practically none.
+- Once that happens, **all** broadcasts of the phone are dropped for a minute or two, even
+  slow ones. The phone can then not look up any address it does not already know: the
+  server's computer gives "no route to host" although it is running, while a computer
+  whose hardware address the phone already knows stays reachable. During one search the
+  phone could not look up the router itself any more, and Android reported the Wi-Fi as
+  lost and reconnected (`IpReachabilityMonitor: FAILURE: LOST_PROVISIONING` in logcat).
+  Afterwards the phone hopped between the router's two Wi-Fi names and for a few minutes
+  kept mobile data as its main connection.
+- With the network left alone, a single request from the phone to the computer worked at
+  once, also when the phone did not yet know the computer's hardware address.
+
+Whether the router or the phone's own Wi-Fi part does the dropping was not established;
+either way it is a flood protection that the fast search triggered. The search now starts
+one request every 0.2 s (5 addresses a second, at most about 15 broadcasts a second), with
+a 1.5 s timeout per address. Other routers may have other limits: if the search finds
+nothing, type the address in — that is a single request and always safe.
+
+A search that needs one packet instead of hundreds would need the server's help (answering
+a broadcast or announcing itself with mDNS); the server does not offer that today.
+
 ### Troubleshooting
 
-- **"The phone is not connected to Wi-Fi"** — the automatic search needs Wi-Fi. Mobile
-  data cannot reach a computer on a local network.
+- **"The phone is not connected to Wi-Fi"** — no Wi-Fi network is connected at all. The
+  server is on a local network, which mobile data cannot reach. (Wi-Fi connected but
+  mobile data preferred by the phone is a different case and works, see below.)
+- **The phone shows the Wi-Fi sign with an exclamation mark, or uses mobile data although
+  Wi-Fi is connected** — Android does this when the Wi-Fi has no internet access (a router
+  without an uplink, as at a demo) or when it judges the Wi-Fi to be poor. An app's
+  connections then normally leave over mobile data and never reach a local address. This
+  app asks Android for the Wi-Fi network and binds its connections to it, so the server
+  stays reachable; the settings panel then says "The phone currently prefers mobile
+  data; the app talks to the server over Wi-Fi anyway". If it says instead that the app
+  could not switch to Wi-Fi, turn mobile data off.
 - **Search finds nothing, typed address is unreachable**
   - Is the server running, and listening on all interfaces (not only `localhost`)? On the
     computer itself `curl.exe http://localhost:8077/health` must answer.
   - Firewall rule from step 3 present, and does the network profile match it?
   - Same network? Compare the first three numbers of the phone's address (Settings →
     Wi-Fi → network details) with the computer's.
-- **The search finds nothing although the server runs and the firewall is open** — seen
-  once on a home network (phone on Wi-Fi, computer on a cable of the same router): the
-  phone got no answer to its address-resolution (ARP) requests for the computer, so
-  every connection attempt ended with "no route to host". After the computer had
-  contacted the phone once (`ping <phone address>` on the computer; the phone's address
-  is shown at the bottom of the server settings), the phone could reach the server. So:
-  run that ping, then search again or type the computer's address in. Why the computer
-  was not found by ARP on that network was not established.
+- **The search finds nothing although the server runs and the firewall is open** — type
+  the computer's address in and press **Test connection**. A single request works on
+  networks where a search does not: some routers (or phones) drop a device's broadcasts
+  when it sends many of them, and a search has to send many, see
+  [Why the search is slow](#why-the-search-is-slow). If a search has just failed, wait a
+  minute or two before trying the typed address, or switch the phone's Wi-Fi off and on.
 - **Guest, university, hotel and some office networks** isolate clients from each other
   ("client isolation" / "AP isolation"): devices can reach the internet but not one
   another, and nothing in the app can change that. Use a network without isolation — a
@@ -293,15 +341,26 @@ event log.
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`, 30 tests, including a local mock of the server contract):
+  in Node (`npm test`, 35 tests, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
-  makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (bounded
-  concurrent scan with progress and cancel), `connectionMachine.ts` (the state machine).
+  makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
+  with progress, cancel and early stop), `phoneNetwork.ts` (what the settings panel says
+  about the phone's network), `connectionMachine.ts` (the state machine).
 - `src/server/ServerConnection.ts` adds the impure parts: heartbeat timer, foreground /
-  background, the phone's network state (`expo-network`), the saved address
+  background, the phone's network state (`src/server/wifiRoute.ts`), the saved address
   (`src/server/storage.ts`, a JSON file in the app's private storage via
   `expo-file-system`).
+- `modules/wifi-route/` is a small native Android module (Kotlin, Expo Modules API),
+  picked up by Expo autolinking from the `modules/` folder — nothing in the generated
+  `android/` folder is edited by hand. `start()` calls `ConnectivityManager.requestNetwork`
+  for the Wi-Fi transport (without requiring internet access) and binds the whole process
+  to that network with `bindProcessToNetwork` while it exists; `getState()` returns
+  whether a Wi-Fi network is connected, the phone's IPv4 address on it, whether the
+  process is bound, and what the phone's default network is. It adds the normal
+  (dialog-free) permission `CHANGE_NETWORK_STATE`. Process-wide binding fits because the
+  app talks to nothing but the local server; a provider that needs the internet would
+  have to bind per connection instead.
 - `GET /health` contract the app relies on: JSON with `service` =
   `"arportal-localization-server"`, integer `api_version`, `server_version`,
   `server_name`, `status` = `"ok"`. `device`, `device_name` and `maps` are shown when
@@ -324,6 +383,8 @@ metro.config.js               adds .obj (and other 3D formats) to Metro's asset 
 tsconfig.test.json            compiles src/server/core and its tests for Node (`npm test`)
 plugins/
   withAndroidBuildTuning.js   config plugin: Gradle limits, JS bundle embedded in debug
+modules/
+  wifi-route/                 native Android module: bind the app to Wi-Fi, phone's Wi-Fi address
 scripts/
   env.ps1                     optional: caches in another folder for the current shell
   generate-assets.mjs         generates all textures and the door-frame OBJ
@@ -347,8 +408,9 @@ src/
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
   server/
-    core/                     pure, unit-tested: address, subnet, health, client, discovery, state machine
+    core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network, state machine
     ServerConnection.ts       heartbeat, automatic search, saved address
+    wifiRoute.ts              JavaScript side of modules/wifi-route
     storage.ts                last working address on the phone
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
   ui/Overlay.tsx              mode badge, status panel, event log, buttons
@@ -544,22 +606,34 @@ option), so nothing that needs a tap was driven from the PC.
 | Saved address used at start | **Works.** With the address file present, the log shows "trying the saved address", "connecting", and "connected" 0.1 s after start. The file was put there with `adb run-as` for the test, not written by the app |
 | Server stopped | **Works.** Chip red "Server: unreachable" about 6 s after the server process was killed (two missed checks); log line "no answer within 1500 ms" |
 | Server started again | **Works.** Chip green again at the first check after the server answered |
-| Automatic search | **Did not find the server.** One search, started by hand on the phone: 253 addresses in 5.7 s, "No server answered". At that moment the phone could not reach the PC at all (ARP unanswered, see Troubleshooting in [Connect to the localization server](#connect-to-the-localization-server)); after the PC had pinged the phone, the phone reached the server. The search was not repeated after that |
-| Typing an address, "Test connection", "Forget" | Not exercised (needs taps) |
+| Automatic search, first version (24 at a time) | **Did not find the server**, three searches out of three (253 addresses in 5.7 s each, "No server answered"). During one of them Android reported the Wi-Fi as lost and reconnected; the server's log shows that one request of a search did arrive and was answered, later than the 500 ms the app waited. Cause and measurements: [Why the search is slow](#why-the-search-is-slow) |
+| "Find automatically" while the phone preferred mobile data | **Wrong message** in the first version: "The phone is not connected to Wi-Fi", although Wi-Fi was connected (the app looked only at the phone's default network). Fixed; the fixed behaviour in this situation was not observed, because the situation did not come up again |
 | Event-log fix from the first session | **Confirmed**: the newest line is the last visible one at the moment the chip changes |
 | Camera-permission fix, doorway flash mitigation | Not judged in this session (permission already granted; nobody walked through the door) |
 
-The 30 unit tests, the client against `scripts/mock-server.mjs` and against the real
+Third session, same phone and server, build with the paced search and the Wi-Fi binding
+(`modules/wifi-route`), taps made by the owner:
+
+| Point | Observed |
+| --- | --- |
+| Wi-Fi binding at start | logcat: "Wi-Fi network 945 available, process bound: true"; Android lists the app's request for the Wi-Fi transport |
+| "Forget" | **Works**: chip "Server: not set up", the saved-address file is gone |
+| Automatic search, paced | **Found the server** in 17 s: "Found <PC name> at <address>:8077 after 73 of 253 addresses", chip green. Mobile data was switched on, Wi-Fi was the phone's default network. During the search the phone looked the computer's hardware address up afresh without trouble, the router stayed reachable and the Wi-Fi connection was not dropped |
+| Saved address | **Written by the app** after the search: `{"version":1,"address":"<address>:8077"}` |
+| Typing an address, "Test connection" | Not exercised |
+| Search or connection while the phone prefers mobile data | Not exercised with the fixed build |
+
+The 35 unit tests, the client against `scripts/mock-server.mjs` and against the real
 server on `localhost`, and `usesCleartextTraffic="true"` in the merged manifests of the
 debug and release variants were checked on the development PC.
 
 ## Not verified yet
 
 - **parts of the server connection** (stage 2a), see
-  [Server connection on a device](#server-connection-on-a-device): the automatic search
-  has not yet *found* a server on a phone, typing an address into the settings screen
-  and the app writing the saved-address file were not exercised, and the heartbeat
-  pausing in the background was not looked at;
+  [Server connection on a device](#server-connection-on-a-device): typing an address
+  into the settings screen, the app reaching the server while the phone prefers mobile
+  data (the reason for `modules/wifi-route`), a search on a network other than the one
+  it was measured on, and the heartbeat pausing in the background;
 - the three fixes above, and the look of the deeper door frame that came with the
   mitigation;
 - long-term drift of the doorway while the app keeps running;

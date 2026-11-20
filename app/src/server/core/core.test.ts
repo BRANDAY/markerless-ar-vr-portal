@@ -22,8 +22,9 @@ import {
   type ConnectionEvent,
   type ConnectionSnapshot,
 } from './connectionMachine';
-import { scanHosts } from './discovery';
+import { scanDurationSeconds, scanHosts } from './discovery';
 import { SERVICE_ID, validateHealth, type ServerInfo } from './health';
+import { describePhoneNetwork } from './phoneNetwork';
 import { enumerateSubnet24 } from './subnet';
 
 // ---------------------------------------------------------------------------------------
@@ -99,8 +100,10 @@ describe('enumerateSubnet24', () => {
     if (!result.ok) return;
     assert.equal(result.prefix, '192.0.2');
     assert.equal(result.hosts.length, 253);
-    assert.equal(result.hosts[0], '192.0.2.1');
+    // Nearest to the phone's own address first.
+    assert.deepEqual(result.hosts.slice(0, 5), ['192.0.2.24', '192.0.2.22', '192.0.2.25', '192.0.2.21', '192.0.2.26']);
     assert.equal(result.hosts[result.hosts.length - 1], '192.0.2.254');
+    assert.equal(result.hosts.includes('192.0.2.1'), true);
     assert.equal(result.hosts.includes('192.0.2.23'), false);
     assert.equal(result.hosts.includes('192.0.2.0'), false);
     assert.equal(result.hosts.includes('192.0.2.255'), false);
@@ -354,43 +357,70 @@ describe('probeHealth and scanHosts against a local mock', () => {
     const result = await scanHosts({
       hosts,
       port: 8077,
-      concurrency: 3,
+      startIntervalMs: 2,
       timeoutMs: 1000,
       probe: probeByName,
       onProgress: (scanned) => progress.push(scanned),
     });
     assert.equal(result.cancelled, false);
+    assert.equal(result.stoppedEarly, false);
     assert.equal(result.scanned, hosts.length);
     assert.equal(result.total, hosts.length);
     assert.deepEqual(result.found.map((s) => [s.address.host, s.compatible]), [['good', true], ['v2', false]]);
     assert.equal(result.found[0].address.port, 8077);
     assert.deepEqual(progress, [1, 2, 3, 4, 5, 6, 7]);
   });
-  test('scan respects the concurrency limit', async () => {
-    let inFlight = 0;
-    let peak = 0;
+  test('scan starts probes in order, no faster than the start interval', async () => {
+    const starts: Array<[string, number]> = [];
+    const began = Date.now();
     const result = await scanHosts({
-      hosts: Array.from({ length: 20 }, (_, i) => `h${i}`),
+      hosts: ['a', 'b', 'c', 'd', 'e'],
       port: 8077,
-      concurrency: 4,
+      startIntervalMs: 30,
       timeoutMs: 100,
-      probe: async () => {
-        inFlight++;
-        peak = Math.max(peak, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        inFlight--;
+      probe: async (baseUrl) => {
+        starts.push([/^http:\/\/([^:]+):/.exec(baseUrl)?.[1] ?? '', Date.now() - began]);
+        await new Promise((resolve) => setTimeout(resolve, 70)); // slower than the interval
         return { kind: 'unreachable', reason: 'x' };
       },
     });
-    assert.equal(result.scanned, 20);
-    assert.equal(peak, 4);
+    assert.equal(result.scanned, 5);
+    assert.deepEqual(starts.map(([host]) => host), ['a', 'b', 'c', 'd', 'e']);
+    // Four intervals of 30 ms between five starts; timers may fire a little early.
+    assert.ok(starts[4][1] >= 4 * 30 - 15, JSON.stringify(starts));
+    // Probes overlap: the scan does not wait for an answer before the next start.
+    assert.ok(starts[4][1] < 4 * 70, JSON.stringify(starts));
+  });
+  test('scan stops at the first compatible server when asked to', async () => {
+    const probed: string[] = [];
+    const hosts = ['nobody1', 'v2', 'good', 'nobody2', 'nobody3', 'nobody4', 'nobody5', 'nobody6'];
+    const result = await scanHosts({
+      hosts,
+      port: 8077,
+      startIntervalMs: 40,
+      timeoutMs: 1000,
+      stopAtFirstCompatible: true,
+      probe: (baseUrl, options) => {
+        probed.push(/^http:\/\/([^:]+):/.exec(baseUrl)?.[1] ?? '');
+        return probeByName(baseUrl, options);
+      },
+    });
+    assert.equal(result.stoppedEarly, true);
+    assert.equal(result.cancelled, false);
+    assert.deepEqual(result.found.map((s) => [s.address.host, s.compatible]), [['good', true], ['v2', false]]);
+    assert.ok(probed.length < hosts.length, probed.join(','));
+  });
+  test('worst-case duration of a scan', () => {
+    assert.equal(scanDurationSeconds(253, 200, 1500), 52);
+    assert.equal(scanDurationSeconds(1, 200, 1500), 2);
+    assert.equal(scanDurationSeconds(0, 200, 1500), 2);
   });
   test('scan can be cancelled', async () => {
     const controller = new AbortController();
     const result = await scanHosts({
       hosts: Array.from({ length: 50 }, (_, i) => `h${i}`),
       port: 8077,
-      concurrency: 2,
+      startIntervalMs: 2,
       timeoutMs: 100,
       signal: controller.signal,
       probe: async () => {
@@ -403,5 +433,25 @@ describe('probeHealth and scanHosts against a local mock', () => {
     });
     assert.equal(result.cancelled, true);
     assert.ok(result.scanned >= 6 && result.scanned < 50, String(result.scanned));
+  });
+});
+
+describe('describePhoneNetwork', () => {
+  const wifi = { wifiConnected: true, address: '192.0.2.23', boundToWifi: true, defaultNetwork: 'wifi' as const };
+  test('Wi-Fi as the default network', () => {
+    assert.equal(describePhoneNetwork(wifi), 'This phone: 192.0.2.23 (Wi-Fi)');
+  });
+  test('no Wi-Fi, or state unknown', () => {
+    assert.match(describePhoneNetwork(null), /unknown/);
+    assert.match(describePhoneNetwork({ ...wifi, wifiConnected: false, address: null }), /not connected to Wi-Fi/);
+    assert.match(describePhoneNetwork({ ...wifi, address: null }), /not connected to Wi-Fi/);
+  });
+  test('mobile data is the default although Wi-Fi is connected', () => {
+    const bound = describePhoneNetwork({ ...wifi, defaultNetwork: 'cellular' });
+    assert.match(bound, /192\.0\.2\.23 \(Wi-Fi\)/);
+    assert.match(bound, /prefers mobile data/);
+    assert.match(bound, /over Wi-Fi anyway/);
+    const unbound = describePhoneNetwork({ ...wifi, defaultNetwork: 'cellular', boundToWifi: false });
+    assert.match(unbound, /turn mobile data off/);
   });
 });

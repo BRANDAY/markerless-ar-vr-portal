@@ -42,3 +42,6 @@ yarn-error.*
 
 # compiled unit tests
 .test-build/
+
+# Gradle output of local native modules
+/modules/*/android/build/

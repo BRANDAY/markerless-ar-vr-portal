@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Reading the networks and their addresses. -->
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <!-- ConnectivityManager.requestNetwork (a normal permission: no dialog). -->
+  <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+</manifest>
