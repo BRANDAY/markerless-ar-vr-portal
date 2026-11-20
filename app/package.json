@@ -1,0 +1,26 @@
+{
+  "name": "fesb-ar-portal",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@reactvision/react-viro": "3.2.2",
+    "expo": "~58.0.26",
+    "expo-status-bar": "~58.0.5",
+    "react": "19.3.0",
+    "react-native": "0.88.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "prebuild": "expo prebuild --platform android --no-install",
+    "prebuild:clean": "expo prebuild --platform android --clean --no-install",
+    "build:android": "cd android && gradlew.bat assembleDebug --console=plain",
+    "install:android": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
+    "typecheck": "tsc --noEmit",
+    "assets": "node scripts/generate-assets.mjs"
+  },
+  "private": true
+}
