@@ -1,32 +1,34 @@
 # FESB AR Portal — markerless AR-to-VR portal (proof of concept)
 
-A mobile app that shows a virtual doorway in augmented reality. Through the doorway the
-user sees a simple virtual room, can physically walk through it into VR and walk back
-out into AR. The final goal of the assignment is that the doorway appears at the same
-real-world place in every app session, found without markers, QR codes, GPS or manual
-placement.
+A mobile app that shows a doorway in augmented reality. Through the doorway the user sees
+a virtual world - the atrium of the Sponza Palace in Dubrovnik -, can physically walk
+through it into VR and walk back out into AR. The goal of the assignment is that the
+doorway appears at the same real-world place in every app session, found without
+markers, QR codes, GPS or manual placement: the app scans the room once, a
+self-hosted server builds a map and a plan of the room from the recording and finds the
+real door opening in it, and from then on the virtual doorway stands in that opening.
 
-**This repository is at stage 2a**: a buildable Android app with the AR scene, the
-walk-through portal, a pluggable localization layer, and a working network connection
-to the self-hosted localization server (find it on the Wi-Fi, show "connected").
-Real localization is not implemented yet — the doorway is placed 2 m in front of the
-camera by a stand-in provider (see [Status](#status-against-the-assignment)).
+**Where this stands (2026-11-20).** Everything is written and unit-tested. On a phone
+(Xiaomi 14 Ultra) these parts have been seen working: the AR scene and the walk-through
+portal (with the first, simple room), the connection to the server, the room mesh, the
+recording, and the upload with its progress. **Not yet seen on a phone:** a map built
+from a real room recording, the doorway in the real opening, finding the room again
+after a restart, the atrium and the wooden door casing by eye, and everything about
+tracking loss. The details are in [Verified on a device](#verified-on-a-device) and
+[Not verified yet](#not-verified-yet); read them before relying on anything.
 
-> **Device status.** The first build (commit `9cb8a8b`) was tested once on a Xiaomi 14
-> Ultra: camera feed, tracking, the door frame, the room seen through it, walking in and
-> back out all worked. Three defects were found and addressed afterwards; **the fixes
-> themselves have not been re-tested on the phone yet.** Details:
-> [Verified on a device](#verified-on-a-device) and [Not verified yet](#not-verified-yet).
+New here? Go through [Setup on Windows](#setup-on-windows), then
+[The scenario, step by step](#the-scenario-step-by-step).
 
 ## Status against the assignment
 
 | Task | State |
 | --- | --- |
 | 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`); camera feed and tracking confirmed on a device |
-| 2. Recognise a previously scanned room without markers | **Written, not yet run on a device.** The app scans the room (planes, video with camera poses), sends the recording to the localization server, which builds the map and the room plan; in a later session a short clip sent to `/localize` finds the room again ([Scan a room](#scan-a-room-and-put-the-door-into-the-real-doorway)) |
-| 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** The portal is placed in the real door opening the server found in the scanned room, with the frame sized to that opening (`self-hosted` provider) |
-| 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`); the walk-through was confirmed on a device with the stage-1 test room, one visual defect at the crossing (see below). The world behind the door is now the atrium of the Sponza Palace (`src/environments/`), not yet seen on a device |
-| 5. Tests: restart, angles, lighting, tracking loss | Not started (needs tasks 2–3 and a device) |
+| 2. Recognise a previously scanned room without markers | **Written; half of it seen on a device.** The app scans the room (planes, room mesh, video with camera poses) and sends the recording to the localization server, which builds the map and the room plan; in a later session a short clip sent to `/localize` finds the room again. Seen on the phone: mesh, recording, upload, build progress, the server's refusal of a one-second recording shown in words. Not seen: a successful build from a phone recording, and finding the room again ([the scenario](#the-scenario-step-by-step)) |
+| 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** The portal is placed in the real door opening the server found in the scanned room, with the door casing built to the size of that opening (`self-hosted` provider). Against the server on the PC, with a test recording that lies there, the app's client code gets a doorway back from `/localize` 2.3 cm from where it should be - a doorway set by hand in a test map, not one the server found ([End-to-end check without a phone](#end-to-end-check-without-a-phone)) |
+| 4. See a virtual world through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`); the walk-through was confirmed on a device with the stage-1 test room, one visual defect at the crossing (see below). The world behind the door is now the atrium of the Sponza Palace with a wooden door casing (`src/environments/`): both load on the phone without an error, **nobody has looked at them yet** |
+| 5. Tests: restart, angles, lighting, tracking loss | **Behaviour written, tests on a device not started.** What the app does when tracking is lost and comes back, how often it asks the server again and what it does with weak answers is implemented and unit-tested ([Keeping the doorway in place](#keeping-the-doorway-in-place)); the measurements themselves need a device |
 
 ## Stack
 
@@ -111,8 +113,8 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
 - Measured on the development laptop (i7-8750H, 16 GB RAM, another CPU-heavy job running
   at the same time): the first build took **23 min** (downloads the Gradle distribution
   and all dependencies, compiles the native modules); a rebuild after a JavaScript change
-  took 2–3 min. The debug APK is about **70 MB** (`arm64-v8a` only, unstripped debug
-  libraries, Hermes bytecode bundle 1.9 MB).
+  took 2–3 min. The debug APK is about **93 MB** (`arm64-v8a` only, unstripped debug
+  libraries, the atrium model 21 MB, Hermes bytecode bundle 2 MB).
 - Disk used on that machine, measured after the build: Gradle user home 3.8 GB, npm
   cache 0.5 GB, the three SDK packages 2.6 GB (the NDK alone is 2.3 GB), `node_modules`
   0.8 GB (including the native build output of the modules), the generated `android/`
@@ -174,40 +176,102 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (unit tests of the server
-connection code, run in Node), `npm run assets` (regenerate textures and the door model).
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (85 unit tests of the pure
+modules, run in Node), `npm run build:android` (the Gradle build above),
+`npm run e2e:server` (the app's client against a real server,
+[without a phone](#end-to-end-check-without-a-phone)), `npm run assets` (regenerate
+textures and the simple door model).
 
 ## Using the app
 
-- Top left: mode badge — green **AR** or purple **VR**. It is driven only by the
+What is on the screen:
+
+- Top left: mode badge - green **AR** or purple **VR**. It is driven only by the
   portal's `onPortalEnter` / `onPortalExit` events.
-- Below it: the **server chip**, always visible — green "Server: connected · name · N ms",
+- Below it: the **server chip**, always visible - green "Server: connected · name · N ms",
   grey or red otherwise. Tap it to open the server settings
   ([Connect to the localization server](#connect-to-the-localization-server)).
-- *Debug / Hide debug*: toggles the debug overlay (status panel, event log, buttons).
+- Below that, only when something needs attention: the **status banner**. It says in
+  words what the app is doing about the doorway ("Looking for the room - attempt 2 of 5:
+  hold the phone still..."), turns red when you have to act ("Check the doorway",
+  "Cannot place the doorway") and then carries the button **Re-localize** (or
+  **Re-place door** with the manual provider). It disappears once the doorway is placed
+  and trusted.
+- *Debug / Hide debug*: toggles the debug overlay (status panel, event log, scan panel,
+  buttons). Hide it to see the scene.
 - Status panel: tracking state and reason, camera position and forward vector in
   AR-world coordinates, detected floor height, provider status, door pose, attach mode.
-- Event log: tracking changes, provider status, door poses, portal enter/exit.
-- *Re-place door*: asks the provider for a new pose; the manual provider puts the
-  doorway 2 m in front of the camera again.
-- *Attach: direct / parent*: how the portal is attached to the scene graph (below).
-- *Provider: …*: switches between `manual` (places the door in front of the camera) and
-  `self-hosted` (the door goes into the doorway the server found). The two stubs
-  (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered.
+- Event log: tracking changes, provider status, door poses, portal enter/exit, everything
+  the scan and the server do. The same lines go to Android's log (tag `ReactNativeJS`,
+  prefix `[portal]`) and, when the server supports it, to the server's monitoring panel
+  ([Device log](#device-log-for-the-servers-monitoring-panel)).
 
-Expected behaviour: move the phone slowly until tracking becomes NORMAL. A box and a
-sphere appear about 1.2 m in front of the starting position; the door
-frame appears 2 m ahead, standing on the floor and facing you, showing a violet room
-with a checkerboard floor. Walk through the frame: the badge switches to VR and the
-room surrounds you. Turn around: the doorway shows the camera image, with "EXIT TO AR"
-above it. Walk back through it to return to AR.
+Buttons of the debug overlay:
+
+| Button | What it does |
+| --- | --- |
+| **Scan room**, **Record**, **Upload as "room"**, **Plan**, **Mesh lines**, **Save mesh**, **Reset mesh** | the room scan, see [the scenario](#the-scenario-step-by-step) |
+| **Re-place door** / **Re-localize** | manual provider: puts the doorway 2 m in front of the camera again. Self-hosted provider: looks for the room again now |
+| **Attach: direct / parent** | how the portal is attached to the scene graph ([How the portal works](#how-the-portal-works)); both must look the same |
+| **Provider: manual / self-hosted** | who decides where the doorway stands. `manual` (the default): in front of the camera, no server needed. `self-hosted`: in the real door opening the server found. The two stubs (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered |
+| **World: sponza / test-room** | what is behind the door. `sponza` (the default) is the atrium; `test-room` is the small violet room of stage 1, kept to tell a portal problem from a problem with the big model |
+| **Frame: casing / simple** | the door frame, see [How the portal works](#how-the-portal-works) |
+| **Hide log**, **Clear log** | the event log |
+
+The shortest way to see the virtual world, without a server: start the app, move the
+phone slowly until tracking is NORMAL. A box and a sphere appear about 1.2 m in front of
+the starting position; the door casing appears 2 m ahead, standing on the floor and
+facing you. Press **Hide debug**, look through the door at the atrium, walk through it:
+the badge switches to VR and the hall surrounds you. Turn around and walk back through
+the door to return to AR. If the door stands badly, look at a free piece of floor and
+press **Re-place door** (in the debug overlay).
+
+## The scenario, step by step
+
+Connection, scanning, portal. Steps 1 to 4 have been seen on a phone (step 4 only with a
+recording too short to build a map from); steps 5 to 7 have not.
+
+1. **Start the server** on a computer in the same network (project `localization-server`,
+   its README: `uv run locserver-serve`). It prints its address.
+2. **Connect.** Start the app; tap the server chip, then **Find automatically** (takes up
+   to 52 s) or type the address and **Test connection**. The chip turns green. The
+   address is remembered. Details and troubleshooting:
+   [Connect to the localization server](#connect-to-the-localization-server).
+3. **Scan.** Open the real door of the room. Press **Scan room**: the planes the phone
+   finds are highlighted (walls cyan, floor green, ceiling violet, other surfaces
+   yellow, a red cube with a post where two walls meet) and the panel counts the
+   triangles of the room mesh. Press **Record** and walk slowly through the room for one
+   to two minutes, looking at the walls: every wall, the floor edges, the corners, and
+   the whole door from at least two places 1.5 m or more away. Turning on the spot is
+   not enough - the server needs sideways movement. Press **Stop rec**.
+4. **Upload.** Press **Upload as "room"**. The panel shows the upload in percent, then
+   the build on the server: overall percent, "step 3/7 matching", the remaining time. A
+   build takes minutes. **Cancel** stops it. If the server cannot build a map it says why
+   and the app shows that text ("The room could not be reconstructed... Record again,
+   slower, walking along the walls").
+5. **Portal in the doorway.** When the build has succeeded the server's room plan is
+   drawn in orange (walls, corner posts, floor outline; door openings in white), the
+   provider switches to `self-hosted` and the door casing stands in the real door
+   opening, built to its width and height. **Plan: on/off** hides the plan. Walk through.
+6. **Next session.** Start the app in the same room, connect, choose **Provider:
+   self-hosted**. Once tracking is NORMAL the app records a 2.5 s clip, sends it to the
+   server and places plan and door from the answer; the banner shows the attempts. Hold
+   the phone still, pointed at a part of the room with detail (not a bare wall).
+7. **If it goes wrong.** "Room not recognised": look at another part of the room and
+   press **Re-localize**. "No door opening found": the map has no doorway - switch to
+   `manual` to place the door by hand, or scan again with the whole door in view; the
+   app never substitutes a position of its own. Tracking lost: see
+   [Keeping the doorway in place](#keeping-the-doorway-in-place).
+
+The map is always called `room`, and a new upload replaces it.
 
 ## Connect to the localization server
 
 The localization server is a separate project (`localization-server`, Python). It runs
 on a computer; the phone talks to it over the local network with plain HTTP. **No address
 is built into the app** — it is found automatically or typed in, on whatever network you
-are on. Stage 2a only establishes and monitors this connection.
+are on. This section is about establishing and watching the connection; what travels
+over it is in [Scan a room](#scan-a-room-and-put-the-door-into-the-real-doorway).
 
 ### Steps
 
@@ -342,7 +406,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 62 tests in all with those of `src/room/`, including a local mock of the server contract):
+  in Node (`npm test`; 85 tests in all with those of `src/room/` and `src/localization/core/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -376,49 +440,111 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 
 ## Scan a room and put the door into the real doorway
 
-Stage 2b. **None of this has run on a phone yet**; what is known comes from the library's
-sources and from unit tests.
+The steps are in [The scenario, step by step](#the-scenario-step-by-step); this section
+says how it works.
 
-1. Connect to the server (previous section). Its `/health` must announce the capability
-   `recording_upload` (localization server with API revision 2).
-2. **Scan room** switches the scan mode on: every plane the AR session has found is
-   highlighted — walls cyan, floor green, ceiling violet, other surfaces yellow — and a
-   red cube with a post marks each corner where two walls meet. The planes belong to the
-   AR session, which keeps them while the phone looks elsewhere, so the picture of the
-   room builds up as you turn and stays in place. The panel shows the counts and the
-   state of the AR engine's fused room mesh; **Mesh lines** draws that mesh as a
-   wireframe, **Reset mesh** forgets it, **Save mesh** writes planes and mesh to a capture
-   folder without recording.
-3. **Record**, then walk slowly through the room for one to two minutes, looking at the
-   walls; show every wall, the floor edges and the corners, and the whole door from at
-   least two places 1.5 m or more away. Turning on the spot is not enough — the server
-   needs sideways movement. **Stop rec** ends it. The capture is a folder in the app's
-   private storage; its content is specified in
-   [`docs/capture-format.md`](docs/capture-format.md).
-4. **Upload as "room"** sends the video and the poses. The panel shows the upload in
-   percent, then the build on the server: overall percent, "step 3/7 matching", the
-   remaining time. A build takes minutes (13 minutes for the server's test sequence on a
-   GTX 1050 Ti). **Cancel** stops the upload or the build.
-5. When the build has succeeded the server's room plan is drawn in orange (walls, corner
-   posts, floor outline; door openings in white), the provider switches to `self-hosted`
-   and the portal is placed in the door opening the server found, with the door frame
-   built to the opening's width and height. **Plan: on/off** hides the plan.
-6. In a later session choose the provider `self-hosted`: once tracking is NORMAL the app
-   records a 2.5 s clip, sends it to `/localize` and places plan and portal from the
-   answer. **Re-place door** tries again.
+**On the phone.** The scan mode asks the AR engine for horizontal and vertical planes and
+for its fused room mesh. `src/room/roomGeometry.ts` turns the plane anchors into a room
+model (walls, floor, ceiling, corners; pure, unit-tested) and `src/ar/RoomScanLayer.tsx`
+draws it. The planes belong to the AR session, which keeps them while the phone looks
+elsewhere, so the picture builds up as you turn. **Mesh lines** draws the mesh as a
+wireframe, **Reset mesh** forgets it, **Save mesh** writes planes and mesh to a capture
+folder without recording.
 
-If the server found **no door opening**, nothing is placed. The status line says so and
-tells what to do: switch the provider to `manual` to place the door by hand, or scan
-again with the whole door in view. The app never substitutes a position of its own.
+**A capture** is a folder in the app's private storage: the camera video, one camera
+pose per frame, the planes, and the room mesh (the engine's own file and a PLY copy made
+by the app). Its exact content, checked against captures from a phone, is specified in
+[`docs/capture-format.md`](docs/capture-format.md). `src/room/scanController.ts` drives
+the engine's recorder and mesh.
 
-How the pieces fit: `src/room/roomGeometry.ts` builds the phone-side room model from the
-plane anchors (pure, unit-tested); `src/room/scanController.ts` drives the AR engine's
-recorder and mesh; `src/room/roomServer.ts` decides what is sent and what the answers
-mean; all HTTP is in `src/server/core/client.ts` and the parsing of the server's answers
-in `src/server/core/roomPlan.ts` (both unit-tested against a local mock);
-`src/ar/RoomScanLayer.tsx` and `src/ar/ServerRoomLayer.tsx` draw the two room models.
+**To the server.** `src/room/roomServer.ts` sends video, poses and the PLY mesh to
+`POST /maps/room/recording`, follows the build job every 1.5 s and fetches the room plan
+and the doorway (`GET /maps/room/room`, `/portal`). The contract is
+`localization-server/docs/api-v2.md`. All HTTP is in `src/server/core/client.ts`, the
+parsing of the answers in `src/server/core/roomPlan.ts` (both unit-tested).
+`src/ar/ServerRoomLayer.tsx` draws the server's plan.
 
-The map is always called `room`, and a new upload replaces it.
+**The doorway.** A map built from a recording has the coordinate frame of the AR session
+that recorded it, so right after the build the plan and the doorway can be shown as they
+are. In any later session the frames differ; then a short clip with its camera poses goes
+to `POST /localize`, and the answer carries plan and doorway already transformed into the
+current session.
+
+If the server found **no door opening**, nothing is placed and the status says what to
+do. The app never substitutes a position of its own.
+
+### Keeping the doorway in place
+
+The rules are in `src/localization/core/relocalization.ts` (pure, unit-tested) and are
+applied by the `self-hosted` provider. **None of this has been tried on a device.**
+
+- **Tracking loss.** Tracking that is away for less than 1.5 s is a hiccup and changes
+  nothing (switching the scan mode causes one of about half a second). Longer than that
+  is an interruption: the door **stays where it was** but is no longer trusted, the
+  banner says "tracking lost - the doorway stays where it was, but it may be off", and
+  as soon as tracking is back the room is looked for again. The server-side session id
+  changes then, because the AR world frame may have changed.
+- **Looking for the room** happens in episodes: at the start, after an interruption,
+  when **Re-localize** is pressed, and to confirm a weak answer. An episode makes a
+  limited number of attempts (5, or 3 on request, 2 to confirm) with growing pauses
+  (0, 1.5, 3, 6, 10 s) and then stops and says what to do.
+- **What an answer does to the door.** Nothing shown yet: the door is placed. The answer
+  agrees with the door shown (within 15 cm and 6 degrees): the door is left alone and
+  counts as confirmed. A good answer elsewhere: the door is moved, and the log says by
+  how many metres and degrees. A weak answer elsewhere: ignored if the door is trusted,
+  accepted if it is not (after an interruption) and then checked by another look. The
+  door never moves or disappears without a log line and a status.
+- **While you are inside** the virtual world an automatic correction waits until you are
+  back on the AR side: moving the portal around somebody behind it would throw them out.
+- With the **manual** provider there is nothing to check a pose against: after an
+  interruption the door is kept and the status says "press Re-place door if it has moved".
+
+### Device log for the server's monitoring panel
+
+A server that announces the capability `device_log` gets the app's event log and its
+current state (`api-v2.md`, section 9), so that somebody at the PC can follow what the
+phone is doing. Every request carries `X-Device-Id` (made once per installation and kept
+in the app's private storage), `X-Device-Name` (manufacturer and model), `X-Session-Id`
+(one per app run) and `X-App-Version`. Events are sent in batches - when 20 are waiting,
+or every 2 s, at once for an error - and an empty batch every 5 s keeps the state current.
+The state names the step of the scenario: `connecting`, `connected`, `scanning`,
+`uploading`, `building`, `ready`, `localizing`, `portal_placed`, `inside`, `error`.
+Nothing is sent per frame; one timer per second decides whether a request is due, and a
+failed request only makes the events wait (at most 500 are kept). Code:
+`src/server/core/deviceLog.ts` (pure, unit-tested), `src/server/deviceLogger.ts`.
+Checked against the server on the PC; **not yet run from a phone**.
+
+### End-to-end check without a phone
+
+```powershell
+npm run e2e:server -- http://127.0.0.1:8077 <folder with video.mp4 and session.jsonl> [map id] [--localize-only]
+```
+
+runs the app's own client code and decision rules against a real server from the PC
+(`src/server/core/server.e2e.ts`): health, device log, upload, following the build, room
+plan, doorway, and a localisation with the recording used as the clip. The map id
+defaults to `app_e2e` and is replaced on the server. Result of the last run:
+server 0.3.0 on the development PC (GTX 1050 Ti), 2026-11-20, with the server project's
+test recording of 30 frames from the public TUM room sequence (not a phone recording):
+
+| Step | Result |
+| --- | --- |
+| Health, capabilities | ok |
+| Device log: batch accepted, a repeated batch counted as duplicates | ok |
+| Upload accepted, build followed through its seven steps | ok, 643 s |
+| Room plan and doorway of the new map parsed | 2 walls, 1 corner, 1 door opening - which the server did not consider sure enough to use (`source: none`) |
+| Localisation with the recording as the clip | answered in 1.7 s, "good", 743 inliers; the app's decision: **no doorway, nothing placed** |
+| The same clip against an existing map that has a doorway set by hand (`--localize-only`) | answered in 3.4 s, "good", 1073 inliers; the app's decision: **place**; the doorway came back **2.3 cm** from where the recording's known transform puts it |
+
+So both branches of the app's logic were exercised against the real server; a doorway
+found *automatically* by the server and then placed by the app has not been seen yet,
+because no recording at hand produces one. A first run was cut off at step 6 of 7 when the
+server was restarted; the app's client reported the job as failed with the server's
+reason. With `--localize-only` nothing is uploaded and an existing map is used.
+
+What it cannot cover, because it needs React Native or a camera: how the phone encodes
+the upload from file paths, the upload progress, the recorder, the 2.5 s clip, and
+everything that is drawn.
 
 ## Project structure
 
@@ -427,7 +553,7 @@ App.tsx                       camera permission gate, AR navigator + overlay
 index.ts                      entry point
 app.json                      Expo config: ViroReact plugin options, build limits
 metro.config.js               adds .obj (and other 3D formats) to Metro's asset types
-tsconfig.test.json            compiles src/server/core and its tests for Node (`npm test`)
+tsconfig.test.json            compiles the pure modules and their tests for Node (`npm test`, `npm run e2e:server`)
 plugins/
   withAndroidBuildTuning.js   config plugin: Gradle limits, JS bundle embedded in debug
 modules/
@@ -452,7 +578,8 @@ src/
     types.ts                  LocalizationProvider interface, pose types, conventions
     BaseProvider.ts           listener bookkeeping shared by providers
     ManualPlacementProvider.ts  stage-1 stand-in
-    SelfHostedServerProvider.ts follows the server connection (no localisation yet)
+    SelfHostedServerProvider.ts door in the opening the server found; episodes of looking for the room
+    core/relocalization.ts    rules: tracking loss, retries, what an answer does to the door (unit-tested)
     stubs.ts                  ReactVision VPS / ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
@@ -462,14 +589,18 @@ src/
     roomGeometry.ts           room model from plane anchors: walls, floor, corners (unit-tested)
     roomStore.ts              state of the scan, upload and server plan
     scanController.ts         world mesh, session recording, capture folders
+    meshFormat.ts             the engine's mesh file (RVWM) and its conversion to PLY (unit-tested)
     roomServer.ts             upload, build progress, room plan, localisation by clip
   server/
-    core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network, state machine
+    core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network,
+                              state machine, room plan, device log; server.e2e.ts = run against a real server
+    identity.ts               installation id, phone name, id of the app run
+    deviceLogger.ts           sends the event log and the scenario step to the server's panel
     ServerConnection.ts       heartbeat, automatic search, saved address
     wifiRoute.ts              JavaScript side of modules/wifi-route
     storage.ts                last working address on the phone
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
-  ui/Overlay.tsx              mode badge, status panel, event log, buttons
+  ui/Overlay.tsx              mode badge, status banner, status panel, event log, buttons
   ui/ServerPanel.tsx          server status chip and server settings
   ui/ScanPanel.tsx            room-scan buttons, numbers, upload and build progress
 docs/
@@ -496,7 +627,9 @@ interface LocalizationProvider {
 
 interface PoseUpdate {
   pose: { position: Vec3; rotation: Vec3 };   // doorway pose in AR-world coordinates
+  opening?: { width: number; height: number }; // size of the real doorway, when known
   quality?: { confidence?; positionErrorM?; headingErrorDeg?; note? };
+  automatic?: boolean;                         // a correction the user did not ask for
   source: ProviderId;
   timestampMs: number;
 }
@@ -522,7 +655,7 @@ Providers:
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
 | `ReactVisionVpsProvider` | Stub, no network code. Needs a ReactVision API key + project id and plugin option `provider: "reactvision"`. |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
-| `SelfHostedServerProvider` | Connectivity only (stage 2a): follows the server connection and reports `waiting-for-server` / `connected`; emits no pose. Localisation requests are stage 2b. |
+| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. The doorway is the door opening the server found: straight from the plan after a build in the same session, otherwise by a 2.5 s clip sent to `/localize`. Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
 The ViroReact plugin is currently configured with `provider: "none"` and
 `telemetry: false` (no anchor back-end, no usage ping); no API keys or accounts are used.
@@ -699,23 +832,57 @@ Third session, same phone and server, build with the paced search and the Wi-Fi 
 | Typing an address, "Test connection" | Not exercised |
 | Search or connection while the phone prefers mobile data | Not exercised with the fixed build |
 
-The 35 unit tests, the client against `scripts/mock-server.mjs` and against the real
+### Room scan, upload and the atrium on a device
+
+Fourth session (2026-11-20, evening), same phone, build of commit `546697d`, real server
+0.2.0 on the development PC with a GTX 1050 Ti. The owner used the app freely for about
+five minutes; observations come from the app's log, two screenshots and the files pulled
+from the phone afterwards. Nobody followed a test plan, so this is what happened to be
+exercised:
+
+| Point | Observed |
+| --- | --- |
+| Saved address at start | **Works**: connected 0.3 s after start |
+| Manual provider, atrium, door casing | The door was placed when tracking became NORMAL; the log shows "door casing loaded (0.90 x 2.00 m)" and "Sponza atrium loaded" 0.7 s after the loading started, no error. **Whether they look right was not judged** - the screenshots were taken while the phone looked elsewhere |
+| Room mesh | **Works**: source `depth`, accumulated, 104 060 triangles after ten seconds of looking around |
+| Planes | Horizontal planes found, classified `Floor`. **No vertical plane (wall) was found** in this session; nobody scanned the walls on purpose |
+| Switching the scan mode | Each switch made tracking UNAVAILABLE for about half a second and **dropped the planes found so far** |
+| Mesh snapshot | **Works** with an identity transform: 239 kB and 1.86 MB files in the engine's own format |
+| Recording | **Works**: two captures of about one second (18 and 15 frames) with `video.mp4`, `session.jsonl`, `planes.json`. Their format settled five of the six open points of [`docs/capture-format.md`](docs/capture-format.md) |
+| Upload and build progress | **Works**: a 0.9 s capture (1 MB) was sent, the server accepted it, the app showed "step 1/7 frames", "2/7 features", "4/7 sfm" and then the server's reason for failing, in words. A map cannot be built from one second of video, so **a successful build from a phone recording has not been seen** |
+| Self-hosted provider without a map | Says "the server has no map "room" yet - scan the room first" |
+| Typing a server address | **Not confirmed** (asked for, not done) |
+
+The 85 unit tests, the client against `scripts/mock-server.mjs` and against the real
 server on `localhost`, and `usesCleartextTraffic="true"` in the merged manifests of the
 debug and release variants were checked on the development PC.
 
 ## Not verified yet
 
-- **all of stage 2b**: plane highlights and corner markers on a device (including the
-  orientation of vertical planes), the AR engine's room mesh and whether it can be saved
-  to a file, the session recording and its `session.jsonl`, the upload of a large video,
-  the build progress, the server's room plan drawn in the session, the portal in the real
-  doorway and its scaled frame, localisation by clip in a later session;
-- **the Sponza atrium** in ViroReact: loading time, frame rate, whether the hall is
-  visible through the doorway from outside (see `src/environments/README.md`);
-- **the door casing** in ViroReact: seven models under one `ViroPortal`, the inner world
+Everything in this list is written but has not been seen working on a phone. The build
+on the phone at the time of writing is `546697d`; what was added later (device log, mesh
+as PLY, tracking loss, status banner, the reduced provider switch) has never been
+installed.
+
+- **a map built from a real room recording**: a one-to-two-minute recording, its upload
+  (size, time, progress), the build, the server's room plan drawn in the session, the
+  door casing in the real door opening at the opening's size;
+- **finding the room again**: the 2.5 s clip recorded while the portal is shown,
+  `/localize`, the door in the same opening after a restart, the banner texts,
+  **Re-localize**;
+- **tracking loss**: that a loss longer than 1.5 s is noticed, that the door stays, that
+  the room is looked for again and the door confirmed or corrected; that switching the
+  scan mode does not count as a loss;
+- **walls in the scan**: whether the phone finds vertical planes in a normal room, the
+  orientation of their highlights, the corner markers, the direction of wall normals
+  (the last open point of the capture format), highlights staying in place when turning;
+- **the Sponza atrium by eye**: frame rate, whether the hall is visible through the
+  doorway from outside (see `src/environments/README.md`);
+- **the door casing by eye**: seven models under one `ViroPortal`, the inner world
   visible through its transparent part, walking through it (its "tunnel" is 5.5 cm deep,
   the simple frame's 14 cm), the open door leaf (see `src/environments/README.md`);
-
+- **the device log from a phone**, and the phone showing up in the server's panel;
+- **the mesh as PLY**: the conversion on the phone and the upload of the file;
 - **parts of the server connection** (stage 2a), see
   [Server connection on a device](#server-connection-on-a-device): typing an address
   into the settings screen, the app reaching the server while the phone prefers mobile
@@ -727,7 +894,6 @@ debug and release variants were checked on the development PC.
 - behaviour when the parent node of the portal is actually *moved* by a provider (the
   attach-mode switch was only tried with a static pose), and whether auto-anchoring
   moves the portal;
-- behaviour after tracking loss and re-localization;
 - phones other than the one above;
 - Metro taking priority over the embedded bundle in the development loop;
 - details nobody looked at specifically: separation of AR and room lights by bit masks,
@@ -737,8 +903,15 @@ debug and release variants were checked on the development PC.
 
 ## Known issues and limitations
 
-- The doorway position is **not persistent** (stage 1). Every start places it relative
-  to the phone.
+- With the `manual` provider the doorway position is **not persistent**: every start
+  places it relative to the phone. Persistence is the `self-hosted` provider's job, and
+  that has not run on a device yet.
+- Switching the scan mode on or off drops the planes the phone has found (seen on a
+  device). Switch it on once and leave it on while scanning.
+- A recording has a variable frame rate of about 16 frames per second, and its camera
+  poses are given for the upright picture while the pixels are landscape
+  (`docs/capture-format.md`). Whether the server's map building handles this correctly
+  with a real recording has not been seen.
 - A one-frame flash of the camera image was seen at the AR → VR crossing with the first
   build; a mitigation is in place but unconfirmed (see
   [How the portal works](#how-the-portal-works)).
@@ -747,7 +920,8 @@ debug and release variants were checked on the development PC.
 - The renderer does not check the crossing direction: walking through the frame from
   behind also counts as "entering", and you end up outside the room's walls.
 - The portal must not move while the user is crossing it (the crossing test compares
-  camera positions between frames). Providers should not emit pose updates at that moment.
+  camera positions between frames). Automatic corrections wait while the user is inside
+  the virtual world; a correction at the very moment of walking in is still possible.
 - Open ViroReact issues on Android that may affect a particular phone:
   [#568](https://github.com/ReactVision/viro/issues/568) (Galaxy A56 / Android 16:
   tracking never settles), [#513](https://github.com/ReactVision/viro/issues/513)

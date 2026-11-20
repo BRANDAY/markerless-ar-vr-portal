@@ -5,6 +5,7 @@
   },
   "exclude": [
     "**/*.test.ts",
+    "**/*.e2e.ts",
     ".test-build",
     "android"
   ]

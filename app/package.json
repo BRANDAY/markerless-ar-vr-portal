@@ -20,11 +20,12 @@
     "start": "expo start",
     "prebuild": "expo prebuild --platform android --no-install",
     "prebuild:clean": "expo prebuild --platform android --clean --no-install",
-    "build:android": "cd android && gradlew.bat assembleDebug --console=plain",
+    "build:android": "cd android && .\\gradlew.bat assembleDebug --console=plain",
     "install:android": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
     "typecheck": "tsc --noEmit",
     "assets": "node scripts/generate-assets.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test \".test-build/**/*.test.js\""
+    "test": "tsc -p tsconfig.test.json && node --test \".test-build/**/*.test.js\"",
+    "e2e:server": "tsc -p tsconfig.test.json && node .test-build/server/core/server.e2e.js"
   },
   "private": true
 }
