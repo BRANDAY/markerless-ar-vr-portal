@@ -269,6 +269,14 @@ event log.
   - Firewall rule from step 3 present, and does the network profile match it?
   - Same network? Compare the first three numbers of the phone's address (Settings →
     Wi-Fi → network details) with the computer's.
+- **The search finds nothing although the server runs and the firewall is open** — seen
+  once on a home network (phone on Wi-Fi, computer on a cable of the same router): the
+  phone got no answer to its address-resolution (ARP) requests for the computer, so
+  every connection attempt ended with "no route to host". After the computer had
+  contacted the phone once (`ping <phone address>` on the computer; the phone's address
+  is shown at the bottom of the server settings), the phone could reach the server. So:
+  run that ping, then search again or type the computer's address in. Why the computer
+  was not found by ARP on that network was not established.
 - **Guest, university, hotel and some office networks** isolate clients from each other
   ("client isolation" / "AP isolation"): devices can reach the internet but not one
   another, and nothing in the app can change that. Use a network without isolation — a
@@ -522,18 +530,36 @@ Defects found in that session and what was done about them:
 | The event log panel was one entry behind (the newest line appeared only with the next one) | Fixed in code: scrolling now happens after layout (`onContentSizeChange`). Not re-tested on the phone |
 | One-frame flash at the AR → VR crossing (top ~45 % of the screen showed the camera image) | Mitigation in the door model, see [How the portal works](#how-the-portal-works). Not re-tested on the phone |
 
+### Server connection on a device
+
+Second session, same phone (Xiaomi 14 Ultra, Android 16), build of commit "Stage 2a",
+real localization server 0.2.0 running on the development PC (wired to the same router),
+phone on Wi-Fi. The screen was read with `uiautomator dump` and a screenshot. Taps could
+not be sent over adb (the phone refuses injected input without an extra MIUI developer
+option), so nothing that needs a tap was driven from the PC.
+
+| Point | Observed |
+| --- | --- |
+| Status chip, plain HTTP from the phone over Wi-Fi | **Works.** Green "Server: connected · <PC name> · 37 ms"; later readings 21–189 ms |
+| Saved address used at start | **Works.** With the address file present, the log shows "trying the saved address", "connecting", and "connected" 0.1 s after start. The file was put there with `adb run-as` for the test, not written by the app |
+| Server stopped | **Works.** Chip red "Server: unreachable" about 6 s after the server process was killed (two missed checks); log line "no answer within 1500 ms" |
+| Server started again | **Works.** Chip green again at the first check after the server answered |
+| Automatic search | **Did not find the server.** One search, started by hand on the phone: 253 addresses in 5.7 s, "No server answered". At that moment the phone could not reach the PC at all (ARP unanswered, see Troubleshooting in [Connect to the localization server](#connect-to-the-localization-server)); after the PC had pinged the phone, the phone reached the server. The search was not repeated after that |
+| Typing an address, "Test connection", "Forget" | Not exercised (needs taps) |
+| Event-log fix from the first session | **Confirmed**: the newest line is the last visible one at the moment the chip changes |
+| Camera-permission fix, doorway flash mitigation | Not judged in this session (permission already granted; nobody walked through the door) |
+
+The 30 unit tests, the client against `scripts/mock-server.mjs` and against the real
+server on `localhost`, and `usesCleartextTraffic="true"` in the merged manifests of the
+debug and release variants were checked on the development PC.
+
 ## Not verified yet
 
-- **the server connection on a phone** (stage 2a). None of it has run on a device: the
-  status chip and settings screen, reading the phone's IP address, the automatic search
-  over Wi-Fi, plain HTTP from the phone, saving the address, the heartbeat pausing in the
-  background. What *was* checked, all on the development PC: the 30 unit tests of
-  `src/server/core/` (address parsing, subnet enumeration, `/health` validation, state
-  machine, the HTTP client and the scan against a local mock); the same client against
-  `scripts/mock-server.mjs` and against the real localization server (version 0.2.0,
-  API version 1, started on `localhost`) — both answered "ok"; and that the merged
-  Android manifest of the debug and of the release variant contains
-  `usesCleartextTraffic="true"`;
+- **parts of the server connection** (stage 2a), see
+  [Server connection on a device](#server-connection-on-a-device): the automatic search
+  has not yet *found* a server on a phone, typing an address into the settings screen
+  and the app writing the saved-address file were not exercised, and the heartbeat
+  pausing in the background was not looked at;
 - the three fixes above, and the look of the deeper door frame that came with the
   mitigation;
 - long-term drift of the doorway while the app keeps running;

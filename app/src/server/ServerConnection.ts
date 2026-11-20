@@ -199,6 +199,25 @@ class ServerConnection {
     }
   }
 
+  /**
+   * The phone's own network, for the settings panel: knowing the phone's address lets the
+   * user compare networks and, if needed, reach the phone from the computer.
+   */
+  async describePhoneNetwork(): Promise<string> {
+    try {
+      const network = await Network.getNetworkStateAsync();
+      const onLan =
+        network.type === Network.NetworkStateType.WIFI ||
+        network.type === Network.NetworkStateType.ETHERNET;
+      if (!onLan) {
+        return 'This phone: not on Wi-Fi';
+      }
+      return `This phone: ${await Network.getIpAddressAsync()} (Wi-Fi)`;
+    } catch {
+      return 'This phone: network state unknown';
+    }
+  }
+
   // ---- user actions --------------------------------------------------------------------
 
   /**
@@ -301,7 +320,9 @@ class ServerConnection {
     } else {
       message =
         `No server answered on ${subnet.prefix}.x port ${port}. Check that the server is running, ` +
-        'that the computer is on the same Wi-Fi and that its firewall allows the port.';
+        'that the computer is on the same network and that its firewall allows the port. ' +
+        `If all that is fine, type the computer's address in, or run "ping ${ownAddress}" on the ` +
+        'computer and search again.';
       failed = true;
     }
     const report: SearchReport = { prefix: subnet.prefix, port, found: outcome.found, message, failed };

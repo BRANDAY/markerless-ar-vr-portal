@@ -64,6 +64,19 @@ function ServerSettings({ onClose }: { onClose: () => void }) {
   );
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState(false);
+  const [phoneNetwork, setPhoneNetwork] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    serverConnection.describePhoneNetwork().then((text) => {
+      if (alive) {
+        setPhoneNetwork(text);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const searching = connection.state === 'searching';
 
   // Follow address changes made elsewhere (automatic search choosing a server).
@@ -196,8 +209,9 @@ function ServerSettings({ onClose }: { onClose: () => void }) {
                 ))
               : null}
 
+            {phoneNetwork ? <Text style={styles.fact}>{phoneNetwork}</Text> : null}
             <Text style={styles.help}>
-              The phone and the computer must be on the same Wi-Fi network. The last address that
+              The phone and the computer must be on the same network. The last address that
               worked is remembered and tried first at the next start.
             </Text>
           </ScrollView>
