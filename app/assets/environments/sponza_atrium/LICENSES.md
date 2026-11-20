@@ -30,6 +30,8 @@ the archive copy named above, under the licence stated there.
   origin is the threshold of a doorway in the middle of one end wall.
 - The lion relief and its frame on that end wall were removed (the doorway takes their place); that
   wall is stored as a separate single-sided model.
+- The stone base course of that wall was cut away within 0.55 m of the door axis, so that the floor
+  runs level through the doorway.
 - Geometry that cannot be seen from the ground floor was removed; large triangles were subdivided.
 - Lighting (sky, sun and diffuse bounces) was computed offline and stored as vertex colours; all
   materials are unlit. Normal, bump and specular maps of the original are not used.

@@ -1,0 +1,150 @@
+{
+ "dimensions": {
+  "casingWidth": 0.085,
+  "front": 0.018,
+  "liningThickness": 0.022,
+  "liningDepth": 0.06,
+  "thresholdHeight": 0.012,
+  "tunnelDepth": 0.055,
+  "leafModel": [
+   0.83,
+   2.01,
+   0.042
+  ]
+ },
+ "files": {
+  "casing_post_left.obj": {
+   "triangles": 34,
+   "bytes": 5036,
+   "min": [
+    -0.085,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    -0.0,
+    1.0,
+    0.018
+   ]
+  },
+  "casing_post_right.obj": {
+   "triangles": 34,
+   "bytes": 4949,
+   "min": [
+    0.0,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    0.085,
+    1.0,
+    0.018
+   ]
+  },
+  "casing_corner_left.obj": {
+   "triangles": 60,
+   "bytes": 9596,
+   "min": [
+    -0.085,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    -0.0,
+    0.085,
+    0.018
+   ]
+  },
+  "casing_corner_right.obj": {
+   "triangles": 60,
+   "bytes": 9463,
+   "min": [
+    0.0,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    0.085,
+    0.085,
+    0.018
+   ]
+  },
+  "casing_head.obj": {
+   "triangles": 34,
+   "bytes": 5351,
+   "min": [
+    -0.5,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    0.5,
+    0.085,
+    0.018
+   ]
+  },
+  "casing_threshold.obj": {
+   "triangles": 6,
+   "bytes": 1046,
+   "min": [
+    -0.5,
+    0.0,
+    -0.06
+   ],
+   "max": [
+    0.5,
+    0.012,
+    0.01
+   ]
+  },
+  "portal_window.obj": {
+   "triangles": 12,
+   "bytes": 1190,
+   "min": [
+    -0.5,
+    -0.5,
+    -0.055
+   ],
+   "max": [
+    0.5,
+    0.5,
+    0.0
+   ]
+  },
+  "door_leaf.obj": {
+   "triangles": 1226,
+   "bytes": 239754,
+   "min": [
+    -0.83,
+    0.0,
+    -0.038
+   ],
+   "max": [
+    0.0185,
+    2.01,
+    0.038
+   ]
+  },
+  "door_casing.jpg": {
+   "bytes": 356927,
+   "size": [
+    1024,
+    2048
+   ]
+  },
+  "door_leaf.jpg": {
+   "bytes": 334226,
+   "size": [
+    1024,
+    2048
+   ]
+  },
+  "portal_window.png": {
+   "bytes": 71,
+   "size": [
+    8,
+    8
+   ]
+  }
+ }
+}

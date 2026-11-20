@@ -38,8 +38,8 @@
   {
    "file": "sponza_atrium.glb",
    "material": "bricks",
-   "triangles": 70092,
-   "vertices": 37376,
+   "triangles": 70083,
+   "vertices": 37407,
    "alpha": "OPAQUE"
   },
   {
@@ -448,9 +448,9 @@
  "files": [
   {
    "file": "sponza_atrium.glb",
-   "bytes": 21349604,
-   "triangles": 411799,
-   "vertices": 265069,
+   "bytes": 21350668,
+   "triangles": 411790,
+   "vertices": 265100,
    "meshes": 26
   },
   {

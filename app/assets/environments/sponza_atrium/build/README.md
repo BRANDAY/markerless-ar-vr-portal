@@ -18,7 +18,8 @@ in the work folder (`geom.npz`, `bake.npz`); delete a cache file to redo its sta
 
 What the script does: scales the model to metres and moves it into the doorway frame (origin on the
 floor in the middle of the threshold, scene towards −Z); removes the relief around the doorway and the
-geometry that cannot be seen from the ground floor; splits edges longer than 0.45 m; computes sky
+geometry that cannot be seen from the ground floor; cuts the base course of the end wall out of the
+doorway (`DOOR_CLEAR_HALF`, done at export, so it does not invalidate the light bake); splits edges longer than 0.45 m; computes sky
 light, a soft sun and seven diffuse bounces per vertex; tone-maps the result into `COLOR_0`; writes
 plain GLB files with `KHR_materials_unlit` materials and embedded textures.
 

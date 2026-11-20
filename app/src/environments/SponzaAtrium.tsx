@@ -13,8 +13,8 @@ export const SPONZA_ATRIUM = {
   clearDepth: 4.4,
   /** Half-width of the free floor near the threshold (two big vases stand 4.1 m off the axis). */
   clearHalfWidth: 3.0,
-  triangles: 414033,
-  fileBytes: 21738584,
+  triangles: 414024,
+  fileBytes: 21739648,
 } as const;
 
 export interface SponzaAtriumProps {

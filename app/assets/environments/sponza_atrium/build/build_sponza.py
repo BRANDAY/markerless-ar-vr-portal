@@ -51,6 +51,10 @@ SKY_HORIZON = np.array([0.88, 0.92, 1.00]) * 1.9
 N_SKY, N_SUN, N_BOUNCE, BOUNCES = 192, 16, 64, 7
 
 
+# Half-width of the strip at the doorway that is kept free of the wall's base course (metres).
+DOOR_CLEAR_HALF = 0.55
+
+
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
@@ -377,6 +381,100 @@ def weld(rows_f: np.ndarray, col: np.ndarray):
     return first, inv.reshape(-1)
 
 
+def convex_hull(points: np.ndarray) -> list[int]:
+    """Indices of the 2D convex hull, counter-clockwise (monotone chain)."""
+    order = sorted(range(len(points)), key=lambda i: (points[i][0], points[i][1]))
+
+    def turn(o, a, b):
+        return ((points[a][0] - points[o][0]) * (points[b][1] - points[o][1])
+                - (points[a][1] - points[o][1]) * (points[b][0] - points[o][0]))
+
+    lower: list[int] = []
+    for i in order:
+        while len(lower) >= 2 and turn(lower[-2], lower[-1], i) <= 1e-12:
+            lower.pop()
+        lower.append(i)
+    upper: list[int] = []
+    for i in reversed(order):
+        while len(upper) >= 2 and turn(upper[-2], upper[-1], i) <= 1e-12:
+            upper.pop()
+        upper.append(i)
+    return lower[:-1] + upper[:-1]
+
+
+def clear_doorway(rows: np.ndarray, col: np.ndarray, corner_mat: np.ndarray, corner_wall: np.ndarray):
+    """Cuts the base course of the end wall out of the doorway.
+
+    The end wall has a stone base course (about 8 cm high, 4 cm proud of the wall) that would run
+    across the threshold. Its part within DOOR_CLEAR_HALF of the door axis is removed and the two
+    cut ends are closed. Works on the baked per-corner arrays, so the light bake stays valid.
+    """
+    n_tri = len(rows) // 3
+    r3 = rows.reshape(n_tri, 3, 8).astype(np.float64)
+    c3 = col.reshape(n_tri, 3, 4).astype(np.float64)
+    mat = corner_mat.reshape(n_tri, 3)[:, 0]
+    wall = corner_wall.reshape(n_tri, 3)[:, 0]
+    x, y, z = r3[:, :, 0], r3[:, :, 1], r3[:, :, 2]
+    cand = (~wall) & (y.max(1) < 0.12) & (y.max(1) > 0.002) & (z.min(1) > -0.06) \
+        & (x.min(1) < DOOR_CLEAR_HALF) & (x.max(1) > -DOOR_CLEAR_HALF)
+    if not cand.any():
+        return rows, col, corner_mat, corner_wall
+    out_r, out_c, out_m = [], [], []
+    cut_points = {-1: [], 1: []}
+
+    def clip(poly, side):
+        """Keeps the part of the polygon with side * x >= DOOR_CLEAR_HALF. poly: list of 12-float vertices."""
+        res = []
+        for i in range(len(poly)):
+            a, b = poly[i], poly[(i + 1) % len(poly)]
+            da, db = side * a[0] - DOOR_CLEAR_HALF, side * b[0] - DOOR_CLEAR_HALF
+            if da >= 0:
+                res.append(a)
+            if (da >= 0) != (db >= 0):
+                t = da / (da - db)
+                v = a + (b - a) * t
+                v[0] = side * DOOR_CLEAR_HALF
+                res.append(v)
+                cut_points[side].append(v)
+        return res
+
+    for ti in np.nonzero(cand)[0]:
+        poly = [np.concatenate([r3[ti, k], c3[ti, k]]) for k in range(3)]
+        for side in (-1, 1):
+            part = clip(poly, side)
+            for k in range(1, len(part) - 1):
+                for v in (part[0], part[k], part[k + 1]):
+                    out_r.append(v[:8])
+                    out_c.append(v[8:])
+                    out_m.append(mat[ti])
+    removed = int(cand.sum())
+    for side in (-1, 1):
+        pts = cut_points[side]
+        if len(pts) < 3:
+            continue
+        arr = np.array(pts)
+        hull = convex_hull(arr[:, [2, 1]])
+        centre = arr[hull].mean(axis=0)
+        mat_id = int(np.bincount(mat[cand]).argmax())
+        for k in range(len(hull)):
+            for v in (centre, arr[hull[k]], arr[hull[(k + 1) % len(hull)]]):
+                rr = v[:8].copy()
+                rr[3:6] = (-side, 0.0, 0.0)          # the cut end faces the door axis
+                cc = v[8:].copy()
+                cc[:3] *= 0.85
+                out_r.append(rr)
+                out_c.append(cc)
+                out_m.append(mat_id)
+    keep = np.repeat(~cand, 3)
+    rows2 = np.concatenate([rows[keep], np.array(out_r, dtype=np.float32).reshape(-1, 8)])
+    col2 = np.concatenate([col[keep], np.round(np.array(out_c)).astype(np.uint8).reshape(-1, 4)])
+    mat2 = np.concatenate([corner_mat[keep], np.array(out_m, dtype=corner_mat.dtype)])
+    wall2 = np.concatenate([corner_wall[keep], np.zeros(len(out_m), dtype=bool)])
+    log(f"doorway cleared: {removed} triangles of the wall base cut at |x| = {DOOR_CLEAR_HALF} m, "
+        f"{len(out_m) // 3} triangles written back")
+    return rows2, col2, mat2, wall2
+
+
 def sky_dome(sky_path: str, sun_azimuth_deg: float):
     im = Image.open(sky_path).convert("RGB")
     w, h = im.size
@@ -424,6 +522,7 @@ def stage_export(args, geom_cache: str, bake_cache: str):
     rows = np.concatenate([P, NR, UV], 1).astype(np.float32)
     corner_mat = np.repeat(M, 3)
     corner_wall = np.repeat(W, 3)
+    rows, col, corner_mat, corner_wall = clear_doorway(rows, col, corner_mat, corner_wall)
 
     credit = ("Crytek Sponza (c) 2010 Frank Meinl, Crytek; original Sponza model by Marko Dabrovic; "
               "McGuire Computer Graphics Archive; CC BY 3.0. Converted, relit and optimised for the AR portal app.")
@@ -476,7 +575,7 @@ def stage_export(args, geom_cache: str, bake_cache: str):
     files = [build(os.path.join(args.out, "sponza_atrium.glb"), ~corner_wall, True, False)]
     if corner_wall.any():
         files.append(build(os.path.join(args.out, "sponza_atrium_backwall.glb"), corner_wall, False, True))
-    bb = P.reshape(-1, 3)
+    bb = rows[:, 0:3].astype(np.float64)
     stats.update({"files": files, "bbox_min": bb.min(0).round(3).tolist(), "bbox_max": bb.max(0).round(3).tolist(),
                   "frame": {"x_door_model_m": float(g["frame"][0]), "y_floor_model_m": float(g["frame"][1]),
                             "z_centre_model_m": float(g["frame"][2]), "wall_gap_m": WALL_GAP},
