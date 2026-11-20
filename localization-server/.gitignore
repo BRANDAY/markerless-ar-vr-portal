@@ -1,15 +1,31 @@
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+venv/
 *.egg-info/
 dist/
 build/
 
-# captures and built maps are data, not source
+# machine-specific settings
+env.local.ps1
+.env
+
+# captures, test data, built maps, calibrations, reports and uploads are data, not source
 data/input/*
 !data/input/.gitkeep
 data/maps/*
 !data/maps/.gitkeep
 data/calibration/
+data/datasets/
+data/work/
 *.log
+
+# model weights and archives must never be committed
+*.pth
+*.pt
+*.tgz
+*.zip
+*.mp4
+*.mov

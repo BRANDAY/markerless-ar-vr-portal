@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 
-from . import __version__, config
+from . import API_VERSION, SERVICE_ID, __version__, config, netinfo
 from . import geometry as g
 from .capture import Frame, VideoCapture, rotate_image_cw, rotate_intrinsics_cw, sharpness
 from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
@@ -42,9 +42,10 @@ SESSION_MAX_OBS = 60
 
 class State:
     def __init__(self, maps_dir: Path, device: str = "auto", max_keypoints: int = 2048, pipe=None, localizer=None,
-                 calibration_dir: Path | None = None):
+                 calibration_dir: Path | None = None, server_name: str | None = None):
         """``pipe`` / ``localizer`` can be injected (the API tests use stubs without models)."""
         self.maps_dir = Path(maps_dir)
+        self.server_name = server_name or config.server_name()
         self.pipe = pipe or FeaturePipeline(device, max_keypoints=max_keypoints)
         self.loc_opts = LocalizeOptions()
         self.align_opts = AlignOptions()
@@ -141,16 +142,23 @@ def pick_clip_frames(frames: list[Frame], n: int) -> list[Frame]:
     return out
 
 
-def create_app(state: State | None = None, maps_dir: Path | None = None, device: str = "auto") -> FastAPI:
+def create_app(state: State | None = None, maps_dir: Path | None = None, device: str = "auto",
+               server_name: str | None = None) -> FastAPI:
     app = FastAPI(title="locserver", version=__version__, description="Markerless visual localisation for an AR portal")
-    st = state or State(maps_dir or config.maps_dir(), device)
+    st = state or State(maps_dir or config.maps_dir(), device, server_name=server_name)
     app.state.locserver = st
 
     # ------------------------------------------------------------- info --- #
     @app.get("/health")
-    def health():
+    async def health():
+        """Identity and status. Answers from the event loop without touching the models,
+        so it stays fast during a localisation and can be found by a subnet scan."""
         return {
             "status": "ok",
+            "service": SERVICE_ID,
+            "api_version": API_VERSION,
+            "server_version": __version__,
+            "server_name": st.server_name,
             "version": __version__,
             "device": st.pipe.device,
             "device_name": st.pipe.device_name,
@@ -492,16 +500,20 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
 
     ap = argparse.ArgumentParser(description="Run the localisation server")
-    ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=config.DEFAULT_PORT)
+    ap.add_argument("--host", default=config.host(), help="interface to listen on (env LOCSERVER_HOST); "
+                    "0.0.0.0 = all, 127.0.0.1 = this PC only")
+    ap.add_argument("--port", type=int, default=config.port(), help="TCP port (env LOCSERVER_PORT)")
+    ap.add_argument("--name", default=None, help="server name shown in the app (env LOCSERVER_NAME, default: host name)")
     ap.add_argument("--maps-dir", default=None, help=f"default: {config.maps_dir()}")
     ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     ap.add_argument("--log-level", default="INFO")
     a = ap.parse_args(argv)
     config.setup_logging(a.log_level)
-    app = create_app(maps_dir=Path(a.maps_dir) if a.maps_dir else None, device=a.device)
+    app = create_app(maps_dir=Path(a.maps_dir) if a.maps_dir else None, device=a.device, server_name=a.name)
     st: State = app.state.locserver
     log.info("device %s (%s), maps %s from %s", st.pipe.device, st.pipe.device_name, sorted(st.maps), st.maps_dir)
+    for line in netinfo.banner_lines(a.host, a.port, netinfo.lan_ipv4_addresses(), st.server_name):
+        print(line, flush=True)
     uvicorn.run(app, host=a.host, port=a.port, log_level=a.log_level.lower())
     return 0
 

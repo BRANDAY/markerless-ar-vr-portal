@@ -33,11 +33,43 @@ independent project: the mobile app talks to it over HTTP on the local Wi-Fi.
                                                └──────────────────────────────┘
 ```
 
-Contents: [Stack](#stack-and-licences) · [Setup](#setup-windows) ·
-[Build a map](#build-a-map) · [Run the server](#run-the-server) ·
+Contents: [Quick start](#quick-start-for-a-new-machine) · [Stack](#stack-and-licences) · [Setup](#setup-windows) ·
+[Build a map](#build-a-map) · [Run the server](#run-the-server) · [Connect a phone](#connect-a-phone) ·
 [API](#api-reference) · [Conventions](#coordinate-conventions) ·
 [App integration](#how-the-mobile-app-is-expected-to-call-it) ·
 [Measured numbers](#measured-numbers) · [Limitations](#limitations-and-what-is-not-verified)
+
+---
+
+## Quick start for a new machine
+
+For a Windows PC that has never seen this project (a colleague's laptop):
+
+```powershell
+# 1. tools: git and uv (https://docs.astral.sh/uv/) - nothing else
+git clone <repository url> ; cd localization-server
+
+# 2. environment (Python 3.13 and all packages; ~3 GB download, ~10 GB disk)
+uv sync
+uv run pytest                               # 81 tests, no GPU needed
+
+# 3. a map: either your own room video ...
+uv run locserver-build-map data\input\room.mp4 --map-id room
+#    ... or the public test sequence (782 MB download)
+.\scripts\get_test_data.ps1
+uv run locserver-build-map data\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --map-id tum_room --every 8
+
+# 4. start the server; it prints the address to type into the app
+uv run locserver-serve
+
+# 5. phone cannot connect? this read-only check says why and prints the fix
+uv run locserver-doctor
+```
+
+Nothing is tied to a particular PC, user, drive or Wi-Fi network: all paths
+default to folders inside the project, and the address is whatever the PC has
+on the network it is currently connected to. Then continue with
+[Connect a phone](#connect-a-phone).
 
 ---
 
@@ -100,25 +132,43 @@ COLMAP binary, ffmpeg, Docker or compiler is needed.
 
 ```powershell
 cd localization-server
-. .\env.ps1        # puts venv, caches and model weights on E:\VR-FESB (edit the file to change)
-uv sync            # creates the environment and installs everything (~3 GB download)
-uv run pytest      # 63 tests, a few seconds, no GPU needed
+uv sync            # creates .venv and installs everything (~3 GB download)
+uv run pytest      # 81 tests, a few seconds, no GPU needed
 ```
 
-`env.ps1` must be dot-sourced in every new PowerShell window. It sets:
+By default everything stays inside the project folder or in the normal
+per-user caches:
 
-| Variable | Value | Purpose |
+| What | Default location | Override |
 |---|---|---|
-| `UV_PROJECT_ENVIRONMENT` | `E:\VR-FESB\venv` | the virtual environment (4.5 GB) |
-| `UV_CACHE_DIR` | `E:\VR-FESB\uv-cache` | uv's package cache |
-| `TORCH_HOME` | `E:\VR-FESB\torch` | model weights (downloaded on first use, 48 MB) |
-| `HF_HOME` | `E:\VR-FESB\hf` | Hugging Face cache (not used by the default models) |
-| `LOCSERVER_DATASETS` | `E:\VR-FESB\datasets` | public test data |
-| `LOCSERVER_WORK` | `E:\VR-FESB\work` | evaluation reports, upload scratch space |
+| virtual environment | `.venv\` in the project | `UV_PROJECT_ENVIRONMENT` |
+| uv package cache | uv's per-user cache | `UV_CACHE_DIR` |
+| model weights (48 MB, downloaded on first use) | `%USERPROFILE%\.cache\torch` | `TORCH_HOME` |
+| maps | `data\maps\` | `LOCSERVER_MAPS_DIR` or `--maps-dir` |
+| per-device calibrations | `data\calibration\` | `LOCSERVER_CALIB_DIR` |
+| public test data | `data\datasets\` | `LOCSERVER_DATASETS` |
+| evaluation reports, upload scratch space | `data\work\` | `LOCSERVER_WORK` |
+| listen address / port / server name | `0.0.0.0` / `8077` / host name | `LOCSERVER_HOST`, `LOCSERVER_PORT`, `LOCSERVER_NAME` or `--host`, `--port`, `--name` |
 
-Set `LOCSERVER_ROOT` before sourcing it to use another drive. Optional:
-`LOCSERVER_MAPS_DIR` (default `data\maps` in the project) and
-`LOCSERVER_CALIB_DIR` (default `data\calibration`).
+**Optional: large files on another drive.** If the system drive is small,
+dot-source `env.ps1` in each new PowerShell window *before* `uv sync` / `uv run`:
+
+```powershell
+. .\env.ps1 -Root D:\locserver-data     # venv, caches, weights, test data and reports go there
+```
+
+To make that permanent for one machine, create an untracked `env.local.ps1`
+next to it containing `$env:LOCSERVER_ROOT = "D:\locserver-data"`; then plain
+`. .\env.ps1` is enough. Without a root, `env.ps1` changes nothing. (In the
+examples below, test-data paths are written for the default layout.)
+
+**GPU.** The project pins the CUDA 12.6 build of PyTorch 2.14.1 because it is
+the last one that still supports GTX 10xx cards (see "GPU support"). It also
+runs on newer NVIDIA cards up to the RTX 40 series. On a machine without an
+NVIDIA GPU, or with one that this build does not support (e.g. RTX 50 series),
+the server falls back to the CPU automatically: everything works, a query then
+takes about 5 s instead of under 1 s. To use such a GPU, change the index in
+`pyproject.toml` (`[[tool.uv.index]]` and `torch==...`) to a newer CUDA build.
 
 ---
 
@@ -130,8 +180,8 @@ A map is built once from a walk through the room.
 # your own room: put the video at data\input\room.mp4
 uv run locserver-build-map data\input\room.mp4 --map-id room
 
-# the public test sequence (see "Downloads")
-uv run locserver-build-map E:\VR-FESB\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --map-id tum_room --every 8
+# the public test sequence (fetch it with .\scripts\get_test_data.ps1)
+uv run locserver-build-map data\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --map-id tum_room --every 8
 ```
 
 Accepted inputs:
@@ -194,23 +244,23 @@ anchors are therefore moved aside to `anchors.stale.json` instead of being kept.
 ## Run the server
 
 ```powershell
-. .\env.ps1
-uv run locserver-serve                 # 0.0.0.0:8077, all maps in data\maps
-uv run locserver-serve --port 8077 --device cpu --maps-dir D:\maps
+uv run locserver-serve                 # all network interfaces, port 8077, all maps in data\maps
+uv run locserver-serve --port 9000 --name "Lab laptop" --device cpu --maps-dir D:\maps
 ```
 
-Interactive API docs: <http://localhost:8077/docs>. From the phone use the PC's
-LAN address, e.g. `http://192.168.1.74:8077` (Wi-Fi) — phone and PC must be on
-the same network.
+After loading the models (≈ 5 s) it prints where it can be reached:
 
-**Firewall.** Windows blocks inbound connections by default. The server does
-not change system settings; run this once in an *administrator* PowerShell:
-
-```powershell
-New-NetFirewallRule -DisplayName "locserver 8077" -Direction Inbound -Protocol TCP -LocalPort 8077 -Action Allow -Profile Private
+```
+AR Portal localization server "MY-PC" - service arportal-localization-server, API v1
+  Reachable on the local network at:
+    http://192.168.1.50:8077
+  In the app: type that address into the server field, or tap "Find automatically".
+  Check from the phone's browser: http://192.168.1.50:8077/health   (no answer? run: uv run locserver-doctor)
 ```
 
-(remove it again with `Remove-NetFirewallRule -DisplayName "locserver 8077"`).
+One line is printed per network interface; with several (Ethernet, Wi-Fi,
+virtual adapters) use the one in the same network as the phone. Interactive
+API docs: <http://localhost:8077/docs>.
 
 Quick check without a phone:
 
@@ -222,6 +272,90 @@ uv run locserver-localize some_photo.jpg --map-id tum_room      # same thing wit
 
 ---
 
+## Connect a phone
+
+The app finds the server either by an address you type or by "Find
+automatically", which asks every address of the phone's own /24 network for
+`GET /health` on port 8077 and accepts the one that answers with
+`"service": "arportal-localization-server"`. For either to work:
+
+1. **Same network.** PC and phone must be on the same Wi-Fi / LAN (the PC may
+   be on cable if it is the same router). Mobile data on the phone does not
+   reach the PC. Automatic search only covers the phone's own subnet; with a
+   different subnet or a non-default port, type the address by hand
+   (`http://<pc-ip>:<port>`).
+
+2. **Test from the phone's browser** before blaming the app: open
+   `http://<pc-ip>:8077/health` (the address from the server's banner). You
+   must see a line of JSON starting with `{"status":"ok","service":"arportal-localization-server"`.
+   If the page does not load, the problem is the network or the firewall, not
+   the app.
+
+3. **Windows Firewall.** Windows drops unsolicited inbound connections. The
+   server never changes system settings itself; run this once in an
+   *administrator* PowerShell (replace 8077 if you use another port):
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)" -Direction Inbound -Protocol TCP -LocalPort 8077 -Action Allow -Profile Any -RemoteAddress LocalSubnet
+   ```
+
+   and to remove it again:
+
+   ```powershell
+   Remove-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)"
+   ```
+
+   Why `-Profile Any`: Windows classifies every network as *Private* or
+   *Public*, and new Wi-Fi networks (and many wired ones) are *Public* by
+   default. A rule limited to `-Profile Private` silently does nothing on a
+   network Windows considers Public — a common reason for "it worked at home
+   but not here". `-Profile Any` works for both, while
+   `-RemoteAddress LocalSubnet` still restricts access to devices on the same
+   local network, so the port is not opened to the internet side. (Switching
+   the network to Private in Windows settings is an alternative, not a
+   requirement.)
+
+   Two traps: if Windows once showed its "allow Python to communicate on these
+   networks?" prompt and it was cancelled, it created a **block** rule for
+   `python.exe`, and a block rule wins over every allow rule; conversely, if it
+   was accepted, a broad allow rule for `python.exe` already exists and no port
+   rule is needed. `locserver-doctor` reports both cases.
+
+4. **Let the doctor look.** `uv run locserver-doctor` (about 10 s, changes
+   nothing) lists the PC's LAN addresses, whether the server is listening and
+   on which interface, the network profile of each active connection, whether
+   an inbound firewall rule covers the port, and prints the exact command for
+   whatever is missing:
+
+   ```
+   [info] LAN address: http://192.168.1.50:8077   (Wi-Fi)
+   [ OK ] Server "MY-PC" is running on port 8077 (version 0.2.0, API v1, maps: room).
+   [info] Network "CampusNet" on Wi-Fi: profile Public
+   [FIX ] No firewall rule lets inbound TCP 8077 through on Public networks, ...
+              New-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)" ...
+   ```
+
+5. **Client isolation.** Guest, hotel, dormitory and many university networks
+   (including eduroam-style ones) forbid devices from talking to each other
+   ("AP / client isolation"). Then everything on the PC is correct, the phone's
+   browser still cannot open `/health`, and no setting on the PC can fix it.
+   Workaround: turn on the phone's **hotspot** and connect the PC to it — the
+   two are then on a private network of their own (the server prints a new
+   address; the hotspot only carries the local traffic, mobile data is not
+   needed for the localisation itself). A small travel router works too.
+
+6. **Trusted networks only.** The server has **no authentication and no
+   encryption**: anyone on the same network can query it, read map metadata
+   and change or delete anchors. Run it on a home network, a hotspot or a lab
+   network you trust, stop it when you are done, and never forward the port to
+   the internet.
+
+7. **Android and plain HTTP.** Release builds of an Android app refuse
+   `http://` connections unless cleartext traffic is allowed for the server's
+   address (see "How the mobile app is expected to call it").
+
+---
+
 ## API reference
 
 All responses are JSON. Errors use HTTP status codes with `{"detail": "..."}`
@@ -229,11 +363,30 @@ All responses are JSON. Errors use HTTP status codes with `{"detail": "..."}`
 
 ### `GET /health`
 
+Identity and status. It never touches the models, answers within milliseconds
+even while a localisation is running, and works before any map exists — it is
+what the app's automatic search and its "connected" indicator call.
+
 ```json
-{"status": "ok", "version": "0.1.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
+{"status": "ok",
+ "service": "arportal-localization-server",
+ "api_version": 1,
+ "server_version": "0.2.0",
+ "server_name": "MY-PC",
+ "version": "0.2.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
+ "vram_mb": {"allocated": 56, "peak": 527},
  "models": {"extractor": "aliked-n16", "matcher": "lightglue-aliked", "max_keypoints": 2048},
- "maps": ["tum_room"], "sessions": 0, "uptime_s": 12.3}
+ "maps": ["tum_room"], "maps_dir": "C:\\...\\data\\maps", "sessions": 0, "uptime_s": 12.3}
 ```
+
+| Field | Meaning |
+|---|---|
+| `service` | constant `"arportal-localization-server"`; a client must reject a host that answers anything else |
+| `api_version` | integer, increased only when the API changes incompatibly |
+| `server_version` | version of this package (`version` is the same value, kept for older clients) |
+| `server_name` | the PC's host name, or `--name` / `LOCSERVER_NAME` — shown in the app's status indicator |
+| `status` | `"ok"` whenever the server answers |
+| `maps` | ids of the loaded maps (may be empty) |
 
 ### `GET /maps` · `GET /maps/{map_id}` · `POST /maps/reload`
 
@@ -284,7 +437,7 @@ every later session restores it automatically.
 
 ```powershell
 curl.exe -F "image=@frame.jpg" -F "map_id=room" -F "device_id=pixel7" -F "session_id=run42" `
-  -F "ar_pose={\"position\":[0.5,1.5,-1.0],\"forward\":[-1,0,0],\"up\":[0,1,0]}" http://192.168.1.74:8077/localize
+  -F "ar_pose={\"position\":[0.5,1.5,-1.0],\"forward\":[-1,0,0],\"up\":[0,1,0]}" http://<pc-ip>:8077/localize
 ```
 
 Response (shortened):
@@ -552,7 +705,7 @@ body.append('map_id', 'room');
 body.append('device_id', 'pixel7-arframe');
 body.append('session_id', sessionId);            // new id for every AR session start
 body.append('ar_pose', JSON.stringify({position: cam.position, forward: cam.forward, up: cam.up}));
-const res = await fetch('http://192.168.1.74:8077/localize', {method: 'POST', body});
+const res = await fetch(`${serverUrl}/localize`, {method: 'POST', body});
 const {success, quality, alignment} = await res.json();
 ```
 
@@ -587,7 +740,7 @@ Notes for the app side:
 uv run locserver-evaluate --map-id room --perturb all
 
 # B: frames never used for the map, compared with independent ground truth (TUM test data)
-uv run locserver-evaluate --map-id tum_room --gt-capture E:\VR-FESB\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --device both
+uv run locserver-evaluate --map-id tum_room --gt-capture data\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --device both
 ```
 
 Protocol A removes every 5th block of 4 consecutive map images (20 %) from the
@@ -609,7 +762,7 @@ truth (its size is printed), so that it is not counted as localisation error.
 `dark_noise` (definitions in `src/locserver/evaluate.py`). It is a first proxy
 for the lighting test, not a replacement for re-visiting the real room in the
 evening. `--intrinsics map|estimate|both` compares known against unknown
-intrinsics. A JSON report with every query is written to `LOCSERVER_WORK`.
+intrinsics. A JSON report with every query is written to `data\work\` (or `LOCSERVER_WORK`).
 
 ## Measured numbers
 
@@ -771,12 +924,12 @@ run time.
 
 | What | Source | Size | Where |
 |---|---|---|---|
-| Python packages (PyPI): pycolmap 4.2.1, opencv-python 5.1.0, numpy, fastapi, uvicorn, python-multipart, kornia, …; dev: pytest, httpx, scipy, imageio-ffmpeg (bundles an ffmpeg binary, used by tests only) | <https://pypi.org> | together with torch: 4.5 GB installed (`E:\VR-FESB\venv`), 4.9 GB cache (`E:\VR-FESB\uv-cache`) | |
+| Python packages (PyPI): pycolmap 4.2.1, opencv-python 5.1.0, numpy, fastapi, uvicorn, python-multipart, kornia, …; dev: pytest, httpx, scipy, imageio-ffmpeg (bundles an ffmpeg binary, used by tests only) | <https://pypi.org> | together with torch: 4.5 GB installed, 4.9 GB cache | the virtual environment and uv's cache |
 | torch 2.14.1+cu126, torchvision 0.29.1+cu126 | <https://download.pytorch.org/whl/cu126> | the bulk of the above | same |
 | LightGlue (code, commit `5a650c4`) | <https://github.com/cvg/LightGlue> | < 1 MB | same |
-| ALIKED weights `aliked-n16.pth` | <https://github.com/Shiaoming/ALIKED/raw/main/models/aliked-n16.pth> | 2.6 MB | `E:\VR-FESB\torch\hub\checkpoints` |
+| ALIKED weights `aliked-n16.pth` | <https://github.com/Shiaoming/ALIKED/raw/main/models/aliked-n16.pth> | 2.6 MB | `TORCH_HOME\hub\checkpoints` (default `%USERPROFILE%\.cache\torch`) |
 | LightGlue weights `aliked_lightglue.pth` (v0.1_arxiv) | <https://github.com/cvg/LightGlue/releases/download/v0.1_arxiv/aliked_lightglue.pth> | 45.4 MB | same |
-| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive + 0.56 GB extracted | `E:\VR-FESB\datasets\tum_fr1_room` |
+| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive, 0.56 GB extracted (`scripts\get_test_data.ps1`) | `data\datasets\tum_fr1_room` |
 
 The test sequence is from: J. Sturm et al., "A Benchmark for the Evaluation of
 RGB-D SLAM Systems", IROS 2012.
@@ -818,6 +971,7 @@ RGB-D SLAM Systems", IROS 2012.
 * **One room, one server.** Retrieval is a VLAD index held in memory; fine for
   a few hundred map images, not for a building. One localisation runs at a time
   (4 GB VRAM); requests queue.
-* **No authentication, no TLS.** Intended for a trusted local network only.
+* **No authentication, no TLS.** Intended for a trusted local network only
+  (see "Connect a phone").
 * Timings on the development PC were measured while another application was
   using the same GPU (see the note in "Measured numbers").
