@@ -18,9 +18,13 @@ import type {
   TrackingState,
   Vec3,
 } from '../localization/types';
+import { toPlaneAnchorData } from '../room/roomGeometry';
+import { roomActions } from '../room/roomStore';
+import { scanController } from '../room/scanController';
 import { appActions, useAppState } from '../state/appStore';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
+import { RoomScanLayer } from './RoomScanLayer';
 import './materials';
 
 /** The overlay shows the camera position at most this often. */
@@ -73,6 +77,9 @@ export function PortalARScene(props: SceneProps) {
   const floorYRef = useRef<number | null>(null);
   const navigatorRef = useRef<unknown>(props.arSceneNavigator);
   navigatorRef.current = props.arSceneNavigator;
+  useEffect(() => {
+    scanController.attach(props.arSceneNavigator);
+  }, [props.arSceneNavigator]);
   const sceneRef = useRef<ViroARScene>(null);
 
   /**
@@ -216,6 +223,11 @@ export function PortalARScene(props: SceneProps) {
       if (!anchor || anchor.type !== 'plane' || !anchor.position) {
         return;
       }
+      // Every plane goes into the room model (walls, floor, ceiling, furniture).
+      const plane = toPlaneAnchorData(anchor);
+      if (plane) {
+        roomActions.upsertPlane(plane);
+      }
       // "Horizontal" (ARCore upward facing), "HorizontalUpward"; ceilings are skipped.
       const alignment = anchor.alignment ?? '';
       if (!alignment.startsWith('Horizontal') || alignment === 'HorizontalDownward') {
@@ -229,6 +241,9 @@ export function PortalARScene(props: SceneProps) {
 
   const onAnchorRemoved = useCallback(
     (anchor?: PlaneAnchor) => {
+      if (anchor?.anchorId) {
+        roomActions.removePlane(anchor.anchorId);
+      }
       if (anchor?.anchorId && planesRef.current.delete(anchor.anchorId)) {
         publishFloor();
       }
@@ -244,6 +259,7 @@ export function PortalARScene(props: SceneProps) {
       onAnchorFound={onPlaneAnchor}
       onAnchorUpdated={onPlaneAnchor}
       onAnchorRemoved={onAnchorRemoved}
+      onDepthReady={roomActions.setDepthReady}
     >
       {/* Lights for the AR-side objects. */}
       <ViroAmbientLight color="#ffffff" intensity={350} influenceBitMask={LIGHT_MASK_AR} />
@@ -270,6 +286,8 @@ export function PortalARScene(props: SceneProps) {
         materials={['arSphere']}
         lightReceivingBitMask={LIGHT_MASK_AR}
       />
+
+      <RoomScanLayer />
 
       {door ? (
         // `key` re-mounts the portal when the attach mode changes, so each mode starts clean.

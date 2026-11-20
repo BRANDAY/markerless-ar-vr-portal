@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import { appActions, useAppState } from '../state/appStore';
+import { ScanPanel } from './ScanPanel';
 import { ServerChip } from './ServerPanel';
 
 const TRACKING_COLORS = {
@@ -34,6 +35,7 @@ export function Overlay() {
           <StatusPanel />
           <View style={styles.spacer} pointerEvents="none" />
           <EventLog />
+          <ScanPanel />
           <Controls />
         </>
       ) : null}

@@ -1,0 +1,305 @@
+/**
+ * Everything the room scan does through the AR engine and the file system: world-mesh
+ * statistics, mesh snapshot, the session recording (video + poses) and the export of the
+ * app's own plane model. What ends up in a capture folder is described in
+ * `docs/capture-format.md`.
+ *
+ * The AR scene hands over the navigator object it receives from ViroReact; the overlay's
+ * buttons call the functions here.
+ */
+import { Directory, File, Paths } from 'expo-file-system';
+
+import { appActions } from '../state/appStore';
+import { getPlaneAnchors, getRoomScanState, roomActions, type MeshInfo } from './roomStore';
+
+/** The subset of ViroReact's `arSceneNavigator` object used by the scan. */
+interface ScanNavigator {
+  getWorldMeshStats?: () => Promise<Record<string, unknown>>;
+  resetWorldMesh?: () => Promise<boolean>;
+  snapshotWorldMeshToFile?: (locationTransform: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  isRecordingSupported?: (options?: { depth?: boolean }) => Promise<boolean>;
+  startRecording?: (outputDir: string, options?: { depth?: boolean }) => Promise<{ success: boolean; error?: string }>;
+  stopRecording?: () => Promise<{
+    success: boolean;
+    error?: string;
+    durationSec?: number;
+    frames?: number;
+    depthFrames?: number;
+    gpsFixes?: number;
+    bytes?: number;
+  }>;
+}
+
+const MESH_POLL_INTERVAL_MS = 1000;
+/**
+ * `snapshotWorldMeshToFile` wants the transform of a hosted scan and writes the mesh "in
+ * the scan's frame". The identity keeps the mesh in the AR world frame of this session,
+ * which is the frame of the recording's poses.
+ */
+const IDENTITY_TRANSFORM = '1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1';
+export const CAPTURE_FORMAT_VERSION = 1;
+
+let navigator: ScanNavigator | null = null;
+let meshTimer: ReturnType<typeof setInterval> | null = null;
+let lastMeshSummary = '';
+let captureDir: Directory | null = null;
+let captureStartedUtc = '';
+
+const log = (text: string) => appActions.log(`scan: ${text}`);
+
+/** `file:///data/...` -> `/data/...`, without a trailing slash: what native code expects. */
+function nativePath(uri: string): string {
+  return decodeURIComponent(uri.replace(/^file:\/\//, '')).replace(/\/+$/, '');
+}
+
+function timestampName(date: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `capture-${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}` +
+    `-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`
+  );
+}
+
+function newCaptureDir(): Directory {
+  const root = new Directory(Paths.document, 'captures');
+  root.create({ intermediates: true, idempotent: true });
+  const dir = new Directory(root, timestampName(new Date()));
+  dir.create({ intermediates: true, idempotent: true });
+  return dir;
+}
+
+function describeFiles(dir: Directory): string {
+  const parts: string[] = [];
+  for (const entry of dir.list()) {
+    if (entry instanceof File) {
+      parts.push(`${entry.name} ${(Number(entry.size ?? 0) / 1024).toFixed(0)} kB`);
+    } else {
+      parts.push(`${entry.name}/`);
+    }
+  }
+  return parts.join(', ');
+}
+
+function toMeshInfo(raw: Record<string, unknown>): MeshInfo {
+  return {
+    available: raw.available === true,
+    reason: typeof raw.reason === 'string' ? raw.reason : '',
+    vertexCount: typeof raw.vertexCount === 'number' ? raw.vertexCount : 0,
+    triangleCount: typeof raw.triangleCount === 'number' ? raw.triangleCount : 0,
+    source: typeof raw.source === 'string' ? raw.source : 'unknown',
+    accumulated: raw.accumulated === true,
+  };
+}
+
+async function pollMesh(): Promise<void> {
+  if (!navigator?.getWorldMeshStats) {
+    return;
+  }
+  try {
+    const info = toMeshInfo(await navigator.getWorldMeshStats());
+    roomActions.setMesh(info);
+    // Log changes of kind, not every number.
+    const summary = info.available
+      ? `available, source ${info.source}${info.accumulated ? ', accumulated' : ''}`
+      : `not available (${info.reason || 'no reason given'})`;
+    if (summary !== lastMeshSummary) {
+      lastMeshSummary = summary;
+      log(`world mesh ${summary}`);
+    }
+  } catch (error) {
+    const summary = `query failed: ${String(error)}`;
+    if (summary !== lastMeshSummary) {
+      lastMeshSummary = summary;
+      log(`world mesh ${summary}`);
+    }
+  }
+}
+
+/** The app's own model of the room: the detected planes, in the AR world frame. */
+function writePlanes(dir: Directory): void {
+  const { room } = getRoomScanState();
+  const file = new File(dir, 'planes.json');
+  if (!file.exists) {
+    file.create();
+  }
+  file.write(
+    JSON.stringify({
+      format: 'arportal-planes',
+      version: CAPTURE_FORMAT_VERSION,
+      frame: 'AR world frame of the recording session: metres, right-handed, +Y up',
+      rotation_convention: 'Euler degrees [x,y,z], R = Rz*Ry*Rx (ViroReact)',
+      floor_y: room.floorY,
+      planes: room.planes.map((plane) => ({
+        id: plane.anchorId,
+        kind: plane.kind,
+        alignment: plane.alignment,
+        classification: plane.classification,
+        position: plane.position,
+        rotation_euler_deg: plane.rotation,
+        normal: plane.normal,
+        area_m2: plane.area,
+        vertices: plane.vertices,
+        vertices_local: plane.localVertices,
+      })),
+      corners: room.corners.map((corner) => ({
+        position: corner.position,
+        height_m: corner.height,
+        wall_ids: corner.wallIds,
+      })),
+      raw_anchors: getPlaneAnchors(),
+    }),
+  );
+}
+
+async function snapshotMeshInto(dir: Directory): Promise<string> {
+  if (!navigator?.snapshotWorldMeshToFile) {
+    return 'not offered by this ViroReact build';
+  }
+  const result = await navigator.snapshotWorldMeshToFile(IDENTITY_TRANSFORM);
+  if (!result.success || !result.filePath) {
+    return `failed: ${result.error ?? 'no file path returned'}`;
+  }
+  const source = new File(result.filePath.startsWith('file://') ? result.filePath : `file://${result.filePath}`);
+  const extension = /\.([A-Za-z0-9]+)$/.exec(result.filePath)?.[1] ?? 'bin';
+  const target = new File(dir, `world_mesh.${extension}`);
+  if (target.exists) {
+    target.delete();
+  }
+  source.copy(target);
+  return `saved ${target.name} (${(Number(target.size ?? 0) / 1024).toFixed(0)} kB, from ${result.filePath})`;
+}
+
+export const scanController = {
+  /** Called by the AR scene with the object ViroReact injects as `arSceneNavigator`. */
+  attach(value: unknown): void {
+    navigator = value && typeof value === 'object' ? (value as ScanNavigator) : null;
+  },
+
+  setScanning(on: boolean): void {
+    roomActions.setScanning(on);
+    if (meshTimer !== null) {
+      clearInterval(meshTimer);
+      meshTimer = null;
+    }
+    lastMeshSummary = '';
+    if (on) {
+      const { room, planeCount, depthReady } = getRoomScanState();
+      log(
+        `room scan on: ${planeCount} planes known (${room.wallCount} walls), ` +
+          `depth ${depthReady ? 'ready' : 'not reported yet'}`,
+      );
+      meshTimer = setInterval(() => void pollMesh(), MESH_POLL_INTERVAL_MS);
+    } else {
+      log('room scan off');
+    }
+  },
+
+  toggleWireframe(): void {
+    const next = !getRoomScanState().wireframe;
+    roomActions.setWireframe(next);
+    log(`mesh wireframe ${next ? 'on' : 'off'}`);
+  },
+
+  /** Forget the fused mesh. Planes belong to the AR session and cannot be reset from here. */
+  async reset(): Promise<void> {
+    try {
+      const done = await navigator?.resetWorldMesh?.();
+      log(`world mesh reset: ${done === undefined ? 'not offered' : done ? 'done' : 'refused'}`);
+    } catch (error) {
+      log(`world mesh reset failed: ${String(error)}`);
+    }
+  },
+
+  /** Planes + mesh into a new capture folder, without a recording. */
+  async snapshot(): Promise<void> {
+    try {
+      const dir = newCaptureDir();
+      writePlanes(dir);
+      log(`mesh snapshot: ${await snapshotMeshInto(dir)}`);
+      log(`${dir.name}: ${describeFiles(dir)}`);
+    } catch (error) {
+      log(`snapshot failed: ${String(error)}`);
+    }
+  },
+
+  async toggleRecording(): Promise<void> {
+    const phase = getRoomScanState().recording;
+    if (phase === 'idle') {
+      await startRecording();
+    } else if (phase === 'recording') {
+      await stopRecording();
+    }
+  },
+};
+
+async function startRecording(): Promise<void> {
+  if (!navigator?.startRecording) {
+    log('recording is not offered by this ViroReact build');
+    return;
+  }
+  roomActions.setRecording('starting');
+  try {
+    const supported = await navigator.isRecordingSupported?.();
+    if (supported === false) {
+      log('recording not supported right now (the AR session must be tracking)');
+      roomActions.setRecording('idle');
+      return;
+    }
+    const dir = newCaptureDir();
+    const result = await navigator.startRecording(nativePath(dir.uri));
+    if (!result.success) {
+      log(`recording did not start: ${result.error ?? 'no reason given'}`);
+      roomActions.setRecording('idle');
+      return;
+    }
+    captureDir = dir;
+    captureStartedUtc = new Date().toISOString();
+    roomActions.setRecording('recording');
+    log(`recording into ${dir.name}`);
+  } catch (error) {
+    log(`recording failed to start: ${String(error)}`);
+    roomActions.setRecording('idle');
+  }
+}
+
+async function stopRecording(): Promise<void> {
+  roomActions.setRecording('stopping');
+  const dir = captureDir;
+  captureDir = null;
+  try {
+    const result = await navigator?.stopRecording?.();
+    if (!result?.success) {
+      log(`recording stopped with an error: ${result?.error ?? 'no result'}`);
+    } else {
+      log(
+        `recording stopped: ${Number(result.durationSec ?? 0).toFixed(1)} s, ${result.frames ?? '?'} frames` +
+          (result.bytes ? `, ${(result.bytes / 1e6).toFixed(1)} MB` : ''),
+      );
+    }
+    if (dir) {
+      writePlanes(dir);
+      const meshNote = await snapshotMeshInto(dir).catch((error) => `failed: ${String(error)}`);
+      log(`mesh snapshot: ${meshNote}`);
+      const meta = new File(dir, 'capture.json');
+      if (!meta.exists) {
+        meta.create();
+      }
+      meta.write(
+        JSON.stringify({
+          format: 'arportal-capture',
+          version: CAPTURE_FORMAT_VERSION,
+          started_utc: captureStartedUtc,
+          stopped_utc: new Date().toISOString(),
+          recording: result ?? null,
+          world_mesh: meshNote,
+          mesh_stats: getRoomScanState().mesh,
+        }),
+      );
+      log(`${dir.name}: ${describeFiles(dir)}`);
+    }
+  } catch (error) {
+    log(`recording failed to stop: ${String(error)}`);
+  } finally {
+    roomActions.setRecording('idle');
+  }
+}

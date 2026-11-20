@@ -10,5 +10,5 @@
     "rootDir": "src",
     "outDir": ".test-build"
   },
-  "include": ["src/server/core/**/*.ts"]
+  "include": ["src/server/core/**/*.ts", "src/room/roomGeometry.ts", "src/room/roomGeometry.test.ts"]
 }

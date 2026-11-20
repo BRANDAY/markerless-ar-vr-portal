@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { PortalARScene } from './src/ar/PortalARScene';
+import { useRoomScan } from './src/room/roomStore';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions } from './src/state/appStore';
 import { Overlay } from './src/ui/Overlay';
@@ -123,6 +124,8 @@ function useCameraPermission() {
 
 export default function App() {
   const { permission, ask } = useCameraPermission();
+  const scanning = useRoomScan((state) => state.scanning);
+  const wireframe = useRoomScan((state) => state.wireframe);
 
   // Independent of the camera permission and of the AR session: try the saved server
   // address and keep the heartbeat running while the app is in the foreground.
@@ -166,6 +169,9 @@ export default function App() {
         // The scene receives `arSceneNavigator` from the navigator; ViroReact types the
         // scene as a prop-less function, hence the cast.
         initialScene={{ scene: PortalARScene as unknown as () => React.JSX.Element }}
+        // Room scan: the AR engine fuses its depth images into a mesh of the room.
+        worldMeshEnabled={scanning}
+        worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe }}
       />
       <Overlay />
     </View>

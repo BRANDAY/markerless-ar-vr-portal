@@ -2,6 +2,14 @@ import { ViroAnimations, ViroMaterials } from '@reactvision/react-viro';
 
 // Registered once, when the scene module is first imported.
 
+const SCAN_FILL = {
+  lightingModel: 'Constant',
+  cullMode: 'None',
+  blendMode: 'Alpha',
+  writesToDepthBuffer: false,
+} as const;
+const SCAN_LINE = { lightingModel: 'Constant', cullMode: 'None' } as const;
+
 ViroMaterials.createMaterials({
   // ---- AR-side objects (Task 1) ----
   arBox: { lightingModel: 'Lambert', diffuseColor: '#ff8a00' },
@@ -42,6 +50,19 @@ ViroMaterials.createMaterials({
   roomCube: { lightingModel: 'Lambert', diffuseColor: '#ffd23f' },
   roomSphere: { lightingModel: 'Blinn', diffuseColor: '#19e6a6', shininess: 4 },
   roomCrate: { lightingModel: 'Lambert', diffuseColor: '#ff4f7b' },
+
+  // ---- Room scan highlights ----
+  // Translucent fills that neither hide what is behind them nor each other; unlit, so
+  // they look the same in any room light.
+  scanWall: { ...SCAN_FILL, diffuseColor: 'rgba(34, 211, 238, 0.30)' },
+  scanFloor: { ...SCAN_FILL, diffuseColor: 'rgba(46, 204, 113, 0.28)' },
+  scanCeiling: { ...SCAN_FILL, diffuseColor: 'rgba(167, 139, 250, 0.25)' },
+  scanSurface: { ...SCAN_FILL, diffuseColor: 'rgba(250, 204, 21, 0.25)' },
+  scanWallLine: { ...SCAN_LINE, diffuseColor: '#22d3ee' },
+  scanFloorLine: { ...SCAN_LINE, diffuseColor: '#2ecc71' },
+  scanCeilingLine: { ...SCAN_LINE, diffuseColor: '#a78bfa' },
+  scanSurfaceLine: { ...SCAN_LINE, diffuseColor: '#facc15' },
+  scanCorner: { lightingModel: 'Constant', diffuseColor: '#ff3b6b' },
 });
 
 ViroAnimations.registerAnimations({
