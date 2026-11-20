@@ -64,9 +64,9 @@ def test_default_paths_are_inside_the_project(monkeypatch):
 
 # ------------------------------------------------------------------ banner --- #
 def test_filter_lan_drops_unusable_addresses_and_orders_them():
-    got = netinfo.filter_lan(["127.0.0.1", "169.254.10.3", "10.0.0.5", "192.168.1.74", "0.0.0.0", "garbage",
-                              "172.20.16.1", "192.168.1.74", "8.8.8.8"])
-    assert got == ["192.168.1.74", "10.0.0.5", "172.20.16.1", "8.8.8.8"]
+    got = netinfo.filter_lan(["127.0.0.1", "169.254.10.3", "10.0.0.5", "192.168.1.60", "0.0.0.0", "garbage",
+                              "172.20.16.1", "192.168.1.60", "8.8.8.8"])
+    assert got == ["192.168.1.60", "10.0.0.5", "172.20.16.1", "8.8.8.8"]
 
 
 def test_lan_addresses_of_this_machine_are_well_formed():
@@ -75,16 +75,16 @@ def test_lan_addresses_of_this_machine_are_well_formed():
 
 
 def test_banner_lists_every_lan_url():
-    text = "\n".join(netinfo.banner_lines("0.0.0.0", 8077, ["192.168.1.116", "192.168.1.74"], "PC"))
-    assert "http://192.168.1.116:8077" in text and "http://192.168.1.74:8077" in text
+    text = "\n".join(netinfo.banner_lines("0.0.0.0", 8077, ["192.168.1.50", "192.168.1.60"], "PC"))
+    assert "http://192.168.1.50:8077" in text and "http://192.168.1.60:8077" in text
     assert "Find automatically" in text and "/health" in text and SERVICE_ID in text
 
 
 def test_banner_for_a_specific_or_loopback_host_and_without_network():
-    one = "\n".join(netinfo.banner_lines("10.0.0.5", 9000, ["192.168.1.116"], "PC"))
-    assert "http://10.0.0.5:9000" in one and "192.168.1.116" not in one
-    loop = "\n".join(netinfo.banner_lines("127.0.0.1", 8077, ["192.168.1.116"], "PC"))
-    assert "this PC only" in loop and "--host 0.0.0.0" in loop and "192.168.1.116" not in loop
+    one = "\n".join(netinfo.banner_lines("10.0.0.5", 9000, ["192.168.1.50"], "PC"))
+    assert "http://10.0.0.5:9000" in one and "192.168.1.50" not in one
+    loop = "\n".join(netinfo.banner_lines("127.0.0.1", 8077, ["192.168.1.50"], "PC"))
+    assert "this PC only" in loop and "--host 0.0.0.0" in loop and "192.168.1.50" not in loop
     none = "\n".join(netinfo.banner_lines("0.0.0.0", 8077, [], "PC"))
     assert "No LAN address" in none
 
@@ -123,12 +123,12 @@ OUR_HEALTH = {"service": SERVICE_ID, "api_version": 1, "server_version": "0.2.0"
 
 def facts(**over):
     base = {
-        "platform": "Windows", "port": 8077, "python_exe": EXE, "addresses": ["192.168.1.116"],
-        "listening_loopback": True, "listening_lan": {"192.168.1.116": True}, "health": OUR_HEALTH,
+        "platform": "Windows", "port": 8077, "python_exe": EXE, "addresses": ["192.168.1.50"],
+        "listening_loopback": True, "listening_lan": {"192.168.1.50": True}, "health": OUR_HEALTH,
         "windows": {
             "rules_readable": True,
             "profiles": [{"interface": "Wi-Fi", "network": "HomeNet", "category": "Public"}],
-            "addresses": [{"ip": "192.168.1.116", "interface": "Wi-Fi", "prefix": 24}],
+            "addresses": [{"ip": "192.168.1.50", "interface": "Wi-Fi", "prefix": 24}],
             "fw_profiles": [{"name": "Domain", "enabled": True}, {"name": "Private", "enabled": True}, {"name": "Public", "enabled": True}],
             "rules": [],
         },
@@ -157,7 +157,7 @@ def test_doctor_public_network_without_rule_recommends_profile_any_rule():
     assert "-Profile Private would not apply" in p[0].text
     assert any('Remove-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)"' in f.text for f in fs)
     assert any(f.level == "ok" and "is running" in f.text for f in fs)
-    assert any("http://192.168.1.116:8077/health" in f.text for f in fs)
+    assert any("http://192.168.1.50:8077/health" in f.text for f in fs)
 
 
 def test_doctor_private_only_rule_does_not_help_on_a_public_network():
@@ -203,7 +203,7 @@ def test_doctor_server_states():
     assert any(f.level == "warn" and f.fix == "uv run locserver-serve" for f in fs)
     fs = doctor.evaluate(facts(health={"service": "other"}))
     assert any(f.level == "problem" and "another program" in f.text for f in fs)
-    fs = doctor.evaluate(facts(listening_lan={"192.168.1.116": False}))
+    fs = doctor.evaluate(facts(listening_lan={"192.168.1.50": False}))
     assert any(f.level == "problem" and f.fix == "uv run locserver-serve --host 0.0.0.0" for f in fs)
     fs = doctor.evaluate(facts(addresses=[], listening_lan={}))
     assert any(f.level == "problem" and "no LAN IPv4 address" in f.text for f in fs)

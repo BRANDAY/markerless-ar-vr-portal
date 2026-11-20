@@ -4,7 +4,7 @@ Prints the alignment the server returns and, if the recording folder contains
 ``expected.json`` (written by make_demo_recording.py), how far it is from the
 known answer.
 
-    uv run python scripts/demo_recording_query.py E:\\VR-FESB\\work\\demo_rec --map-id tum_room
+    uv run python scripts/demo_recording_query.py data/work/demo_rec --map-id tum_room
 """
 
 from __future__ import annotations
