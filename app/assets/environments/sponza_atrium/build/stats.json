@@ -1,0 +1,489 @@
+{
+ "materials": [
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__25",
+   "triangles": 1521,
+   "vertices": 864,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__298",
+   "triangles": 1588,
+   "vertices": 878,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__47",
+   "triangles": 138,
+   "vertices": 116,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__57",
+   "triangles": 3472,
+   "vertices": 3932,
+   "alpha": "MASK"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "arch",
+   "triangles": 23055,
+   "vertices": 16977,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "bricks",
+   "triangles": 70092,
+   "vertices": 37376,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "ceiling",
+   "triangles": 30484,
+   "vertices": 17284,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "chain",
+   "triangles": 96,
+   "vertices": 112,
+   "alpha": "MASK"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_a",
+   "triangles": 10920,
+   "vertices": 7992,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_b",
+   "triangles": 25773,
+   "vertices": 24506,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_c",
+   "triangles": 12231,
+   "vertices": 15414,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "details",
+   "triangles": 2543,
+   "vertices": 2113,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_a",
+   "triangles": 11008,
+   "vertices": 6084,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_c",
+   "triangles": 18944,
+   "vertices": 9904,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_d",
+   "triangles": 16512,
+   "vertices": 9126,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_e",
+   "triangles": 16512,
+   "vertices": 9126,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_f",
+   "triangles": 14336,
+   "vertices": 7398,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_g",
+   "triangles": 14336,
+   "vertices": 7398,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "flagpole",
+   "triangles": 16880,
+   "vertices": 12362,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "floor",
+   "triangles": 18066,
+   "vertices": 9138,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "leaf",
+   "triangles": 31318,
+   "vertices": 24046,
+   "alpha": "MASK"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "roof",
+   "triangles": 20346,
+   "vertices": 14764,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase",
+   "triangles": 12320,
+   "vertices": 6940,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase_hanging",
+   "triangles": 19828,
+   "vertices": 10412,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase_round",
+   "triangles": 17688,
+   "vertices": 9832,
+   "alpha": "OPAQUE"
+  },
+  {
+   "file": "sponza_atrium_backwall.glb",
+   "material": "bricks",
+   "triangles": 2234,
+   "vertices": 1166,
+   "alpha": "OPAQUE"
+  }
+ ],
+ "textures": [
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__25",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 339047,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__298",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 197908,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "Material__57",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 847290,
+   "mime": "image/png"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "arch",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 305679,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "bricks",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 331691,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "ceiling",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 273017,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "chain",
+   "size": [
+    256,
+    1024
+   ],
+   "bytes": 433936,
+   "mime": "image/png"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_a",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 299915,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_b",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 374936,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "column_c",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 398397,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "details",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 182114,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_a",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 421134,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_c",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 495827,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_d",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 384098,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_e",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 391909,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_f",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 483944,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "fabric_g",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 530617,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "flagpole",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 221342,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "floor",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 309498,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "leaf",
+   "size": [
+    512,
+    512
+   ],
+   "bytes": 424958,
+   "mime": "image/png"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "roof",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 507569,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 304445,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase_hanging",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 169661,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "vase_round",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 330007,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium.glb",
+   "material": "sky",
+   "size": [
+    4096,
+    1024
+   ],
+   "bytes": 357104,
+   "mime": "image/jpeg"
+  },
+  {
+   "file": "sponza_atrium_backwall.glb",
+   "material": "bricks",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 331691,
+   "mime": "image/jpeg"
+  }
+ ],
+ "files": [
+  {
+   "file": "sponza_atrium.glb",
+   "bytes": 21349604,
+   "triangles": 411799,
+   "vertices": 265069,
+   "meshes": 26
+  },
+  {
+   "file": "sponza_atrium_backwall.glb",
+   "bytes": 388980,
+   "triangles": 2234,
+   "vertices": 1166,
+   "meshes": 1
+  }
+ ],
+ "bbox_min": [
+  -6.115,
+  -0.147,
+  -27.43
+ ],
+ "bbox_max": [
+  6.45,
+  13.401,
+  0.01
+ ],
+ "frame": {
+  "x_door_model_m": -14.275195350646973,
+  "y_floor_model_m": -0.025061964988708496,
+  "z_centre_model_m": -0.4,
+  "wall_gap_m": 0.01
+ },
+ "lighting": {
+  "sun_elevation_deg": 58.0,
+  "sun_azimuth_deg": 14.0,
+  "exposure": 4.6,
+  "white": 8.0,
+  "bounce": 1.0,
+  "ambient": 0.01,
+  "max_edge_m": 0.45
+ }
+}
