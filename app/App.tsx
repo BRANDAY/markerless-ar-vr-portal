@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { PortalARScene } from './src/ar/PortalARScene';
+import { serverConnection } from './src/server/ServerConnection';
 import { appActions } from './src/state/appStore';
 import { Overlay } from './src/ui/Overlay';
 
@@ -122,6 +123,12 @@ function useCameraPermission() {
 
 export default function App() {
   const { permission, ask } = useCameraPermission();
+
+  // Independent of the camera permission and of the AR session: try the saved server
+  // address and keep the heartbeat running while the app is in the foreground.
+  useEffect(() => {
+    void serverConnection.start(appActions.log);
+  }, []);
 
   // The AR view is mounted only once the camera permission is granted: starting an
   // ARCore session without it is a known source of a black camera image.

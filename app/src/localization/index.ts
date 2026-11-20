@@ -1,9 +1,6 @@
 import { ManualPlacementProvider } from './ManualPlacementProvider';
-import {
-  ArCoreCloudAnchorProvider,
-  ReactVisionVpsProvider,
-  SelfHostedServerProvider,
-} from './stubs';
+import { SelfHostedServerProvider } from './SelfHostedServerProvider';
+import { ArCoreCloudAnchorProvider, ReactVisionVpsProvider } from './stubs';
 import type { LocalizationProvider, ProviderId } from './types';
 
 export * from './types';

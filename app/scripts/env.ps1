@@ -1,14 +1,19 @@
-# Dot-source this file to point the build caches at the E: drive FOR THE CURRENT
-# POWERSHELL SESSION ONLY (nothing permanent is written, no system settings change):
+# OPTIONAL. Points the build caches at another drive/folder FOR THE CURRENT POWERSHELL
+# SESSION ONLY (nothing permanent is written, no system settings change). Dot-source it
+# with the folder to use, before `npm ci` / the Gradle build:
 #
-#   . .\scripts\env.ps1
+#   . .\scripts\env.ps1 -CacheRoot D:\build-caches
 #
-# Why: the C: drive of the development laptop is nearly full. The Gradle user home
-# (downloaded Gradle distribution, Maven artifacts, build cache: several GB) and the
-# npm download cache are kept on E: instead. Change the two paths below, or skip this
-# file entirely, on a machine with enough space on the system drive.
-$env:GRADLE_USER_HOME = 'E:\VR-FESB\gradle-home'
-$env:npm_config_cache = 'E:\VR-FESB\npm-cache'
+# Why: the Gradle user home (Gradle distribution, Maven artifacts, build cache) grows to
+# about 4 GB and the npm download cache to about 0.5 GB; by default both live in the user
+# profile on the system drive. Skip this script if there is enough space there.
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$CacheRoot
+)
+
+$env:GRADLE_USER_HOME = Join-Path $CacheRoot 'gradle-home'
+$env:npm_config_cache = Join-Path $CacheRoot 'npm-cache'
 
 New-Item -ItemType Directory -Force -Path $env:GRADLE_USER_HOME, $env:npm_config_cache | Out-Null
 

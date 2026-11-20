@@ -1,7 +1,8 @@
 /**
  * STUBS - NOT IMPLEMENTED (stage 2).
  *
- * The three planned localization back-ends. Each class already satisfies the
+ * Two of the planned localization back-ends (the third, the self-hosted server, has its
+ * own file: `SelfHostedServerProvider.ts`). Each class already satisfies the
  * `LocalizationProvider` interface, can be selected in the app and reports
  * status `error` / "not implemented". There is deliberately NO network code,
  * no API key handling and no SDK call in this file.
@@ -60,19 +61,4 @@ export class ArCoreCloudAnchorProvider extends NotImplementedProvider {
   readonly id: ProviderId = 'arcore-cloud-anchor';
   readonly displayName = 'ARCore Cloud Anchor (stub)';
   protected readonly plan = 'needs a Google Cloud API key and a hosted cloud-anchor id';
-}
-
-/**
- * STUB: self-hosted localization server on the local Wi-Fi.
- *
- * Plan: send camera frames (image + intrinsics + the camera pose in the session
- * frame at capture time) to the HTTP API of the `localization-server` project,
- * receive the camera pose in the room-map frame, derive the session<-map
- * transform and emit `T_session_map * doorPoseInMap`. The request/response
- * contract lives in that project's README. Needs: the server URL and a built map.
- */
-export class SelfHostedServerProvider extends NotImplementedProvider {
-  readonly id: ProviderId = 'self-hosted';
-  readonly displayName = 'Self-hosted server (stub)';
-  protected readonly plan = 'needs the localization-server URL and a built room map';
 }

@@ -45,6 +45,10 @@ export type LocalizationStatus =
   | 'idle'
   /** Started, waiting for AR tracking to become usable. */
   | 'waiting-for-tracking'
+  /** The provider's back-end (server) is not reachable yet; it keeps trying. */
+  | 'waiting-for-server'
+  /** The back-end is reachable, but no pose has been requested or produced yet. */
+  | 'connected'
   /** Tracking is fine, the provider is working on a pose (scanning, uploading, resolving...). */
   | 'localizing'
   /** A pose has been delivered and is believed to be valid. */

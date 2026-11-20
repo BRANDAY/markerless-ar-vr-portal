@@ -6,10 +6,11 @@ out into AR. The final goal of the assignment is that the doorway appears at the
 real-world place in every app session, found without markers, QR codes, GPS or manual
 placement.
 
-**This repository is at stage 1**: a buildable Android app with the AR scene, the
-walk-through portal and a pluggable localization layer. Real localization is not
-implemented yet — the doorway is placed 2 m in front of the camera by a stand-in
-provider (see [Status](#status-against-the-assignment)).
+**This repository is at stage 2a**: a buildable Android app with the AR scene, the
+walk-through portal, a pluggable localization layer, and a working network connection
+to the self-hosted localization server (find it on the Wi-Fi, show "connected").
+Real localization is not implemented yet — the doorway is placed 2 m in front of the
+camera by a stand-in provider (see [Status](#status-against-the-assignment)).
 
 > **Device status.** The first build (commit `9cb8a8b`) was tested once on a Xiaomi 14
 > Ultra: camera feed, tracking, the door frame, the room seen through it, walking in and
@@ -22,7 +23,7 @@ provider (see [Status](#status-against-the-assignment)).
 | Task | State |
 | --- | --- |
 | 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`); camera feed and tracking confirmed on a device |
-| 2. Recognise a previously scanned room without markers | **Not implemented.** Interface + three stubs only (`src/localization/`) |
+| 2. Recognise a previously scanned room without markers | **Not implemented.** The app can find and talk to the localization server (stage 2a, [Connect to the localization server](#connect-to-the-localization-server)); it does not send it any images yet |
 | 3. Doorway at the same real-world pose in every session | **Not implemented.** Depends on task 2; the doorway pose already flows through one place |
 | 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`, `src/ar/VirtualRoom.tsx`); confirmed on a device, one visual defect at the crossing (see below) |
 | 5. Tests: restart, angles, lighting, tracking loss | Not started (needs tasks 2–3 and a device) |
@@ -35,6 +36,7 @@ provider (see [Status](#status-against-the-assignment)).
 | React Native | 0.88.1 | New Architecture (the only mode in this version) |
 | React | 19.3.0 | |
 | ViroReact | `@reactvision/react-viro` 3.2.2 | AR renderer on top of ARCore |
+| Expo modules | `expo-network` 58.0.5, `expo-file-system` 58.0.14, `expo-build-properties` 58.0.12 | phone's IP address; saved server address; cleartext HTTP switch |
 | TypeScript | 6.0.x | |
 | Android | compileSdk 37, targetSdk 36, minSdk 24 | build-tools 37.0.0, NDK 27.1.12297006 |
 | Gradle / AGP | 9.4.1 / 9.2.1 | downloaded by the wrapper |
@@ -77,11 +79,11 @@ New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name
 ### 3. Optional: caches on another drive
 
 The Gradle user home grows to several GB. To keep it (and the npm cache) off the system
-drive for the current PowerShell session, edit the two paths in `scripts/env.ps1` and
-dot-source it before the commands below:
+drive for the current PowerShell session, dot-source `scripts/env.ps1` with a folder of
+your choice before the commands below:
 
 ```powershell
-. .\scripts\env.ps1
+. .\scripts\env.ps1 -CacheRoot D:\build-caches
 ```
 
 It only sets `GRADLE_USER_HOME` and `npm_config_cache` for that shell; nothing permanent.
@@ -171,13 +173,16 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm run assets` (regenerate textures
-and the door model).
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (unit tests of the server
+connection code, run in Node), `npm run assets` (regenerate textures and the door model).
 
 ## Using the app
 
 - Top left: mode badge — green **AR** or purple **VR**. It is driven only by the
   portal's `onPortalEnter` / `onPortalExit` events.
+- Below it: the **server chip**, always visible — green "Server: connected · name · N ms",
+  grey or red otherwise. Tap it to open the server settings
+  ([Connect to the localization server](#connect-to-the-localization-server)).
 - *Debug / Hide debug*: toggles the debug overlay (status panel, event log, buttons).
 - Status panel: tracking state and reason, camera position and forward vector in
   AR-world coordinates, detected floor height, provider status, door pose, attach mode.
@@ -185,7 +190,8 @@ and the door model).
 - *Re-place door*: asks the provider for a new pose; the manual provider puts the
   doorway 2 m in front of the camera again.
 - *Attach: direct / parent*: how the portal is attached to the scene graph (below).
-- *Provider: …*: cycles through the providers; all except `manual` are stubs.
+- *Provider: …*: cycles through the providers; `manual` places the door, `self-hosted`
+  reports the server connection, the other two are stubs.
 
 Expected behaviour: move the phone slowly until tracking becomes NORMAL. A box, a
 sphere and a text label appear about 1.2 m in front of the starting position; the door
@@ -194,6 +200,112 @@ with a checkerboard floor. Walk through the frame: the badge switches to VR and 
 room surrounds you. Turn around: the doorway shows the camera image, with "EXIT TO AR"
 above it. Walk back through it to return to AR.
 
+## Connect to the localization server
+
+The localization server is a separate project (`localization-server`, Python). It runs
+on a computer; the phone talks to it over the local network with plain HTTP. **No address
+is built into the app** — it is found automatically or typed in, on whatever network you
+are on. Stage 2a only establishes and monitors this connection.
+
+### Steps
+
+1. Start the server on the computer (see the server project's README; default port
+   **8077**). To try the app's connection screen without the real server, this repository
+   has a stand-in that answers only the health check:
+
+   ```powershell
+   node scripts/mock-server.mjs
+   ```
+
+   It prints the addresses of the computer.
+2. Put the phone on the **same Wi-Fi network** as the computer.
+3. Allow the port through the computer's firewall, once (administrator PowerShell). This
+   is a system setting, so no script here does it:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "locserver 8077" -Direction Inbound -Protocol TCP -LocalPort 8077 -Action Allow -Profile Private
+   ```
+
+   The rule applies while Windows treats the network as *Private*. If the network is
+   marked *Public* (check with `Get-NetConnectionProfile`), either switch it to Private
+   in Settings → Network & internet → the connection's properties, or — only on a network
+   you trust — create the rule with `-Profile Private,Public`. Remove the rule with
+   `Remove-NetFirewallRule -DisplayName "locserver 8077"`.
+4. In the app tap the server chip, then **Find automatically**. The app reads the phone's
+   own IPv4 address, asks every other address of that /24 network (253 of them) for
+   `GET /health` on the port, 24 at a time with a 500 ms timeout — about 6 seconds — and
+   accepts only an answer that identifies itself as this project's server. One server
+   found: it connects. Several: pick one from the list (each shows its name).
+5. Or type the computer's address into the field (`host` or `host:port`, `http://`
+   optional; the port defaults to 8077) and press **Test connection**. On Windows the
+   address is the "IPv4 Address" line of `ipconfig` for the Wi-Fi/Ethernet adapter.
+
+The last address that connected is saved on the phone and tried first at the next start.
+**Forget** removes it. A port typed into the field is also used by the automatic search.
+
+### What the chip says
+
+| Chip | Meaning |
+| --- | --- |
+| grey **Server: not set up** | no address known yet |
+| grey **Server: searching n/253** | the automatic search is running |
+| grey **Server: connecting...** | an address is set, waiting for the first answer |
+| green **Server: connected · name · N ms** | the server answers the health check and is compatible; `N` is the round-trip time of the last check |
+| red **Server: unreachable** | no usable answer: server not running, wrong address, different network, firewall — or something else answers at that address. The settings panel shows the reason |
+| red **Server: incompatible** | it is this project's server, but with an API version the app does not support (the app supports API version 1) |
+
+While the app is in the foreground it re-checks the server every 3 seconds (paused in the
+background). One missed check is tolerated; after two in a row the chip turns red, and
+it turns green again by itself when the server is back. Every change is written to the
+event log.
+
+### Troubleshooting
+
+- **"The phone is not connected to Wi-Fi"** — the automatic search needs Wi-Fi. Mobile
+  data cannot reach a computer on a local network.
+- **Search finds nothing, typed address is unreachable**
+  - Is the server running, and listening on all interfaces (not only `localhost`)? On the
+    computer itself `curl.exe http://localhost:8077/health` must answer.
+  - Firewall rule from step 3 present, and does the network profile match it?
+  - Same network? Compare the first three numbers of the phone's address (Settings →
+    Wi-Fi → network details) with the computer's.
+- **Guest, university, hotel and some office networks** isolate clients from each other
+  ("client isolation" / "AP isolation"): devices can reach the internet but not one
+  another, and nothing in the app can change that. Use a network without isolation — a
+  home router, or the phone's own hotspot.
+- **Phone hotspot**: turn on the hotspot, connect the computer to it, start the server.
+  The automatic search usually cannot work in this setup (the phone is not a Wi-Fi client
+  then), so type the computer's address by hand — `ipconfig` on the computer shows it.
+- **Network larger than /24** (addresses differing in more than the last number): the
+  search only covers the phone's own /24. Type the address in.
+- **VPN on the phone or the computer** often blocks local traffic: switch it off.
+- **"Incompatible"**: app and server are from different versions of the project; update
+  both to the same commit.
+
+### How it is built
+
+- `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
+  in Node (`npm test`, 30 tests, including a local mock of the server contract):
+  `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
+  `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
+  makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (bounded
+  concurrent scan with progress and cancel), `connectionMachine.ts` (the state machine).
+- `src/server/ServerConnection.ts` adds the impure parts: heartbeat timer, foreground /
+  background, the phone's network state (`expo-network`), the saved address
+  (`src/server/storage.ts`, a JSON file in the app's private storage via
+  `expo-file-system`).
+- `GET /health` contract the app relies on: JSON with `service` =
+  `"arportal-localization-server"`, integer `api_version`, `server_version`,
+  `server_name`, `status` = `"ok"`. `device`, `device_name` and `maps` are shown when
+  present and ignored when not.
+- Plain HTTP is allowed in all build types by `usesCleartextTraffic` set through the
+  `expo-build-properties` config plugin in `app.json` (Android blocks cleartext traffic
+  by default). There is no encryption or authentication between app and server: use it on
+  networks you trust.
+- The `self-hosted` localization provider takes the server's base URL from this
+  connection and currently reports "connected, localisation not implemented yet
+  (stage 2b)".
+
 ## Project structure
 
 ```
@@ -201,11 +313,13 @@ App.tsx                       camera permission gate, AR navigator + overlay
 index.ts                      entry point
 app.json                      Expo config: ViroReact plugin options, build limits
 metro.config.js               adds .obj (and other 3D formats) to Metro's asset types
+tsconfig.test.json            compiles src/server/core and its tests for Node (`npm test`)
 plugins/
   withAndroidBuildTuning.js   config plugin: Gradle limits, JS bundle embedded in debug
 scripts/
-  env.ps1                     optional: caches on another drive for the current shell
+  env.ps1                     optional: caches in another folder for the current shell
   generate-assets.mjs         generates all textures and the door-frame OBJ
+  mock-server.mjs             stand-in server answering GET /health (connection tests)
 assets/
   models/door_frame.obj       generated door frame (frame + transparent "tunnel")
   textures/*.png              generated textures
@@ -220,11 +334,17 @@ src/
     types.ts                  LocalizationProvider interface, pose types, conventions
     BaseProvider.ts           listener bookkeeping shared by providers
     ManualPlacementProvider.ts  stage-1 stand-in
-    stubs.ts                  ReactVision VPS / ARCore Cloud Anchor / self-hosted server (not implemented)
+    SelfHostedServerProvider.ts follows the server connection (no localisation yet)
+    stubs.ts                  ReactVision VPS / ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
+  server/
+    core/                     pure, unit-tested: address, subnet, health, client, discovery, state machine
+    ServerConnection.ts       heartbeat, automatic search, saved address
+    storage.ts                last working address on the phone
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
   ui/Overlay.tsx              mode badge, status panel, event log, buttons
+  ui/ServerPanel.tsx          server status chip and server settings
 ```
 
 ## Localization provider interface
@@ -238,7 +358,7 @@ interface LocalizationProvider {
   readonly displayName: string;
   start(context: LocalizationContext): void;
   stop(): void;
-  getStatus(): LocalizationStatus;   // idle | waiting-for-tracking | localizing | localized | lost | error
+  getStatus(): LocalizationStatus;   // idle | waiting-for-tracking | waiting-for-server | connected | localizing | localized | lost | error
   getStatusDetail(): string;
   onStatus(listener): Unsubscribe;
   onPose(listener: (update: PoseUpdate) => void): Unsubscribe;
@@ -273,10 +393,11 @@ Providers:
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
 | `ReactVisionVpsProvider` | Stub, no network code. Needs a ReactVision API key + project id and plugin option `provider: "reactvision"`. |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
-| `SelfHostedServerProvider` | Stub, no network code. Will talk to the separate `localization-server` project over HTTP on the local Wi-Fi. |
+| `SelfHostedServerProvider` | Connectivity only (stage 2a): follows the server connection and reports `waiting-for-server` / `connected`; emits no pose. Localisation requests are stage 2b. |
 
 The ViroReact plugin is currently configured with `provider: "none"` and
 `telemetry: false` (no anchor back-end, no usage ping); no API keys or accounts are used.
+The only network traffic of the app is the health check to the server address you set.
 
 ## How the portal works
 
@@ -403,6 +524,16 @@ Defects found in that session and what was done about them:
 
 ## Not verified yet
 
+- **the server connection on a phone** (stage 2a). None of it has run on a device: the
+  status chip and settings screen, reading the phone's IP address, the automatic search
+  over Wi-Fi, plain HTTP from the phone, saving the address, the heartbeat pausing in the
+  background. What *was* checked, all on the development PC: the 30 unit tests of
+  `src/server/core/` (address parsing, subnet enumeration, `/health` validation, state
+  machine, the HTTP client and the scan against a local mock); the same client against
+  `scripts/mock-server.mjs` and against the real localization server (version 0.2.0,
+  API version 1, started on `localhost`) — both answered "ok"; and that the merged
+  Android manifest of the debug and of the release variant contains
+  `usesCleartextTraffic="true"`;
 - the three fixes above, and the look of the deeper door frame that came with the
   mitigation;
 - long-term drift of the doorway while the app keeps running;

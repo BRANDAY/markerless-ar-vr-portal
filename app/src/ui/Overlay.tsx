@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import { appActions, useAppState } from '../state/appStore';
+import { ServerChip } from './ServerPanel';
 
 const TRACKING_COLORS = {
   normal: '#2ecc71',
@@ -24,6 +25,9 @@ export function Overlay() {
         </View>
         <Button label={overlayVisible ? 'Hide debug' : 'Debug'} onPress={appActions.toggleOverlay} />
       </View>
+
+      {/* Outside the debug overlay on purpose: the server status is always visible. */}
+      <ServerChip />
 
       {overlayVisible ? (
         <>
