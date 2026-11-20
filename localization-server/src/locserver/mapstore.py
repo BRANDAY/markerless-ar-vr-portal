@@ -105,7 +105,7 @@ class LocMap:
     # ------------------------------------------------------------ anchors --- #
     def anchors(self) -> dict:
         f = self.path / "anchors.json"
-        return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        return json.loads(f.read_text(encoding="utf-8-sig")) if f.exists() else {}
 
     def set_anchor(self, name: str, T_map_from_anchor: np.ndarray, note: str | None = None) -> dict:
         check_id(name, "anchor name")
@@ -217,7 +217,7 @@ def save_map(path: Path, meta: dict, images: list[MapImage], vlad: VLAD, global_
 
 def load_map(path: Path) -> LocMap:
     path = Path(path)
-    meta = json.loads((path / "map.json").read_text(encoding="utf-8"))
+    meta = json.loads((path / "map.json").read_text(encoding="utf-8-sig"))
     with np.load(path / "features.npz") as z:
         if int(z["format_version"]) != FORMAT_VERSION:
             raise ValueError(f"unsupported map format in {path}")

@@ -93,8 +93,9 @@ GPU everything falls back to CPU automatically (`--device cpu` forces it).
 
 ## Setup (Windows)
 
-Requirements: Windows 10/11, [uv](https://docs.astral.sh/uv/), git, ~7 GB of
-disk for the environment. Python 3.13 is installed by uv if missing. No conda,
+Requirements: Windows 10/11, [uv](https://docs.astral.sh/uv/), git, about
+10 GB of disk (4.5 GB environment + 4.9 GB uv cache, which `uv cache clean`
+frees again). Python 3.13 is installed by uv if missing. No conda,
 COLMAP binary, ffmpeg, Docker or compiler is needed.
 
 ```powershell
@@ -108,7 +109,7 @@ uv run pytest      # 63 tests, a few seconds, no GPU needed
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `UV_PROJECT_ENVIRONMENT` | `E:\VR-FESB\venv` | the virtual environment (~6 GB) |
+| `UV_PROJECT_ENVIRONMENT` | `E:\VR-FESB\venv` | the virtual environment (4.5 GB) |
 | `UV_CACHE_DIR` | `E:\VR-FESB\uv-cache` | uv's package cache |
 | `TORCH_HOME` | `E:\VR-FESB\torch` | model weights (downloaded on first use, 48 MB) |
 | `HF_HOME` | `E:\VR-FESB\hf` | Hugging Face cache (not used by the default models) |
@@ -612,7 +613,154 @@ intrinsics. A JSON report with every query is written to `LOCSERVER_WORK`.
 
 ## Measured numbers
 
-MEASURED_NUMBERS_PLACEHOLDER
+All numbers: development PC (Intel i7-8750H, 16 GB RAM, GTX 1050 Ti 4 GB,
+Windows 11), 2026-11-20, test sequence TUM RGB-D `freiburg1_room` (1362 frames,
+640×480, 49 s hand-held walk around an office, with motion blur and rolling
+shutter; ground truth from a motion-capture system). Reproduce with
+`scripts\run_reference_evaluation.ps1`; the JSON reports hold every query.
+
+> **Timing caveat.** A game (World of Warcraft) was running on the same GPU
+> during all measurements (`nvidia-smi` showed 38 % GPU utilisation and 2.7 GB
+> of the 4 GB in use while our server was idle). GPU times below are therefore
+> pessimistic and noisy; re-run the evaluation on an idle machine for clean
+> numbers.
+
+### Map building
+
+`locserver-build-map <sequence> --map-id tum_room --every 8`: 171 windows,
+7 rejected as blurred, 164 frames used, median ≈ 1,000 keypoints per frame,
+2,032 image pairs matched (1,674 kept).
+
+| | SfM only (`--no-pose-priors`) | with pose priors (default) |
+|---|---|---|
+| total build time | 920 s | 785 s |
+| – frame selection / ALIKED extraction | 40 s / 41 s | 18 s / 16 s |
+| – LightGlue matching (2,032 pairs) | 490 s | 349 s |
+| – geometric verification / incremental SfM (CPU) | 9 s / 332 s | 26 s / 365 s |
+| images registered by SfM | 164 / 164 | 164 / 164 |
+| images kept in the map | 164 | 158 (5 "jumped", 1 with < 75 3D points) |
+| 3D points / mean reprojection error | 15,670 / 1.30 px | 16,673 / 1.28 px |
+| map cameras within 5 / 10 / 25 cm of ground truth | 120 / 124 / 131 of 164 | 119 / 131 / 158 of 158 |
+| largest camera error vs. ground truth | 26 m | 0.22 m |
+| map size on disk | 71 MB | 71 MB |
+
+The first column was produced before the two outlier filters existed; with the
+current code its five "jumped" images would be dropped as well. In the second
+column the "< 75 3D points" rule was applied to the finished map by the same
+criterion that `mapping.py` now applies during the build.
+
+**The important finding is in the last rows.** Pure SfM registered every image
+and reported a fine reprojection error, yet five images were placed 25 m away
+and a stretch of ~35 images was displaced by 0.2–0.65 m (drift across a weakly
+connected, blurred part of the walk). Nothing in the SfM statistics reveals
+that; only the comparison with independent poses does. With the capture's
+poses as priors the worst deviation drops to 0.22 m (10–22 cm in that same
+stretch, ≤ 5 cm for 75 % of the cameras).
+
+### Localisation accuracy — protocol B (60 unseen frames vs. motion capture)
+
+Map `tum_room` (with priors). "map" = intrinsics known, "estimate" = focal
+length estimated per image. A constant 1.41° rotation between the mocap body
+frame and the camera was removed.
+
+| device | intrinsics | n | success | good | t median | t p90 | t max | R median | R max | false good | time median | time p90 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| GPU | map | 60 | 93 % | 93 % | 2.8 cm | 15.2 cm | 24.2 cm | 1.24° | 5.80° | 0 | 0.79 s | 1.37 s |
+| GPU | estimate | 60 | 93 % | 93 % | 4.7 cm | 15.3 cm | 24.8 cm | 2.05° | 5.89° | 0 | 0.55 s | 0.86 s |
+| CPU | map | 12 | 100 % | 100 % | 2.2 cm | 3.1 cm | 8.2 cm | 0.82° | 2.74° | 0 | 5.1 s | 7.6 s |
+| CPU | estimate | 12 | 100 % | 100 % | 4.9 cm | 7.2 cm | 10.3 cm | 1.63° | 3.84° | 0 | 4.9 s | 7.5 s |
+
+(The CPU rows use the first 12 queries only, to keep the run short; they are a
+timing reference, not a separate accuracy result.)
+
+Share of all 60 queries within a tolerance (GPU): 5 cm / 5°: 58 % (map), 50 %
+(estimate); 10 cm / 10°: 68 %, 70 %; 25 cm / 10°: 93 %, 93 %. "False good" =
+verdict `good` but more than 25 cm or 10° off.
+
+Where the errors come from:
+
+* The 4 failures (7 %) are the frames 494–540, exactly the part of the walk
+  whose images were dropped from the map as mis-registered. The server answers
+  `failed` there ("only N PnP inliers") instead of inventing a pose.
+* All 12 results with more than 12 cm error lie in the stretch 555–836, where
+  the *map* deviates from the ground truth by 10–22 cm. They have hundreds of
+  inliers: the camera is localised correctly relative to a locally shifted map.
+* Estimating the focal length costs about 2 cm / 0.8° in the median; the
+  estimated focal lengths ranged from 508 to 575 px (true value 530 px, ±8 %).
+
+Same protocol on the SfM-only map: 100 % "success", all `good`, median 2.9 cm —
+but p90 64 cm, maximum 26.4 m and **18 confidently wrong answers** out of 60
+(25 cm / 10° recall 70 %). The quality verdict measures agreement with the map,
+it cannot detect a wrong map.
+
+### Localisation precision — protocol A (30 held-out map images vs. SfM poses)
+
+Every 5th block of 4 images removed from the map (128 mapping images left):
+
+| device | intrinsics | n | success | good | t median | t p90 | t max | R median | R max | false good |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GPU | map | 30 | 100 % | 97 % | 0.2 cm | 0.9 cm | 16.1 cm | 0.10° | 3.11° | 0 |
+| GPU | estimate | 30 | 97 % | 97 % | 2.3 cm | 5.0 cm | 7.2 cm | 1.57° | 1.86° | 0 |
+
+This is the repeatability of localisation relative to the map (optimistic, see
+"Evaluation"); together with protocol B it says that the remaining error is
+dominated by the map, not by the per-image localisation.
+
+### Degraded query images — protocol B, GPU, known intrinsics, 60 queries
+
+| perturbation | success | good | t median | t p90 | t max | R median | false good |
+|---|---|---|---|---|---|---|---|
+| none | 93 % | 93 % | 2.8 cm | 15.2 cm | 24.2 cm | 1.24° | 0 |
+| dark (γ 2.0, ×0.6) | 93 % | 92 % | 2.9 cm | 15.2 cm | 24.1 cm | 1.22° | 0 |
+| bright (×1.6 + 20, clipped) | 93 % | 93 % | 3.0 cm | 15.5 cm | 23.1 cm | 1.12° | 0 |
+| low contrast (×0.4) | 92 % | 88 % | 2.6 cm | 15.4 cm | 23.1 cm | 1.22° | 0 |
+| gamma bright (γ 0.5) | 93 % | 93 % | 2.9 cm | 15.4 cm | 24.2 cm | 1.16° | 0 |
+| warm tint (lamp light) | 93 % | 93 % | 2.9 cm | 15.3 cm | 24.2 cm | 1.20° | 0 |
+| blur (Gaussian σ 2.5 px) | 90 % | 83 % | 2.7 cm | 15.2 cm | 22.6 cm | 1.18° | 0 |
+| downscale (½ resolution) | 93 % | 93 % | 2.8 cm | 15.7 cm | 23.7 cm | 1.24° | 0 |
+| noise (σ 12) | 93 % | 93 % | 3.0 cm | 15.3 cm | 23.2 cm | 1.18° | 0 |
+| dark + noise | 93 % | 92 % | 2.5 cm | 15.1 cm | 23.8 cm | 1.16° | 0 |
+
+Global photometric changes hardly matter to ALIKED + LightGlue; blur is the
+only one with a visible effect. This does not cover what really changes
+between day and evening (shadows, reflections, lamps switched on, moved
+objects) — that needs a second real capture.
+
+### Time per query
+
+| | GPU (shared with a game) | CPU |
+|---|---|---|
+| one 640×480 image, typical | 0.45–1.1 s (median of the runs above: 0.47–0.96 s, p90 0.85–1.4 s) | ≈ 5 s (p90 7.6 s) |
+| example breakdown (0.45 s request) | ALIKED 70 ms, retrieval 6 ms, LightGlue 347 ms (3–8 pairs), PnP 24 ms | ALIKED ≈ 1.7 s, LightGlue ≈ 0.4 s per pair |
+| 5-frame clip + `session.jsonl` (one request) | 3.5 s | — |
+| model loading at server start | ≈ 5 s (first run downloads 48 MB of weights) | |
+| peak VRAM | 0.5 GB at 640×480, 1.3 GB at 1024×768 | |
+
+Matching dominates; it stops early once 600 2D–3D matches from at least three
+map images are collected.
+
+### Alignment end to end (through the running server)
+
+`scripts\make_demo_recording.py` turned stretches of the test sequence into
+ViroReact-format recordings whose poses were moved into a "new AR session"
+(yaw 35°, shifted by 1.0 / 0.2 / −0.5 m); `scripts\demo_recording_query.py`
+uploaded them like the app would and compared the returned `T_arworld_from_map`
+with the known answer. `tum_room_units` is a copy of the map with scale and
+orientation deliberately changed (true scale 2.7027 m per map unit).
+
+| map | clip | frames used | scale | rotation error | placement error at the camera / 2 m ahead |
+|---|---|---|---|---|---|
+| `tum_room` (metric) | 4 s, camera baseline 0.40 m | 5 | 1 (map) | 1.1° | 3.2 cm / 4.3 cm |
+| `tum_room_units` (no scale) | same | 6 | −6.5 %, flagged `scale_reliable: false` | 1.3° | 1.7 cm / 14.6 cm |
+| `tum_room_units` | 10 s, baseline 2.1 m | 3 | +0.06 %, reliable | 1.0° | 3.2 cm / 2.7 cm |
+| `tum_room_units` | same | 8 | +0.73 %, reliable | 1.1° | 3.8 cm / 1.9 cm |
+
+The ≈ 1° rotation error is mostly the mocap-to-camera offset mentioned above.
+The second row shows why the scale of a non-metric map needs camera travel:
+0.4 m is not enough, and the server says so.
+
+A single unseen 640×480 image without intrinsics over HTTP:
+`success, good, 536 inliers of 562 matches, 463 ms`.
 
 ---
 
@@ -623,12 +771,12 @@ run time.
 
 | What | Source | Size | Where |
 |---|---|---|---|
-| Python packages (PyPI): pycolmap 4.2.1, opencv-python 5.1.0, numpy, fastapi, uvicorn, python-multipart, kornia, …; dev: pytest, httpx, scipy, imageio-ffmpeg | <https://pypi.org> | ≈ 0.5 GB installed | `E:\VR-FESB\venv`, cache in `E:\VR-FESB\uv-cache` |
-| torch 2.14.1+cu126, torchvision 0.29.1+cu126 | <https://download.pytorch.org/whl/cu126> | ≈ 2.5 GB download, ≈ 5 GB installed | same |
+| Python packages (PyPI): pycolmap 4.2.1, opencv-python 5.1.0, numpy, fastapi, uvicorn, python-multipart, kornia, …; dev: pytest, httpx, scipy, imageio-ffmpeg (bundles an ffmpeg binary, used by tests only) | <https://pypi.org> | together with torch: 4.5 GB installed (`E:\VR-FESB\venv`), 4.9 GB cache (`E:\VR-FESB\uv-cache`) | |
+| torch 2.14.1+cu126, torchvision 0.29.1+cu126 | <https://download.pytorch.org/whl/cu126> | the bulk of the above | same |
 | LightGlue (code, commit `5a650c4`) | <https://github.com/cvg/LightGlue> | < 1 MB | same |
 | ALIKED weights `aliked-n16.pth` | <https://github.com/Shiaoming/ALIKED/raw/main/models/aliked-n16.pth> | 2.6 MB | `E:\VR-FESB\torch\hub\checkpoints` |
 | LightGlue weights `aliked_lightglue.pth` (v0.1_arxiv) | <https://github.com/cvg/LightGlue/releases/download/v0.1_arxiv/aliked_lightglue.pth> | 45.4 MB | same |
-| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive | `E:\VR-FESB\datasets\tum_fr1_room` |
+| Test data: TUM RGB-D `freiburg1_room` (CC BY 4.0), RGB + ground truth extracted, depth skipped | <https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_room.tgz> | 782 MB archive + 0.56 GB extracted | `E:\VR-FESB\datasets\tum_fr1_room` |
 
 The test sequence is from: J. Sturm et al., "A Benchmark for the Evaluation of
 RGB-D SLAM Systems", IROS 2012.
@@ -650,6 +798,14 @@ RGB-D SLAM Systems", IROS 2012.
 * **Whether `onCameraTransformUpdate` delivers degrees** was verified in source
   only for `getCameraOrientationAsync`; sending `forward` + `up` avoids the
   question.
+* **A map built from a plain video can be silently wrong.** On the test
+  sequence pure SfM produced a model with a fine reprojection error in which
+  five images were 25 m off and a stretch of the walk was shifted by up to
+  0.65 m; localisation against it returned confident but wrong poses (see
+  "Measured numbers"). The jump filter removes the gross cases, but drift can
+  only be prevented when the capture carries metric poses (AR recording),
+  which is the unverified input kind. For a plain video: walk slowly, close the
+  loop, and look at `points.ply` / the camera path before trusting the map.
 * **Lighting, moved furniture, people** were only approximated by synthetic
   image perturbations. Real evening/daylight differences change shadows and
   reflections, which a brightness curve does not model.
