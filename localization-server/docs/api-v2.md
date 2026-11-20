@@ -10,7 +10,8 @@ v2 only **adds** endpoints and response fields.
 
 Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-room-recording) ·
 [jobs](#3-jobs-progress-of-a-build) · [room plan](#4-room-plan) · [portal](#5-portal-automatic-doorway) ·
-[/localize additions](#6-localize-additions) · [client flows](#7-client-flows) · [status](#8-implementation-status)
+[/localize additions](#6-localize-additions) · [client flows](#7-client-flows) · [status](#8-implementation-status) ·
+[devices and device log](#9-devices-and-device-log)
 
 ---
 
@@ -456,9 +457,155 @@ recording exists yet. In particular unknown: how well the depth network and
 the door detector behave in the owner's room, and whether ARCore poses are good
 enough over a whole scan.
 
+## 9. Devices and device log
+
+**Status: DRAFT (2026-11-20), written before the implementation** so that the
+app can start sending. Purpose: the server's monitoring panel (`/ui`, opened on
+the PC) shows which phones are connected, what each of them is doing and where
+the usage scenario currently stands. The capability name is `device_log`
+(check `capabilities` in `/health`; on a server without it the calls below
+answer `404` - stop sending for that server).
+
+### 9.1 Identify the device on every request
+
+Send these HTTP headers with **every** request to the server (`/health`
+polls, uploads, job polling, `/localize`, ...). All optional, all ASCII:
+
+| Header | Value |
+|---|---|
+| `X-Device-Id` | stable id of this installation: letters, digits, `_`, `-`, `.` (1-64). The same value the app already sends as `device_id` to `/localize` |
+| `X-Device-Name` | human-readable name for the panel, e.g. `Xiaomi 14 Ultra` (max 64; non-ASCII characters percent-encoded as in a URL) |
+| `X-Session-Id` | id of the current app run (new value on every app start), same character rule as `X-Device-Id` |
+| `X-App-Version` | app version / build, max 32 |
+
+Without `X-Device-Id` the server still lists the client, by its IP address,
+as an unnamed device. The server measures and shows "last seen" and its own
+handling time per request from these requests; nothing else is needed for the
+"connected / lost" state (a device is *online* while its last request is less
+than 10 s old, so keep the existing `/health` poll at 5 s or faster while the
+app is in the foreground).
+
+### 9.2 Send the device log
+
+```
+POST /devices/{device_id}/log          application/json          -> 200
+```
+
+```json
+{
+  "session_id": "run-7f3a",
+  "device_name": "Xiaomi 14 Ultra",
+  "app_version": "0.3.0 (12)",
+  "sent_at_ms": 1763662000123,
+  "rtt_ms": 14,
+  "state": {
+    "step": "scanning",
+    "tracking": "NORMAL",
+    "map_id": "room",
+    "detail": "recording 00:42"
+  },
+  "events": [
+    {"seq": 41, "t_ms": 1763661998400, "level": "info",  "type": "tracking", "message": "tracking NORMAL"},
+    {"seq": 42, "t_ms": 1763661999000, "level": "info",  "type": "scan",     "message": "recording started", "data": {"map_id": "room"}},
+    {"seq": 43, "t_ms": 1763662000050, "level": "error", "type": "upload",   "message": "upload failed: timeout", "data": {"attempt": 2}}
+  ]
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `session_id` | yes | id of the app run, as in `X-Session-Id`. `seq` restarts with a new session |
+| `device_name`, `app_version` | no | same as the headers; either place is fine |
+| `sent_at_ms` | yes | device clock when the batch was sent, Unix epoch **milliseconds**. The server uses it to translate the device times of the events into its own clock |
+| `rtt_ms` | no | the round-trip time the app last measured to this server (e.g. of the last `/health` poll), shown as "latency" |
+| `state` | no | current snapshot, replaces the previous one. `step` is one of the values below; `tracking` is the AR tracking state as text; `map_id` the map being scanned or used; `detail` one free line (max 200). Other keys are kept and shown as they are (keep it small) |
+| `events` | yes (may be `[]`) | new log entries, oldest first, at most 200 per request |
+| `events[].seq` | yes | integer, increasing by one per event within a session. Used to drop duplicates when a batch is retried: the server ignores every `seq` it already has for this session |
+| `events[].t_ms` | yes | device clock when the event happened, Unix epoch milliseconds |
+| `events[].level` | no (`info`) | `debug` \| `info` \| `warn` \| `error` |
+| `events[].type` | no (`app`) | short category, see the list below (unknown values are accepted and shown) |
+| `events[].message` | yes | one line of text, max 500 characters (longer is cut) |
+| `events[].data` | no | small JSON object with details, max 4 kB serialised (larger is dropped, the event is kept) |
+
+Response:
+
+```json
+{"accepted": 3, "duplicates": 0, "last_seq": 43, "server_time_ms": 1763662000140}
+```
+
+`last_seq` is the highest `seq` the server holds for this session; after a
+`200` the app may forget every event up to it. Errors: `413` (body over
+256 kB or more than 200 events), `422` (bad `device_id` / missing `session_id`
+/ `events` not a list; single malformed events are skipped and counted in
+`"skipped"`, they do not fail the batch).
+
+**`state.step`** - where this device is in the scenario (drives the "usage
+flow" strip of the panel):
+
+| `step` | Meaning |
+|---|---|
+| `connecting` | looking for / connecting to the server |
+| `connected` | server found, nothing started yet |
+| `scanning` | recording the room |
+| `uploading` | sending the recording |
+| `building` | waiting for the map build (the server knows the progress itself) |
+| `ready` | a map with a room plan is available, not localised yet |
+| `localizing` | sending frames to `/localize`, no accepted alignment yet |
+| `portal_placed` | alignment accepted, the doorway is shown in AR |
+| `inside` | the user is on the virtual side of the portal |
+| `error` | something the user has to act on; say what in `detail` |
+
+**`events[].type`** - recommended values: `app` (start, foreground/background,
+permissions), `connect` (server search and connection), `tracking` (AR tracking
+state changes and reasons), `scan` (recording start / stop / what was saved),
+`upload`, `job` (what the app saw of the build), `localize` (request sent,
+answer used or rejected and why), `portal` (placed, moved, entered, left),
+`error` (anything unexpected, with the text of the exception).
+
+**Client rules**
+
+* Batch: send when 20 events are waiting or every 2 s, whichever comes first,
+  and at once for `error` events. With no new events send a batch with
+  `events: []` every 5 s while in the foreground so that `state` and `rtt_ms`
+  stay current (this can replace one `/health` poll).
+* Never block the UI or the AR session on it; timeout 3 s. On failure keep the
+  events (at most 500, drop the oldest) and retry with the next batch; the
+  `seq` numbers make the retry safe.
+* Log what a person debugging from the PC would want to read; no camera
+  images, no personal data. Do not log every frame: tracking *changes*, not
+  tracking per frame.
+
+### 9.3 What the server keeps
+
+The last 2,000 events per device in memory, and every accepted event appended
+to `work/device-logs/<device_id>.jsonl` on the PC. Devices and their logs
+survive in memory until the server restarts; the files stay.
+
+### 9.4 Reading it back (used by the panel; open to any client)
+
+```
+GET    /devices                                   -> {"devices": [Device, ...]}
+GET    /devices/{device_id}/log?after=<id>&limit= -> {"events": [...], "last_id": 1234}
+DELETE /devices/{device_id}                       -> forget the device (memory only)
+GET    /ui                                        -> the monitoring panel (HTML, works offline)
+```
+
+`Device`: `{"device_id", "name", "address", "app_version", "session_id",
+"online": bool, "last_seen_utc", "last_seen_age_s", "first_seen_utc",
+"requests": n, "last_request": "GET /health", "server_ms": 3.1, "rtt_ms": 14,
+"clock_offset_ms": -210, "state": {...}, "errors": n}`.
+
+Log entries as returned: the fields of 9.2 plus `id` (server-wide increasing
+number, use it as `after`), `device_id`, `session_id` and `server_time_ms`
+(the event time translated to the server clock).
+
+The panel's own data feed (`/monitor/...`) is internal and may change without
+notice; do not build the app on it.
+
 ## Change log
 
 * 2026-11-20 — first draft.
 * 2026-11-20 — implemented. Added (no changes to drafted fields):
   `openings[].height_measured`, `key_frames`, `stats`, source `sfm_points`;
   recording advice changed from "turns/walks" to "walks" (parallax is needed).
+* 2026-11-20 — section 9 (devices, device log) drafted; capability `device_log`.
