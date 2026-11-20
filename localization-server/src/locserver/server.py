@@ -55,6 +55,20 @@ class State:
         self.gpu_lock = threading.Lock()  # one inference at a time (4 GB VRAM)
         self.started = time.time()
         self.reload()
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        """Run both networks once so that the first real request is not 1-2 s slower."""
+        if not hasattr(self.pipe, "extract"):
+            return
+        try:
+            rng = np.random.default_rng(0)
+            img = cv2.resize(rng.integers(0, 255, (48, 64, 3), dtype=np.uint8), (640, 480), interpolation=cv2.INTER_NEAREST)
+            f = self.pipe.extract(img)
+            self.pipe.match(f, f)
+            self.pipe.sync()
+        except Exception as e:  # never block start-up on this
+            log.warning("warm-up failed: %s", e)
 
     def reload(self) -> list[str]:
         maps = {}

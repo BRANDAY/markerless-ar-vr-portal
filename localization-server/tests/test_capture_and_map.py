@@ -201,6 +201,19 @@ def test_map_subset_drops_unsupported_points(tmp_path):
     assert (both.images[0].point3D_ids >= 0).all()
 
 
+def test_map_transform_moves_cameras_and_points_consistently(tmp_path):
+    m = make_map(tmp_path / "m", "m")
+    sim = g.Sim3(0.37, g.viro_euler_to_rotmat([25, -40, 10]), np.array([3.0, -1.0, 2.0]))
+    moved = m.transformed_images(sim)
+    for old, new in zip(m.images, moved):
+        assert g.is_rotation(new.T_cvcam_from_map[:3, :3])
+        assert np.allclose(new.center, sim.apply(old.center), atol=1e-9)
+        # a 3D point keeps its viewing ray in the camera; its depth scales with the map
+        Xc_old = old.T_cvcam_from_map[:3, :3] @ old.xyz[0] + old.T_cvcam_from_map[:3, 3]
+        Xc_new = new.T_cvcam_from_map[:3, :3] @ new.xyz[0] + new.T_cvcam_from_map[:3, 3]
+        assert np.allclose(Xc_new, 0.37 * Xc_old, atol=1e-5)
+
+
 # ---------------------------------------------------------- calibration --- #
 def test_device_calibration_locks_after_consistent_samples(tmp_path):
     store = DeviceCalibrationStore(tmp_path)

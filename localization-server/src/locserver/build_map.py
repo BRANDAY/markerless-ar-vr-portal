@@ -42,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--retrieval-k", type=int, default=d.retrieval_k)
     ap.add_argument("--intrinsics", default=None, help="fx,fy,cx,cy of the native frames (optional prior)")
     ap.add_argument("--no-poses", action="store_true", help="ignore metric poses of the capture (arbitrary-scale map)")
+    ap.add_argument("--recording-rotation", type=int, default=None, choices=[0, 90, 180, 270],
+                    help="ViroReact recording only: rotate frames clockwise by this instead of the container hint")
     ap.add_argument("--keep-work", action="store_true", help="keep the COLMAP database of the build")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--log-level", default="INFO")
@@ -65,8 +67,13 @@ def main(argv: list[str] | None = None) -> int:
         seq_window=a.seq_window, retrieval_k=a.retrieval_k, intrinsics=parse_intrinsics(a.intrinsics),
         use_metric_poses=not a.no_poses, keep_work=a.keep_work,
     )
+    capture = None
+    if a.recording_rotation is not None:
+        from .recording import ViroRecordingCapture
+
+        capture = ViroRecordingCapture(a.input, display_rotation_cw=a.recording_rotation)
     pipe = FeaturePipeline(a.device, max_keypoints=a.max_keypoints)
-    m = build_map(a.input, map_dir, a.map_id, pipe, opts)
+    m = build_map(a.input, map_dir, a.map_id, pipe, opts, capture=capture)
     keys = ("map_id", "num_images_selected", "num_images_registered", "num_points3D",
             "mean_reprojection_error_px", "metric", "scale_m_per_unit", "camera")
     print(json.dumps({k: m.meta[k] for k in keys} | {"timings_s": m.meta["build"]["timings_s"], "path": str(map_dir)}, indent=2))

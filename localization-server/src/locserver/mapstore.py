@@ -150,6 +150,18 @@ class LocMap:
             self.meta["scale_updated_utc"] = utc_now()
             _write_json(self.path / "map.json", self.meta)
 
+    # ---------------------------------------------------------- transform --- #
+    def transformed_images(self, new_from_old: g.Sim3) -> list[MapImage]:
+        """The map's images re-expressed in another frame: ``X_new = s R X_old + t``."""
+        s, R, t = new_from_old.scale, new_from_old.R, new_from_old.t
+        out = []
+        for im in self.images:
+            R_c = im.T_cvcam_from_map[:3, :3] @ R.T
+            t_c = s * im.T_cvcam_from_map[:3, 3] - R_c @ t
+            xyz = (s * im.xyz.astype(np.float64) @ R.T + t).astype(np.float32)  # NaN rows stay NaN
+            out.append(MapImage(im.name, g.make_T(R_c, t_c), im.features, xyz, im.point3D_ids))
+        return out
+
     # ------------------------------------------------------------- subset --- #
     def subset(self, keep: list[int], min_track: int = 2) -> "LocMap":
         """In-memory copy with only the images ``keep`` (indices).

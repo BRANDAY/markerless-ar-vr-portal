@@ -24,7 +24,12 @@ locserver-evaluate = "locserver.evaluate:main"
 locserver-localize = "locserver.localize_cli:main"
 
 [dependency-groups]
-dev = ["pytest", "httpx", "scipy"]
+dev = [
+    "pytest",
+    "httpx",
+    "scipy",
+    "imageio-ffmpeg>=0.8.1",
+]
 
 [build-system]
 requires = ["hatchling"]
