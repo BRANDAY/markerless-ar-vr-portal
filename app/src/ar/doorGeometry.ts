@@ -8,7 +8,10 @@ export const DOOR = {
   postWidth: 0.08,
   lintelHeight: 0.08,
   thresholdHeight: 0.02,
-  depth: 0.12,
+  /** Frame thickness on the AR side of the crossing plane (local z > 0). */
+  depthFront: 0.06,
+  /** Frame thickness on the room side (local z < 0). */
+  depthBack: 0.14,
 } as const;
 
 /**
@@ -28,7 +31,7 @@ export const ROOM = {
   height: 2.8,
   depth: 5,
   /** Z of the wall that contains the doorway: just behind the back face of the frame. */
-  frontZ: -(DOOR.depth / 2 + 0.01),
+  frontZ: -(DOOR.depthBack + 0.01),
 } as const;
 
 /**

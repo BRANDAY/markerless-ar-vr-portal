@@ -112,6 +112,17 @@ writePng('room_ceiling.png', SIZE, (x, y) => {
 //    the model's bounding box, so the origin is the centre of the opening and the frame
 //    straddles z = 0.
 //
+// The transparent part is not just one quad but a "tunnel" through the frame towards the
+// room (front window at z = 0, a second window at the back of the frame, four side walls).
+// Reason: the renderer switches from AR to VR slightly late when the user walks fast, so
+// for a frame the camera can already be past (or within the near clip distance of) the
+// front window. With a single quad the part of the screen that no longer sees the quad
+// showed the camera image (seen on a device: the top ~45 % of the screen for one frame).
+// Inside the tunnel every view ray still hits a transparent face, so the room stays
+// visible until the switch happens. All tunnel faces are wound to face the AR side /
+// the tunnel axis: once the user is inside, the renderer draws only back faces into the
+// stencil, and a face looked at from within the tunnel must not count as the way out.
+//
 // The texture is a 16 x 16 palette strip of four 4-texel columns: three opaque shades of
 // the frame colour (front/back, sides, top/bottom faces - a baked "lighting") and one fully
 // transparent column. Every face maps ALL its vertices to the centre of one column, so the
@@ -133,7 +144,8 @@ const DOOR = {
   postWidth: 0.08,
   lintelHeight: 0.08,
   thresholdHeight: 0.02,
-  depth: 0.12,
+  depthFront: 0.06, // frame thickness on the AR side of the crossing plane (z > 0)
+  depthBack: 0.14, // ... and on the room side (z < 0); also the length of the tunnel
 };
 
 function buildDoorFrameObj() {
@@ -172,25 +184,37 @@ function buildDoorFrameObj() {
 
   const hw = DOOR.openingWidth / 2;
   const hh = DOOR.openingHeight / 2;
-  const hd = DOOR.depth / 2;
+  const zf = DOOR.depthFront;
+  const zb = -DOOR.depthBack;
   const bottom = -hh - DOOR.thresholdHeight;
   const top = hh + DOOR.lintelHeight;
   const outer = hw + DOOR.postWidth;
 
-  box(-outer, -hw, bottom, top, -hd, hd); // left post
-  box(hw, outer, bottom, top, -hd, hd); // right post
-  box(-hw, hw, hh, top, -hd, hd); // lintel
-  box(-hw, hw, bottom, -hh, -hd, hd); // threshold
+  box(-outer, -hw, bottom, top, zb, zf); // left post
+  box(hw, outer, bottom, top, zb, zf); // right post
+  box(-hw, hw, hh, top, zb, zf); // lintel
+  box(-hw, hw, bottom, -hh, zb, zf); // threshold
 
-  // The "window": one quad in the plane z = 0 filling the opening (1 cm overlap under the
-  // frame so no gap can appear), facing +Z, transparent texel.
+  // The transparent tunnel (see the comment above). Its faces come LAST in the file, so
+  // within the single draw call the opaque frame is drawn before them. The tunnel is 1 cm
+  // wider than the opening on every side, i.e. its side walls are hidden inside the frame.
   const o = 0.01;
-  quad(1, 4, [
-    [-hw - o, -hh - o, 0],
-    [hw + o, -hh - o, 0],
-    [hw + o, hh + o, 0],
-    [-hw - o, hh + o, 0],
-  ]);
+  const a = hw + o;
+  const b = hh + o;
+  const windowAt = (z) =>
+    quad(1, 4, [
+      [-a, -b, z],
+      [a, -b, z],
+      [a, b, z],
+      [-a, b, z],
+    ]);
+  windowAt(0); // front window, in the crossing plane, facing +Z
+  windowAt(zb); // back window, at the back of the frame, also facing +Z
+  // Side walls, normals pointing at the tunnel axis.
+  quad(3, 4, [[-a, -b, 0], [-a, -b, zb], [-a, b, zb], [-a, b, 0]]); // left wall, normal +X
+  quad(4, 4, [[a, -b, zb], [a, -b, 0], [a, b, 0], [a, b, zb]]); // right wall, normal -X
+  quad(6, 4, [[-a, b, zb], [a, b, zb], [a, b, 0], [-a, b, 0]]); // top wall, normal -Y
+  quad(5, 4, [[-a, -b, 0], [a, -b, 0], [a, -b, zb], [-a, -b, zb]]); // bottom wall, normal +Y
 
   const f = (n) => Number(n.toFixed(4)).toString();
   const lines = [

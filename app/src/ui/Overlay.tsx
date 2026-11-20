@@ -1,4 +1,4 @@
-import { type ComponentRef, useEffect, useRef } from 'react';
+import { type ComponentRef, useCallback, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PROVIDER_IDS } from '../localization';
@@ -83,16 +83,19 @@ function EventLog() {
   const log = useAppState((s) => s.log);
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
-  useEffect(() => {
+  // Scrolling in an effect on `log` runs before the new line has been laid out and leaves
+  // the view one entry behind; `onContentSizeChange` fires after layout, when the content
+  // really has its new height.
+  const scrollToNewest = useCallback(() => {
     scrollRef.current?.scrollToEnd({ animated: false });
-  }, [log, logVisible]);
+  }, []);
 
   if (!logVisible) {
     return null;
   }
   return (
     <View style={styles.logBox}>
-      <ScrollView ref={scrollRef}>
+      <ScrollView ref={scrollRef} onContentSizeChange={scrollToNewest} onLayout={scrollToNewest}>
         {log.length === 0 ? <Text style={styles.logLine}>(no events yet)</Text> : null}
         {log.map((entry) => (
           <Text key={entry.id} style={styles.logLine}>

@@ -11,18 +11,20 @@ walk-through portal and a pluggable localization layer. Real localization is not
 implemented yet — the doorway is placed 2 m in front of the camera by a stand-in
 provider (see [Status](#status-against-the-assignment)).
 
-> **Nothing in this repository has been run on a phone yet.** The APK builds; tracking,
-> portal rendering, the enter/exit events and the behaviour while crossing the doorway
-> are unverified. See [Not verified yet](#not-verified-yet).
+> **Device status.** The first build (commit `9cb8a8b`) was tested once on a Xiaomi 14
+> Ultra: camera feed, tracking, the door frame, the room seen through it, walking in and
+> back out all worked. Three defects were found and addressed afterwards; **the fixes
+> themselves have not been re-tested on the phone yet.** Details:
+> [Verified on a device](#verified-on-a-device) and [Not verified yet](#not-verified-yet).
 
 ## Status against the assignment
 
 | Task | State |
 | --- | --- |
-| 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`), not device-tested |
+| 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`); camera feed and tracking confirmed on a device |
 | 2. Recognise a previously scanned room without markers | **Not implemented.** Interface + three stubs only (`src/localization/`) |
 | 3. Doorway at the same real-world pose in every session | **Not implemented.** Depends on task 2; the doorway pose already flows through one place |
-| 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`, `src/ar/VirtualRoom.tsx`), not device-tested |
+| 4. See a virtual room through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`, `src/ar/VirtualRoom.tsx`); confirmed on a device, one visual defect at the crossing (see below) |
 | 5. Tests: restart, angles, lighting, tracking loss | Not started (needs tasks 2–3 and a device) |
 
 ## Stack
@@ -106,7 +108,7 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
 - Measured on the development laptop (i7-8750H, 16 GB RAM, another CPU-heavy job running
   at the same time): the first build took **23 min** (downloads the Gradle distribution
   and all dependencies, compiles the native modules); a rebuild after a JavaScript change
-  took **1 min 41 s**. The debug APK is **68 MB** (`arm64-v8a` only, unstripped debug
+  took 2–3 min. The debug APK is about **70 MB** (`arm64-v8a` only, unstripped debug
   libraries, Hermes bytecode bundle 1.9 MB).
 - Disk used on that machine, measured after the build: Gradle user home 3.8 GB, npm
   cache 0.5 GB, the three SDK packages 2.6 GB (the NDK alone is 2.3 GB), `node_modules`
@@ -138,7 +140,9 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
    adb shell monkey -p hr.fesb.arportal -c android.intent.category.LAUNCHER 1
    ```
 
-5. Grant the camera permission when the app asks.
+5. Grant the camera permission when the app asks. (If the app was started while the
+   screen was locked, the dialog appears once the phone is unlocked and the app is in
+   front; a *Grant camera access* button is shown as well.)
 6. Logs of the app (the on-screen event log is mirrored to logcat with the `[portal]`
    prefix):
 
@@ -156,7 +160,8 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
 
 With the phone on USB, start Metro and forward its port; the debug build loads the
 bundle from Metro when it is reachable and falls back to the embedded one otherwise
-(this fallback is standard React Native behaviour, not yet confirmed on a device here):
+(starting from the embedded bundle is confirmed on a device; Metro taking priority is
+standard React Native behaviour and has not been tried here):
 
 ```powershell
 adb reverse tcp:8081 tcp:8081
@@ -202,7 +207,7 @@ scripts/
   env.ps1                     optional: caches on another drive for the current shell
   generate-assets.mjs         generates all textures and the door-frame OBJ
 assets/
-  models/door_frame.obj       generated door frame (frame + transparent "window")
+  models/door_frame.obj       generated door frame (frame + transparent "tunnel")
   textures/*.png              generated textures
 src/
   ar/
@@ -282,22 +287,23 @@ ViroARScene
   [ViroNode  ← door pose]                 only in attach mode "parent"
     ViroPortalScene passable              origin = centre of the opening
       ViroPortal
-        Viro3DObject door_frame.obj       frame + transparent "window" quad
+        Viro3DObject door_frame.obj       frame + transparent "tunnel" through it
       ViroSkyBox (colour)                 background of the inner world
       ViroNode (down to floor level)
         VirtualRoom                       walls, floor, ceiling, objects, lights
 ```
 
 Constraints taken from the renderer's source code (ReactVision/virocore and the Android
-bridge) and built into the door model. They were read from the code, **not yet confirmed
-on a device**:
+bridge) and built into the door model. The device test agrees with them (the room is
+visible only through the doorway, the frame is opaque, the AR/VR switch happens at the
+door plane), but they were derived by reading code, not by experiments:
 
 - On Android the children of `ViroPortal` must be `Viro3DObject`s; primitives are rejected.
 - The inner scene is drawn only where the frame model has geometry whose **diffuse texture**
-  alpha is ≤ 0.1. An empty hole shows nothing. So the model contains a quad that fills
-  the opening and samples a fully transparent texel; the frame samples opaque texels of
-  the same 16×16 texture. Every face maps all its vertices to one texel centre, so the
-  result does not depend on mip level or distance.
+  alpha is ≤ 0.1. An empty hole shows nothing. So the model contains transparent
+  geometry in the opening that samples a fully transparent texel; the frame samples
+  opaque texels of the same 16×16 texture. Every face maps all its vertices to one
+  texel centre, so the result does not depend on mip level or distance.
 - "Walking through" is detected by intersecting the camera's movement between two frames
   with the plane through the `ViroPortal` origin (normal = local Z); the hit must lie
   inside the frame's bounding box. The model origin is therefore the centre of the
@@ -308,15 +314,33 @@ on a device**:
 - Lights are global in ViroReact, so the AR lights and the room lights are separated
   with `influenceBitMask` / `lightReceivingBitMask` (`doorGeometry.ts`).
 
-**Flicker when the camera crosses the doorway plane.** The renderer has a built-in
-measure: it switches the active scene when the camera is still 4 cm in front of the
-plane, before the near clip plane can cut the stencil quad, and renders the frame
-two-sided right after the switch. This project adds nothing of its own beyond meeting
-the model requirements above (window exactly in the crossing plane, origin in the
-opening) and putting the room's front wall 7 cm behind that plane. Whether a flicker is
-still visible **could not be judged without a device**. If it is, the tuning constant
-lives in native code (`VROPortalTraversalListener.cpp`), which means a custom build of
-the renderer.
+**Crossing the doorway plane.** The renderer has a built-in measure against flicker: it
+switches the active scene when the camera is still about 4 cm in front of the plane
+(measured along the viewing direction) and renders the frame two-sided right after the
+switch.
+
+On the device this was not quite enough. Observed with the first build, whose door model
+had a single transparent quad in the plane of the doorway: at the AR → VR crossing, in
+one frame right before the switch, the top ~45 % of the screen showed the real camera
+image while the lower part still showed the virtual room. Nothing comparable was seen on
+the VR → AR crossing. The likely cause (an inference from the renderer code, not a
+measurement): when the user walks fast with the phone tilted down, the camera of the
+rendered frame is already past the quad — or within the near clip distance of it — before
+the switch happens; the upper part of the view then no longer contains the quad, so no
+portal content is drawn there.
+
+Mitigation in the current model: the transparent part is a **tunnel** through the frame
+instead of one quad — the window in the crossing plane, a second window 14 cm further
+at the back of the frame, and four side walls hidden inside the frame. A camera that has
+overshot the first window still looks at transparent faces in every direction, so the
+room stays on screen until the switch. The frame was made deeper on the room side
+(6 cm in front of the plane, 14 cm behind it) to give the tunnel that length, and the
+room's front wall sits 1 cm behind the frame. All tunnel faces are wound towards the AR
+side / the tunnel axis, because after the switch the renderer draws only back faces into
+the stencil and a face seen from within the tunnel must not act as the way out.
+**This mitigation has not been tested on the phone yet.** If a flash remains, the next
+lever is in native code (the 4 cm constant in `VROPortalTraversalListener.cpp`), which
+means a custom build of the renderer.
 
 **Way back.** Inside the room the doorway is in the middle of the front wall, shows the
 camera image and has an "EXIT TO AR" label above it, so turning around is enough.
@@ -346,28 +370,60 @@ Third-party code comes only through npm (see `package.json`); the main ones:
 `@reactvision/react-viro` (MIT), `expo` (MIT), `react-native` (MIT). ViroReact ships
 Google's ARCore client library as a binary, which is covered by Google's own terms.
 
+## Verified on a device
+
+One test session of the first build (commit `9cb8a8b`, APK unchanged), judged from a
+52-second screen recording and the on-screen debug overlay.
+
+Device: Xiaomi 14 Ultra (model 24031PN0DC), Android 16 (SDK 36), `arm64-v8a`,
+Google Play Services for AR 1.57.262640293. Installed with `adb install -r`.
+
+Confirmed:
+
+- the embedded JavaScript bundle loads without Metro; no crash;
+- camera feed renders, tracking reaches NORMAL, a floor plane is found (floor y −0.58 m,
+  later re-detected at −0.67 m);
+- the door frame renders opaque, the virtual room is visible only through the doorway,
+  the real world is visible around the frame;
+- the AR/VR indicator flips at the door plane and matches the geometry (computed from
+  camera position against door position and yaw: about 11 cm before the plane = AR,
+  about 17 cm past it = VR);
+- from inside, the real room is visible back through the doorway, and walking out
+  forwards gives EXIT → AR;
+- *Re-place door* works; attach modes `direct` and `parent` both render the door
+  correctly; the three stub providers report "not implemented".
+
+Defects found in that session and what was done about them:
+
+| Defect | State |
+| --- | --- |
+| Started while the screen was locked, the app logged `Tried to use permissions API while not attached to an Activity` and never got the camera permission | Fixed in code: the dialog is requested only while the app is active, failed attempts are retried, and the state is re-checked whenever the app becomes active. Not re-tested on the phone |
+| The event log panel was one entry behind (the newest line appeared only with the next one) | Fixed in code: scrolling now happens after layout (`onContentSizeChange`). Not re-tested on the phone |
+| One-frame flash at the AR → VR crossing (top ~45 % of the screen showed the camera image) | Mitigation in the door model, see [How the portal works](#how-the-portal-works). Not re-tested on the phone |
+
 ## Not verified yet
 
-Everything below needs a real ARCore phone. None of it has been run:
-
-- that the app starts at all on a device (React Native 0.88 + ViroReact 3.2.2 is a very
-  recent combination; the pull request that moved ViroReact to React Native 0.88 states
-  that it was not run on a device);
-- camera feed, tracking state callbacks, camera transform updates, plane detection;
-- that the door model satisfies the portal renderer (inner room visible through the
-  frame, frame opaque, nothing visible outside the opening);
-- `onPortalEnter` / `onPortalExit` firing, and at the right moment;
-- flicker or popping while crossing the doorway plane;
-- the view back from inside (camera image through the doorway);
-- separation of AR and room lights by bit masks; text sizes; texture orientation;
-- the two attach modes, and whether auto-anchoring moves the portal;
+- the three fixes above, and the look of the deeper door frame that came with the
+  mitigation;
+- long-term drift of the doorway while the app keeps running;
+- behaviour when the parent node of the portal is actually *moved* by a provider (the
+  attach-mode switch was only tried with a static pose), and whether auto-anchoring
+  moves the portal;
 - behaviour after tracking loss and re-localization;
-- loading the embedded bundle without Metro, and Metro taking priority when present.
+- phones other than the one above;
+- Metro taking priority over the embedded bundle in the development loop;
+- details nobody looked at specifically: separation of AR and room lights by bit masks,
+  3D text sizes, texture orientation;
+- a clean clone built end to end with the documented commands (the steps were run
+  individually on the development machine).
 
 ## Known issues and limitations
 
 - The doorway position is **not persistent** (stage 1). Every start places it relative
   to the phone.
+- A one-frame flash of the camera image was seen at the AR → VR crossing with the first
+  build; a mitigation is in place but unconfirmed (see
+  [How the portal works](#how-the-portal-works)).
 - The floor height is a guess until ARCore reports a horizontal plane; before that the
   doorway is placed 1.4 m below the camera. Use *Re-place door* after looking at the floor.
 - The renderer does not check the crossing direction: walking through the frame from
