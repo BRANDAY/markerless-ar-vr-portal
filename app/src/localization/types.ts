@@ -1,0 +1,138 @@
+/**
+ * Localization layer: everything that decides WHERE the doorway stands.
+ *
+ * The rest of the app never talks to ARCore anchors, a VPS or a server directly.
+ * It only consumes `PoseUpdate`s from the active `LocalizationProvider` and writes
+ * them into the single door-pose slot of the app store (see `state/appStore.ts`).
+ *
+ * Coordinate conventions (identical to ViroReact, so a pose can be passed straight
+ * to a node's `position` / `rotation` props):
+ *  - "AR world" = the ARCore session frame of the CURRENT app session: right-handed,
+ *    metres, +Y up (gravity aligned), origin and heading where the session started.
+ *    It is different in every session - turning a persistent room pose into this
+ *    frame is exactly the job of a provider.
+ *  - `rotation` = Euler angles in DEGREES, [x, y, z], applied as R = Rz * Ry * Rx
+ *    (column vectors). A doorway only needs yaw (rotation about Y).
+ *  - The doorway's local frame: origin on the floor in the middle of the threshold,
+ *    +Y up, the opening lies in the local XY plane, local +Z points to the "AR side"
+ *    (where the user stands before walking in), the virtual room extends to -Z.
+ */
+
+export type Vec3 = [number, number, number];
+
+export interface Pose {
+  /** Metres, AR-world coordinates of the current session. */
+  position: Vec3;
+  /** Euler degrees [x, y, z], ViroReact order (R = Rz * Ry * Rx). */
+  rotation: Vec3;
+}
+
+/** Latest known device camera pose in AR-world coordinates. */
+export interface CameraPose {
+  position: Vec3;
+  /** Euler degrees as reported by ViroReact. Prefer `forward` / `up`: they are unambiguous. */
+  rotation: Vec3;
+  /** Unit vector the camera looks along. */
+  forward: Vec3;
+  /** Unit vector pointing out of the top of the camera image. */
+  up: Vec3;
+}
+
+export type TrackingState = 'unavailable' | 'limited' | 'normal';
+
+export type LocalizationStatus =
+  /** Not started, or stopped. */
+  | 'idle'
+  /** Started, waiting for AR tracking to become usable. */
+  | 'waiting-for-tracking'
+  /** The provider's back-end (server) is not reachable yet; it keeps trying. */
+  | 'waiting-for-server'
+  /** The back-end is reachable, but no pose has been requested or produced yet. */
+  | 'connected'
+  /** Tracking is fine, the provider is working on a pose (scanning, uploading, resolving...). */
+  | 'localizing'
+  /** A pose has been delivered and is believed to be valid. */
+  | 'localized'
+  /** A pose was delivered earlier but can no longer be trusted (tracking loss, anchor lost). */
+  | 'lost'
+  /** The provider cannot work (missing configuration, network error, not implemented). */
+  | 'error';
+
+export interface PoseQuality {
+  /** 0..1, provider specific. Undefined when the provider cannot tell. */
+  confidence?: number;
+  /** Estimated position error in metres, when available. */
+  positionErrorM?: number;
+  /** Estimated heading error in degrees, when available. */
+  headingErrorDeg?: number;
+  /** Free-form detail for the debug overlay ("floor: detected plane", "42 inliers"...). */
+  note?: string;
+}
+
+export interface PoseUpdate {
+  /** Doorway pose in AR-world coordinates of the current session. */
+  pose: Pose;
+  quality?: PoseQuality;
+  /** Which provider produced the pose. */
+  source: ProviderId;
+  /** `Date.now()` at the moment the pose was computed. */
+  timestampMs: number;
+}
+
+export type ProviderId =
+  | 'manual'
+  | 'reactvision-vps'
+  | 'arcore-cloud-anchor'
+  | 'self-hosted';
+
+export type Unsubscribe = () => void;
+
+/**
+ * What a provider may ask from the running AR session. Implemented by the AR scene
+ * (`ar/PortalARScene.tsx`); providers must not import ViroReact components themselves.
+ */
+export interface LocalizationContext {
+  /** Latest camera pose, or null before the first camera transform arrived. */
+  getCameraPose(): CameraPose | null;
+  getTrackingState(): TrackingState;
+  onTrackingState(listener: (state: TrackingState) => void): Unsubscribe;
+  /**
+   * World Y of the lowest horizontal plane detected so far (best guess for the floor),
+   * or null when no horizontal plane has been detected yet.
+   */
+  getFloorY(): number | null;
+  /**
+   * Handle to ViroReact's `arSceneNavigator` object (cloud-anchor / VPS calls live there).
+   * Typed loosely on purpose: only the ARCore and ReactVision providers need it.
+   */
+  getArSceneNavigator(): unknown;
+  /** Writes a line to the on-screen event log. */
+  log(message: string): void;
+}
+
+export interface LocalizationProvider {
+  readonly id: ProviderId;
+  readonly displayName: string;
+
+  /** Begin producing poses. Must be safe to call again after `stop()`. */
+  start(context: LocalizationContext): void;
+  /** Release listeners, timers and (later) network resources. */
+  stop(): void;
+
+  getStatus(): LocalizationStatus;
+  /** Human-readable detail for the current status (error text, progress...). */
+  getStatusDetail(): string;
+  onStatus(listener: (status: LocalizationStatus, detail: string) => void): Unsubscribe;
+
+  /**
+   * Doorway pose stream. A provider may emit more than once: every emission moves
+   * the whole portal (refinement, re-localization after tracking loss).
+   */
+  onPose(listener: (update: PoseUpdate) => void): Unsubscribe;
+
+  /**
+   * Ask the provider to compute the pose again from the current camera view.
+   * Manual provider: re-place in front of the camera. Real providers: re-localize.
+   */
+  relocalize(): void;
+}
