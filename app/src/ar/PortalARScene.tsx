@@ -69,6 +69,7 @@ export function PortalARScene(props: SceneProps) {
   const door = useAppState((s) => s.door);
   const attachMode = useAppState((s) => s.attachMode);
   const environment = useAppState((s) => s.environment);
+  const frame = useAppState((s) => s.frame);
 
   const cameraRef = useRef<CameraPose | null>(null);
   const lastCameraPublishRef = useRef(0);
@@ -293,12 +294,14 @@ export function PortalARScene(props: SceneProps) {
       <ServerRoomLayer />
 
       {door ? (
-        // `key` re-mounts the portal when the attach mode or the world changes, so each starts clean.
+        // `key` re-mounts the portal when the attach mode, the world or the frame changes, so each
+        // starts clean.
         <DoorPortal
-          key={`${attachMode}-${environment}`}
+          key={`${attachMode}-${environment}-${frame}`}
           pose={door.pose}
           attachMode={attachMode}
           environment={environment}
+          frame={frame}
           opening={door.opening}
         />
       ) : null}

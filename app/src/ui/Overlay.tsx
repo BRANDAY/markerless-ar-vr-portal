@@ -118,6 +118,7 @@ function Controls() {
   const providerId = useAppState((s) => s.providerId);
   const logVisible = useAppState((s) => s.logVisible);
   const environment = useAppState((s) => s.environment);
+  const frame = useAppState((s) => s.frame);
 
   const nextProvider = () => {
     const index = PROVIDER_IDS.indexOf(providerId);
@@ -135,6 +136,10 @@ function Controls() {
       <Button
         label={`World: ${environment}`}
         onPress={() => appActions.setEnvironment(environment === 'sponza' ? 'test-room' : 'sponza')}
+      />
+      <Button
+        label={`Frame: ${frame}`}
+        onPress={() => appActions.setFrame(frame === 'casing' ? 'simple' : 'casing')}
       />
       <Button label={logVisible ? 'Hide log' : 'Show log'} onPress={appActions.toggleLog} />
       <Button label="Clear log" onPress={appActions.clearLog} />

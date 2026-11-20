@@ -35,6 +35,16 @@ export type AttachMode = 'direct' | 'parent';
  */
 export type EnvironmentId = 'sponza' | 'test-room';
 
+/**
+ * The door frame of the portal:
+ *  - 'casing': the wooden casing built from parts that are stretched only along their own
+ *    length, with a plank door (`src/environments/DoorCasing.tsx`);
+ *  - 'simple': the one-piece frame from stage 1, scaled as a whole (its posts change
+ *    thickness with the doorway). Seen working on a device; kept to tell a problem of the
+ *    casing from a problem of the portal.
+ */
+export type FrameId = 'casing' | 'simple';
+
 export interface LogEntry {
   id: number;
   /** Seconds since app start. */
@@ -60,6 +70,7 @@ export interface AppState {
 
   attachMode: AttachMode;
   environment: EnvironmentId;
+  frame: FrameId;
   overlayVisible: boolean;
   logVisible: boolean;
   log: LogEntry[];
@@ -85,6 +96,7 @@ let state: AppState = {
 
   attachMode: 'direct',
   environment: 'sponza',
+  frame: 'casing',
   overlayVisible: true,
   logVisible: true,
   log: [],
@@ -179,6 +191,13 @@ export const appActions = {
     if (environment !== state.environment) {
       // The portal is re-mounted with the new world; that resets "inside the portal".
       setState({ environment, mode: 'AR' });
+    }
+  },
+
+  setFrame(frame: FrameId): void {
+    if (frame !== state.frame) {
+      // Re-mounted like a change of the world.
+      setState({ frame, mode: 'AR' });
     }
   },
 
