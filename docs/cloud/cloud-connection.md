@@ -215,6 +215,25 @@ Nothing was run on a phone, and no call was made to the service.
 
 The vendor pages were read through a tool that returns summaries, so menu names and field names should be checked against the live pages while doing the steps.
 
-## 10. An earlier variant in the repository
+## 10. The spare free way: Google ARCore Cloud Anchors
 
-Before the owner's decision this chat had prepared the other free candidate, Google ARCore Cloud Anchors, as code: `app/src/localization/cloud/` (commit `8d1d981`). It is not connected to the app and nothing imports it. Whether it stays as a spare or is removed is for the owner and the dispatcher to decide. Its frame arithmetic (`core/anchorMath.ts`, a pose written relative to another frame, with unit tests) is the same arithmetic as in section 5.
+Kept in the repository as a fallback that costs nothing (dispatcher's decision of 2026-11-21). The app chat connects it only if the owner decides so.
+
+**What it is.** The door is saved once as a cloud anchor at Google and found again in later sessions through two calls ViroReact already has (`hostCloudAnchor`, `resolveCloudAnchor`, `components/AR/ViroARSceneNavigator.tsx:1042-1070`). Unlike Advanced VPS it remembers one spot, not the room.
+
+**What is written.** `app/src/localization/cloud/`, commit `8d1d981`: the provider `CloudAnchorDoorProvider` (`id: 'arcore-cloud-anchor'`), the "save door to cloud" call `saveDoorToCloud`, the record kept on the phone, and the rules in `core/` with 53 unit tests.
+
+**What is not done.** It is not connected: nothing imports it, the provider list still returns the stub, and its tests are not in `app/tsconfig.test.json`. It has never run on a phone, and no call has been made to Google. The tests passed when run separately on 2026-11-21.
+
+**What it needs from Google Cloud.** A project with the **ARCore API** switched on, and one of two credentials:
+
+| Credential | Anchor lives | In the build |
+|---|---|---|
+| API key, restricted to the package `hr.fesb.arportal` and the SHA-1 of the signing key, and to the ARCore API | at most 24 hours | plugin option `googleCloudApiKey`, written to the manifest as `com.google.android.ar.API_KEY` (`plugins/withViroAndroid.ts:375-377`) |
+| OAuth client ID of type Android for the same package and SHA-1 ("keyless") | 1 to 365 days | no key at all; the Gradle dependency `com.google.android.gms:play-services-auth` is needed |
+
+No Google page read on 2026-11-21 names a price. An API key, if one is made, is kept outside the repository like the keys of section 4 (suggested file `E:\VR-FESB\secrets\google-arcore.json` with `googleCloudApiKey`).
+
+**What connecting it would take.** The provider line in `app/src/localization/index.ts`, `provider="arcore"` on `ViroARSceneNavigator`, the key in the build, a "Save door to cloud" action for staff, and Google's required notice on screen. The AR view has one `provider`, so a build talks either to ReactVision or to Google, not to both. The details are in the hand-over note `cloud_handover.md` and in the first version of this document (`git show 8d1d981:docs/cloud/cloud-connection.md`).
+
+**Not verified for this way.** Whether ViroReact's ARCore path works on our phone at all; whether keyless authorisation works through ViroReact, and whether it needs a Google account on the phone; times and accuracy.
