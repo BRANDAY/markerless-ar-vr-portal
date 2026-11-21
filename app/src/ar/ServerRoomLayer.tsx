@@ -1,6 +1,7 @@
 import { ViroBox, ViroNode, ViroPolygon, ViroPolyline } from '@reactvision/react-viro';
 
 import { useRoomScan } from '../room/roomStore';
+import { usePrefs } from '../state/prefs';
 import type { PlanRect } from '../server/core/roomPlan';
 import './materials';
 
@@ -14,10 +15,15 @@ const LINE_M = 0.02;
  *
  * Orange = server plan (the cyan/green highlights of `RoomScanLayer` are what the phone
  * itself detects), white = door openings.
+ *
+ * A developer option (`docs/product/ui-spec.md`, 3.4): users see the plan as a drawing on
+ * the room screens, not in the camera view.
  */
 export function ServerRoomLayer() {
   const plan = useRoomScan((s) => s.serverPlan);
-  const visible = useRoomScan((s) => s.planVisible);
+  const wanted = useRoomScan((s) => s.planVisible);
+  const developer = usePrefs((s) => s.developerOptions);
+  const visible = wanted && developer;
   const room = plan?.room;
   if (!visible || !room || room.status === 'unavailable') {
     return null;

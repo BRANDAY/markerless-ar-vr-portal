@@ -19,6 +19,8 @@ export interface ArInput {
   source: 'room' | 'free';
   /** State of the server connection. */
   connection: string;
+  /** Inside the space: the phone is close to a real wall of the room. */
+  wallClose?: boolean;
 }
 
 export interface CoachLines {
@@ -96,6 +98,9 @@ export function arView(input: ArInput): ArView {
 
   if (input.mode === 'VR') {
     view.situation = 'inside';
+    if (input.wallClose) {
+      view.coach = { line1: 'ar.inside.wall.1', line2: 'ar.inside.wall.2' };
+    }
     return view;
   }
 

@@ -178,7 +178,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (140 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (145 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -188,8 +188,9 @@ textures and the simple door model).
 ## The interface
 
 Since 21 November 2026 the app has product screens, built step by step from
-[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 4 of its section 10 so
-far). **None of these screens has been seen on a phone**; the build on the phone is still
+[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 4 and 6 of the section 10
+of its first revision so far; the second revision of the spec, with a staff and a visitor
+mode, is not built yet). **None of these screens has been seen on a phone**; the build on the phone is still
 `546697d`. "Vrata" and the amber and teal colours are working choices, kept in one file
 (`src/brand.ts`).
 
@@ -214,6 +215,15 @@ What a user meets, in order:
    slightly off · Find again", "Server offline · the door stays where it is") or a red
    banner ("Lost track of the room"). A first door position that the server is not sure of
    is drawn as an amber dashed outline until a second look confirms it.
+   **Inside the space** the screen shows "Door is behind you" while the door is out of the
+   view (more than 35 degrees from the middle of the picture, on the floor plan), and an
+   info button that opens "About this place" (place, date, a paragraph, the model's credit
+   and licence; the texts are in `src/i18n/en.ts`, the list of spaces in
+   `src/spaces/spaces.ts`). When the phone comes within 0.6 m of a real wall of the room,
+   the coach says "A real wall is close" and that wall is drawn as a grid inside the
+   space, at full strength from 0.3 m. The walls are those of the room plan the server
+   sends with the door's position, so there is no warning for a door without a room, or
+   for a room whose shape the server could not measure.
 4. **Settings:** server, automatic search, privacy, "How it works", the version line.
 
 ### Scanning a room
@@ -297,6 +307,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | Home while a build is running | also shows a build that failed while the user was elsewhere, until it has been looked at | otherwise a failure would go unnoticed |
 | "Send again" after a restart of the app | the scan and its room are remembered, but no screen offers it | the spec has no place for it |
 | "See the room" opens the room result | opens Home | the room result is step 5 |
+| Inside the space: only "Door is behind you" and the info button | the close button stays as well | a way out that does not depend on Android's back button |
 | "Place the door by hand" | not offered | the spec itself postpones it |
 | AR menu: only "Find the door again" for a door without a room | "Put the door in front of me" instead | the door placed without a server has nothing to be found by |
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
@@ -533,7 +544,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 140 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 145 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -775,6 +786,8 @@ src/
   ui/core/                    pure, unit-tested: what the AR screen shows (arView), Home situations, plan layout,
                               the steps of the guided scan (scanFlow), percentage, steps and problems of a build (buildView)
   ui/ScanPrepareScreen.tsx, ScanScreen.tsx, BuildScreen.tsx   the guided scan and the build of its map
+  spaces/spaces.ts            the spaces that can stand behind the door, and what is said about them
+  ar/WallGridLayer.tsx        the real room's wall as a grid, inside the space
   ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
   ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
   ui/ProblemScreen.tsx, MoreScreens.tsx, PlanDrawing.tsx, flows.ts   the other screens and the paths between them
@@ -1065,6 +1078,9 @@ has never been installed.
   closing and discarding, the automatic finish at three minutes, saving (how long "Saving
   the scan…" stays), the upload percentage of a real 100-300 MB recording, every problem
   screen, **Send again**, leaving and coming back during a build;
+- **inside the space**: whether the wall grid can be seen at all (it is drawn inside the
+  portal's inner scene, which has not been tried), whether it stands on the real wall,
+  the distances 0.6 m and 0.3 m, "Door is behind you" against what is really in view;
 - **the measurement mode**: whether the crosshair is the middle of the camera image,
   how repeatable a mark is (the protocol starts with that check), the posts staying on
   the marked corners, the records and their file, the lines reaching the server; and

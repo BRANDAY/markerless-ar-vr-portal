@@ -203,11 +203,19 @@ export const en = {
   'ar.lost.title': 'Lost track of the room',
   'ar.lost.body': 'Move the phone slowly over furniture or pictures.',
   'ar.room.fallback': 'this room',
+  'ar.inside.behind': 'Door is behind you',
+  'ar.inside.about': 'About this place',
+  'ar.inside.wall.1': 'A real wall is close',
+  'ar.inside.wall.2': 'The grid shows where your room ends.',
   'ar.free.replace': 'Put the door in front of me',
   'ar.free.replace.sub': 'Two metres ahead, facing you',
 
   // ---- spaces ----
   'space.sponza.name': 'Sponza Palace atrium',
+  'space.sponza.place': 'Dubrovnik, Croatia',
+  'space.sponza.date': '1516–1522',
+  'space.sponza.about': 'The Sponza Palace was built as the customs house of the Republic of Ragusa. Goods from the ships were weighed and taxed in this arcaded courtyard. What you see is an artist’s 3D model of the atrium, not a survey of the building.',
+  'space.sponza.credit': 'Model “Crytek Sponza” © 2010 Frank Meinl, Crytek, after Marko Dabrovic. CC BY 3.0, changed for this app.',
   'space.test-room.name': 'Test room',
 
   // ---- 7.1 problems outside AR ----

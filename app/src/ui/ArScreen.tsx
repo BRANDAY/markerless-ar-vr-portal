@@ -4,11 +4,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { t, type TextKey } from '../i18n';
 import { useMeasure } from '../measure/measureController';
 import { roomName as nameOfRoom, useRooms } from '../room/roomsStore';
+import { useRoomScan } from '../room/roomStore';
+import { spaceInfo } from '../spaces/spaces';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
 import { arView } from './core/arView';
+import { doorOutOfView, nearestWall, WALL_WARNING } from './core/insideView';
 import { homeScreen, openGuidedScan } from './flows';
-import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle } from './kit';
+import { AppButton, Body, CoachCard, Eyebrow, HudButton, HudPill, Row, Sheet, SheetTitle, Small } from './kit';
 import { useServerView } from './ServerPanel';
 import { HUD, TYPE, useInsets } from './theme';
 
@@ -38,6 +41,7 @@ export function ArScreen() {
   const connection = useServerView().connection;
 
   const source = providerId === 'self-hosted' ? 'room' : 'free';
+  const wallClose = useWallClose();
   const view = arView({
     status,
     meta,
@@ -47,9 +51,11 @@ export function ArScreen() {
     trackingReason,
     source,
     connection: connection.state,
+    wallClose,
   });
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   /** The sheet the user has closed; it stays closed until the problem goes away. */
   const [closedSheet, setClosedSheet] = useState<string | null>(null);
   useEffect(() => {
@@ -96,7 +102,8 @@ export function ArScreen() {
     appActions.requestRelocalize();
   };
   const roomName = nameOfRoom(currentRoom) || t('home.room.eyebrow');
-  const spaceName = t(`space.${environment}.name` as TextKey);
+  const space = spaceInfo(environment);
+  const spaceName = t(space.name);
   const coach = view.coach;
 
   return (
@@ -109,6 +116,12 @@ export function ArScreen() {
             <>
               <HudPill text={spaceName} />
               <HudButton icon="more" label={t('ar.menu.findAgain')} onPress={() => setMenuOpen(true)} />
+            </>
+          ) : null}
+          {view.situation === 'inside' ? (
+            <>
+              <DoorBehindPill />
+              {space.about ? <HudButton icon="info" label={t('ar.inside.about')} onPress={() => setAboutOpen(true)} /> : null}
             </>
           ) : null}
         </View>
@@ -153,6 +166,16 @@ export function ArScreen() {
         </Sheet>
       ) : null}
 
+      {aboutOpen ? (
+        <Sheet onClose={() => setAboutOpen(false)}>
+          {space.place ? <Eyebrow>{[t(space.place), space.date ? t(space.date) : ''].filter(Boolean).join(' · ')}</Eyebrow> : null}
+          <SheetTitle>{spaceName}</SheetTitle>
+          {space.about ? <Body dim>{t(space.about)}</Body> : null}
+          {space.credit ? <Small>{t(space.credit)}</Small> : null}
+          <AppButton kind="ghost" label={t('common.close')} onPress={() => setAboutOpen(false)} />
+        </Sheet>
+      ) : null}
+
       {sheet === 'unknown' ? (
         <Sheet onClose={() => setClosedSheet('unknown')}>
           <SheetTitle>{t('problem.unknown.title', { room: source === 'room' ? roomName : t('ar.room.fallback') })}</SheetTitle>
@@ -173,6 +196,29 @@ export function ArScreen() {
       ) : null}
     </View>
   );
+}
+
+/** True while the user is inside the space and the phone is close to a real wall of the room. */
+function useWallClose(): boolean {
+  const inside = useAppState((s) => s.mode === 'VR');
+  const camera = useAppState((s) => (s.mode === 'VR' ? s.cameraPosition : null));
+  const walls = useRoomScan((s) => s.serverPlan?.room?.walls);
+  if (!inside || !camera || !walls) {
+    return false;
+  }
+  const near = nearestWall(camera, walls);
+  return near !== null && near.distance < WALL_WARNING.startM;
+}
+
+/** "Door is behind you", while the door is out of the view. */
+function DoorBehindPill() {
+  const camera = useAppState((s) => s.cameraPosition);
+  const forward = useAppState((s) => s.cameraForward);
+  const door = useAppState((s) => s.door);
+  if (!camera || !forward || !door || !doorOutOfView(camera, forward, door.pose.position)) {
+    return null;
+  }
+  return <HudPill text={t('ar.inside.behind')} icon="turn" />;
 }
 
 /**

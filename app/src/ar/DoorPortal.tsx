@@ -14,6 +14,7 @@ import { SponzaAtrium } from '../environments/SponzaAtrium';
 import { appActions, type AttachMode, type EnvironmentId, type FrameId } from '../state/appStore';
 import { DOOR, DOOR_ORIGIN_HEIGHT } from './doorGeometry';
 import { VirtualRoom } from './VirtualRoom';
+import { WallGridLayer } from './WallGridLayer';
 
 interface DoorPortalProps {
   /** Doorway pose: on the floor, middle of the threshold, local +Z towards the AR side. */
@@ -43,6 +44,7 @@ interface DoorPortalProps {
  *     ViroNode (y = -origin height)     floor-level coordinates
  *       SponzaAtrium | VirtualRoom
  *       DoorLeaf                        open plank door, with the casing in the atrium only
+ *       WallGridLayer                   grid on a real wall the phone is close to (inside only)
  *
  * Both frames take the size of the real doorway. The casing stretches each part only along
  * its own length, so its moulding keeps its cross-section. The simple frame is one model
@@ -133,6 +135,8 @@ export function DoorPortal({ pose, attachMode, environment, frame, opening }: Do
             onError={(message) => appActions.log(`door leaf ERROR: ${message}`)}
           />
         ) : null}
+        {/* The real room's walls, shown from inside the space when the phone comes close. */}
+        <WallGridLayer door={pose} />
       </ViroNode>
     </ViroPortalScene>
   );
