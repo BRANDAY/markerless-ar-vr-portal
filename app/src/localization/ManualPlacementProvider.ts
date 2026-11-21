@@ -96,6 +96,7 @@ export class ManualPlacementProvider extends BaseProvider {
           this.setStatus(
             'lost',
             'tracking lost - the door stays where it was, but it may be off. Move the phone slowly over a part of the room with detail',
+            { code: 'tracking-lost' },
           );
         }
       }, INTERRUPTION_GRACE_MS + 50);

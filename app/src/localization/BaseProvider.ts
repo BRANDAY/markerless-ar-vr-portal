@@ -4,10 +4,11 @@ import type {
   LocalizationStatus,
   PoseUpdate,
   ProviderId,
+  StatusMeta,
   Unsubscribe,
 } from './types';
 
-type StatusListener = (status: LocalizationStatus, detail: string) => void;
+type StatusListener = (status: LocalizationStatus, detail: string, meta: StatusMeta) => void;
 type PoseListener = (update: PoseUpdate) => void;
 
 /**
@@ -22,6 +23,7 @@ export abstract class BaseProvider implements LocalizationProvider {
 
   private status: LocalizationStatus = 'idle';
   private statusDetail = '';
+  private statusMeta: StatusMeta = {};
   private readonly statusListeners = new Set<StatusListener>();
   private readonly poseListeners = new Set<PoseListener>();
 
@@ -69,13 +71,14 @@ export abstract class BaseProvider implements LocalizationProvider {
   protected abstract onStart(context: LocalizationContext): void;
   protected abstract onStop(): void;
 
-  protected setStatus(status: LocalizationStatus, detail = ''): void {
-    if (status === this.status && detail === this.statusDetail) {
+  protected setStatus(status: LocalizationStatus, detail = '', meta: StatusMeta = {}): void {
+    if (status === this.status && detail === this.statusDetail && JSON.stringify(meta) === JSON.stringify(this.statusMeta)) {
       return;
     }
     this.status = status;
     this.statusDetail = detail;
-    this.statusListeners.forEach((listener) => listener(status, detail));
+    this.statusMeta = meta;
+    this.statusListeners.forEach((listener) => listener(status, detail, meta));
   }
 
   protected emitPose(update: Omit<PoseUpdate, 'source' | 'timestampMs'>): void {

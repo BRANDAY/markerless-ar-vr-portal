@@ -25,6 +25,46 @@ export const DOOR_ORIGIN_HEIGHT = DOOR.openingHeight / 2 + DOOR.thresholdHeight;
 export const DOOR_OUTER_HALF_WIDTH = DOOR.openingWidth / 2 + DOOR.postWidth;
 export const DOOR_OUTER_HEIGHT = DOOR.thresholdHeight + DOOR.openingHeight + DOOR.lintelHeight;
 
+/**
+ * Dashes along the outline of a doorway (both jambs, the lintel and the threshold), in
+ * the doorway's local frame: x across the opening, y up from the floor. Each dash is a
+ * pair of points for a polyline.
+ */
+export function doorwayDashes(
+  width: number,
+  height: number,
+  dash = 0.1,
+  gap = 0.07,
+): [[number, number, number], [number, number, number]][] {
+  const half = width / 2;
+  const corners: [number, number][] = [
+    [-half, 0],
+    [-half, height],
+    [half, height],
+    [half, 0],
+    [-half, 0],
+  ];
+  const dashes: [[number, number, number], [number, number, number]][] = [];
+  for (let i = 0; i + 1 < corners.length; i++) {
+    const [x0, y0] = corners[i];
+    const [x1, y1] = corners[i + 1];
+    const length = Math.hypot(x1 - x0, y1 - y0);
+    if (length < 1e-6) {
+      continue;
+    }
+    const ux = (x1 - x0) / length;
+    const uy = (y1 - y0) / length;
+    for (let at = 0; at < length; at += dash + gap) {
+      const end = Math.min(at + dash, length);
+      dashes.push([
+        [x0 + ux * at, y0 + uy * at, 0],
+        [x0 + ux * end, y0 + uy * end, 0],
+      ]);
+    }
+  }
+  return dashes;
+}
+
 /** The virtual room: a closed box behind the doorway (door-local -Z), floor at y = 0. */
 export const ROOM = {
   width: 4,

@@ -58,6 +58,33 @@ export type LocalizationStatus =
   /** The provider cannot work (missing configuration, network error, not implemented). */
   | 'error';
 
+/**
+ * The status in a form the interface can turn into words of its own: the `detail` text
+ * of a status is written for the developer log, this is what the screens read.
+ */
+export interface StatusMeta {
+  /** The attempt of the current search that is running or comes next, and how many are allowed. */
+  attempt?: number;
+  attempts?: number;
+  /** Why the status is what it is, where the interface has to tell cases apart. */
+  code?:
+    | 'no-server'
+    | 'connecting'
+    | 'server-offline'
+    | 'incompatible'
+    | 'no-room'
+    | 'no-doorway'
+    | 'not-recognised'
+    | 'unconfirmed'
+    | 'tracking-lost'
+    | 'scale-unknown';
+  /**
+   * A first doorway pose of this session is on its way to being confirmed: it came from
+   * a weak answer and is being checked. The interface shows an outline, not the door.
+   */
+  pending?: boolean;
+}
+
 export interface PoseQuality {
   /** 0..1, provider specific. Undefined when the provider cannot tell. */
   confidence?: number;
@@ -166,7 +193,7 @@ export interface LocalizationProvider {
   getStatus(): LocalizationStatus;
   /** Human-readable detail for the current status (error text, progress...). */
   getStatusDetail(): string;
-  onStatus(listener: (status: LocalizationStatus, detail: string) => void): Unsubscribe;
+  onStatus(listener: (status: LocalizationStatus, detail: string, meta: StatusMeta) => void): Unsubscribe;
 
   /**
    * Doorway pose stream. A provider may emit more than once: every emission moves

@@ -135,7 +135,16 @@ export default function App() {
   // address and keep the heartbeat running while the app is in the foreground.
   // The device's identity is loaded first, so that every request to the server carries it.
   useEffect(() => {
-    void deviceLogger.start(appActions.log).then(() => serverConnection.start(appActions.log));
+    void deviceLogger
+      .start(appActions.log)
+      .then(() => serverConnection.start(appActions.log))
+      .then(() => {
+        // The app chooses how the door is placed: in the doorway of a scanned room when a
+        // server is known, in front of the user otherwise.
+        if (serverConnection.getView().connection.state !== 'not-configured') {
+          appActions.setProvider('self-hosted');
+        }
+      });
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
     void prefsActions.load();

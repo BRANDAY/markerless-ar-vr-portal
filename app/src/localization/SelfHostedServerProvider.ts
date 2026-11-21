@@ -17,7 +17,7 @@ import {
   TrackingWatch,
   wantsAnotherAttempt,
 } from './core/relocalization';
-import type { LocalizationContext, LocalizationReport, ProviderId, TrackingState, Unsubscribe } from './types';
+import type { LocalizationContext, LocalizationReport, ProviderId, StatusMeta, TrackingState, Unsubscribe } from './types';
 
 /** While a scan recording runs the recorder is busy; look again after this long. */
 const RECORDER_BUSY_RETRY_MS = 2000;
@@ -37,7 +37,12 @@ interface Episode {
   startedAt: number;
   /** The server's description of its latest answer in this search. */
   server?: LocalizationReport['server'];
+  /** The latest answer could not be used because the scale of the map is not known yet. */
+  scaleUnknown?: boolean;
 }
+
+/** See `worldEpoch`. */
+let nextWorldFrame = 0;
 
 const HOW_TO_LOOK = 'Look at a part of the room that was scanned (not a bare wall) and press "Re-localize"';
 
@@ -75,8 +80,15 @@ export class SelfHostedServerProvider extends BaseProvider {
 
   private watch = new TrackingWatch();
   private interrupted = false;
-  /** Counts the AR world frames of this app run: +1 after every interruption of tracking. */
+  /**
+   * Number of the AR world frame the provider works in: a new one at every start of the
+   * provider (the AR view may have been mounted anew) and after every interruption of
+   * tracking. It is part of the server session id, so the counter is shared by all
+   * provider instances of an app run.
+   */
   private worldEpoch = 0;
+  /** A doorway pose of this provider run has been trusted at least once. */
+  private everTrusted = false;
   /** Changes whenever running work becomes void (stop, interruption, a new episode). */
   private generation = 0;
 
@@ -103,6 +115,8 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.interrupted = false;
     this.shown = null;
     this.trusted = false;
+    this.everTrusted = false;
+    this.worldEpoch = nextWorldFrame++;
     this.handledPlan = null;
     this.episode = null;
     this.busy = false;
@@ -167,19 +181,19 @@ export class SelfHostedServerProvider extends BaseProvider {
     const where = address ? ` ${formatAddress(address)}` : '';
     switch (state) {
       case 'not-configured':
-        this.setStatus('waiting-for-server', 'no server address - tap the server chip to set it up');
+        this.setStatus('waiting-for-server', 'no server address - tap the server chip to set it up', { code: 'no-server' });
         break;
       case 'searching':
-        this.setStatus('waiting-for-server', 'searching for the server');
+        this.setStatus('waiting-for-server', 'searching for the server', { code: 'connecting' });
         break;
       case 'connecting':
-        this.setStatus('waiting-for-server', `connecting to${where}`);
+        this.setStatus('waiting-for-server', `connecting to${where}`, { code: 'connecting' });
         break;
       case 'incompatible':
-        this.setStatus('error', `incompatible server at${where}: ${connection.detail}`);
+        this.setStatus('error', `incompatible server at${where}: ${connection.detail}`, { code: 'incompatible' });
         break;
       default:
-        this.setStatus('waiting-for-server', `server${where} unreachable: ${connection.detail}`);
+        this.setStatus('waiting-for-server', `server${where} unreachable: ${connection.detail}`, { code: 'server-offline' });
     }
   }
 
@@ -245,7 +259,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     // Recovered after a real interruption.
     this.markInterrupted();
     this.interrupted = false;
-    this.worldEpoch++;
+    this.worldEpoch = nextWorldFrame++;
     this.context?.log(
       `self-hosted: tracking is back after ${(event.gapMs / 1000).toFixed(1)} s - ` +
         (this.shown ? 'checking the doorway position' : 'looking for the room'),
@@ -267,6 +281,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.shown
         ? 'tracking lost - the doorway stays where it was, but it may be off. Move the phone slowly over a part of the room with detail'
         : 'tracking lost - move the phone slowly over a part of the room with detail',
+      { code: 'tracking-lost' },
     );
   }
 
@@ -305,7 +320,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     // handlers above start it again when the missing thing arrives.
     if (!this.connected) {
       if (!this.shown) {
-        this.setStatus('waiting-for-server', 'the server is not connected');
+        this.setStatus('waiting-for-server', 'the server is not connected', { code: 'server-offline' });
       }
       return;
     }
@@ -321,6 +336,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.setStatus(
         'error',
         `the server has no map "${DEFAULT_MAP_ID}" yet - scan the room first: Scan room, Record, Upload`,
+        { code: 'no-room' },
       );
       return;
     }
@@ -336,6 +352,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.shown
         ? `checking the doorway position (${of}): hold the phone still for 3 seconds`
         : `looking for the room (${of}): hold the phone still for 3 seconds, pointed at a part of the room with detail`,
+      this.searchMeta(episode, episode.attempt),
     );
     const generation = this.generation;
     this.busy = true;
@@ -355,6 +372,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     const { outcome, plan } = result;
+    episode.scaleUnknown = outcome.alignmentStatus === 'scale_unknown';
     episode.server = {
       quality: outcome.quality,
       inliers: outcome.numInliers,
@@ -403,6 +421,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       case 'keep':
         this.trusted = true;
         log(`doorway confirmed: the new answer is ${(decision.distanceM * 100).toFixed(0)} cm from the shown one`);
+        this.everTrusted = true;
         this.setStatus('localized', 'doorway confirmed by a second look');
         this.report('confirmed', episode);
         break;
@@ -435,6 +454,15 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     const pause = current.reason === 'confirm' ? CONFIRM_DELAY_MS : retryDelayMs(current.attempt + 1);
+    if (decision.action === 'retry' || decision.action === 'ignore') {
+      // Tell the interface at once that another look follows, and why this one failed:
+      // the user should move before the next clip is recorded, not after.
+      this.setStatus(
+        'localizing',
+        `attempt ${current.attempt} gave nothing (${current.lastWhy}); looking again in ${(pause / 1000).toFixed(1)} s`,
+        this.searchMeta(current, current.attempt + 1),
+      );
+    }
     this.scheduleAttempt(pause);
   }
 
@@ -451,11 +479,14 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.setStatus(
         'lost',
         `the doorway is shown where it was, but its position could not be confirmed${why}. ${HOW_TO_LOOK}`,
+        { code: 'unconfirmed' },
       );
       this.report('kept', episode); // `trusted: false` says that it is not confirmed
       return;
     }
-    this.setStatus('lost', `room not recognised after ${episode.attempt} attempts${why}. ${HOW_TO_LOOK}`);
+    this.setStatus('lost', `room not recognised after ${episode.attempt} attempts${why}. ${HOW_TO_LOOK}`, {
+      code: 'not-recognised',
+    });
     this.report('not-found', episode);
   }
 
@@ -477,9 +508,22 @@ export class SelfHostedServerProvider extends BaseProvider {
 
   // ---- outputs --------------------------------------------------------------------------
 
+  /** What the interface needs to know about a search: which attempt, and why the last one failed. */
+  private searchMeta(episode: Episode, attempt: number): StatusMeta {
+    return {
+      attempt: episode.earlier + attempt,
+      attempts: episode.earlier + MAX_ATTEMPTS[episode.reason],
+      code: episode.scaleUnknown ? 'scale-unknown' : undefined,
+      pending: this.shown !== null && !this.trusted && !this.everTrusted,
+    };
+  }
+
   private place(door: DoorCandidate, plan: ServerPlan, trusted: boolean, origin: string, automatic = false): void {
     this.shown = door;
     this.trusted = trusted;
+    if (trusted) {
+      this.everTrusted = true;
+    }
     this.handledPlan = plan;
     if (getRoomScanState().serverPlan !== plan) {
       roomActions.setServerPlan(plan); // the room plan is drawn from the same answer as the door
@@ -503,6 +547,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       `doorway from the server (${portal?.source ?? '?'}` +
         (sized ? `, ${width.toFixed(2)} x ${height.toFixed(2)} m` : '') +
         `, ${origin})${trusted ? '' : ' - weak match, checking again'}`,
+      { pending: !trusted && !this.everTrusted },
     );
   }
 
@@ -517,6 +562,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       `no door opening found in map "${plan.mapId}"${why}. ` +
         (this.shown ? 'The doorway shown is an earlier one. ' : 'Nothing was placed: ') +
         'switch the provider to "manual" to place the door by hand, or scan the room again with the whole door in view',
+      { code: 'no-doorway' },
     );
   }
 

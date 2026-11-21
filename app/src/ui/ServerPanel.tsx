@@ -29,7 +29,7 @@ const STATE_HELP: Record<ConnectionState, string> = {
   incompatible: 'The server answers but uses a different API version. Update the app or the server.',
 };
 
-function useServerView(): ServerConnectionView {
+export function useServerView(): ServerConnectionView {
   return useSyncExternalStore(
     (listener) => serverConnection.subscribe(listener),
     () => serverConnection.getView(),

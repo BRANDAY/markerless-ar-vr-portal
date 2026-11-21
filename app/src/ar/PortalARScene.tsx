@@ -25,6 +25,7 @@ import { roomActions } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, getAppState, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
+import { DoorOutline } from './DoorOutline';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
 import { MeasureLayer } from './MeasureLayer';
@@ -75,6 +76,8 @@ export function PortalARScene(props: SceneProps) {
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
   const mode = useAppState((s) => s.mode);
+  /** A first pose that is still being checked is drawn as an outline, not as the door. */
+  const pending = useAppState((s) => s.providerMeta.pending === true);
   const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);
 
   const cameraRef = useRef<CameraPose | null>(null);
@@ -165,8 +168,8 @@ export function PortalARScene(props: SceneProps) {
       heldPoseRef.current = null;
       applyPose(update);
     });
-    const offStatus = provider.onStatus((status, detail) => {
-      appActions.setProviderStatus(status, detail);
+    const offStatus = provider.onStatus((status, detail, meta) => {
+      appActions.setProviderStatus(status, detail, meta);
       appActions.log(`provider ${provider.id}: ${status}${detail ? ` - ${detail}` : ''}`);
     });
     appActions.log(`provider selected: ${provider.displayName}`);
@@ -334,7 +337,9 @@ export function PortalARScene(props: SceneProps) {
       <ServerRoomLayer />
       <MeasureLayer />
 
-      {door ? (
+      {door && pending ? (
+        <DoorOutline pose={door.pose} opening={door.opening} />
+      ) : door ? (
         // `key` re-mounts the portal when the attach mode, the world or the frame changes, so each
         // starts clean.
         <DoorPortal

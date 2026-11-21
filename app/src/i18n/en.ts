@@ -115,6 +115,10 @@ export const en = {
   'ar.free.replace': 'Put the door in front of me',
   'ar.free.replace.sub': 'Two metres ahead, facing you',
 
+  // ---- spaces ----
+  'space.sponza.name': 'Sponza Palace atrium',
+  'space.test-room.name': 'Test room',
+
   // ---- 7.1 problems outside AR ----
   'problem.camera.title': 'The camera is off',
   'problem.camera.body': '{app} can’t show a door without the camera. Allow it in the phone settings.',

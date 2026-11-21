@@ -68,6 +68,8 @@ export interface MeasureState {
   lastPass: boolean | null;
   /** Where the records are saved, or why they are not. */
   file: string;
+  /** How the latest search for the doorway ended (for the developer line of the AR screen). */
+  placement: Placement | null;
 }
 
 const SETTINGS_FILE = 'measure-settings.json';
@@ -85,6 +87,7 @@ let state: MeasureState = {
   last: '',
   lastPass: null,
   file: '',
+  placement: null,
 };
 
 const listeners = new Set<() => void>();
@@ -297,6 +300,7 @@ export const measureController = {
       confidence: report.server?.confidence ?? null,
     };
     lastPlacement = placement;
+    setState({ placement });
     write(report.event, placement, held);
   },
 

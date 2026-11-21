@@ -14,6 +14,7 @@ import type {
   LocalizationStatus,
   PoseUpdate,
   ProviderId,
+  StatusMeta,
   TrackingState,
   Vec3,
 } from '../localization/types';
@@ -99,6 +100,8 @@ export interface AppState {
   providerId: ProviderId;
   providerStatus: LocalizationStatus;
   providerDetail: string;
+  /** The status in the form the screens read (attempt number, reason). */
+  providerMeta: StatusMeta;
   /** Incremented by the UI to ask the active provider to re-localize / re-place. */
   relocalizeNonce: number;
 
@@ -132,6 +135,7 @@ let state: AppState = {
   providerId: 'manual',
   providerStatus: 'idle',
   providerDetail: '',
+  providerMeta: {},
   relocalizeNonce: 0,
 
   attachMode: 'direct',
@@ -268,12 +272,12 @@ export const appActions = {
 
   setProvider(providerId: ProviderId): void {
     if (providerId !== state.providerId) {
-      setState({ providerId, providerStatus: 'idle', providerDetail: '', door: null, mode: 'AR' });
+      setState({ providerId, providerStatus: 'idle', providerDetail: '', providerMeta: {}, door: null, mode: 'AR' });
     }
   },
 
-  setProviderStatus(providerStatus: LocalizationStatus, providerDetail: string): void {
-    setState({ providerStatus, providerDetail });
+  setProviderStatus(providerStatus: LocalizationStatus, providerDetail: string, providerMeta: StatusMeta = {}): void {
+    setState({ providerStatus, providerDetail, providerMeta });
   },
 
   requestRelocalize(): void {

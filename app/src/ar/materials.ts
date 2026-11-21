@@ -1,5 +1,7 @@
 import { ViroAnimations, ViroMaterials } from '@reactvision/react-viro';
 
+import { HUD } from '../brand';
+
 // Registered once, when the scene module is first imported.
 
 const SCAN_FILL = {
@@ -71,6 +73,9 @@ ViroMaterials.createMaterials({
   planOpeningLine: { ...SCAN_LINE, diffuseColor: '#ffffff' },
   planFloorLine: { ...SCAN_LINE, diffuseColor: '#ffd166' },
   planCorner: { lightingModel: 'Constant', diffuseColor: '#ffd166' },
+
+  // ---- Doorway outline shown while a first door position is still being checked ----
+  doorOutline: { lightingModel: 'Constant', diffuseColor: HUD.door },
 
   // ---- Measurement mode: posts on the marked corners of the real door opening ----
   measureLeft: { lightingModel: 'Constant', diffuseColor: '#ff2bd6' },
