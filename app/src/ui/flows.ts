@@ -6,7 +6,8 @@ import { t } from '../i18n';
 import { newRoomId, nextRoomNumber } from '../room/roomNames';
 import { sendCapture } from '../room/roomServer';
 import type { ProviderId } from '../localization/types';
-import { currentRoomId, getRoomsState, roomName, usesCloud } from '../room/roomsStore';
+import { startBridgeMeasure } from '../room/bridgeMeasure';
+import { currentRoomId, getRoomsState, roomName, vpsOfRoom, wayToRoom } from '../room/roomsStore';
 import { getRoomScanState, isBuilding, roomActions, type ScanTarget } from '../room/roomStore';
 import { type CaptureSummary, scanController } from '../room/scanController';
 import { serverConnection } from '../server/ServerConnection';
@@ -20,11 +21,33 @@ import { startScreen } from './core/modes';
  * With developer options on, a provider chosen there by hand is left as it is.
  */
 /**
- * The provider that finds a room, by the connection method staff chose (`ui-spec.md`,
- * 5.15): the venue's own server, or ReactVision Advanced VPS.
+ * The provider that recognises a room: the connection method staff chose (`ui-spec.md`,
+ * 5.15) - the venue's own server, or ReactVision Advanced VPS - or the other one when the
+ * chosen one cannot work for this room (`roomsStore.wayToRoom`).
  */
 export function roomProvider(): ProviderId {
-  return usesCloud() ? 'reactvision-vps' : 'self-hosted';
+  return wayToRoom();
+}
+
+/**
+ * "Link to the room": measuring the bridge between the room and its place at ReactVision
+ * (`room/bridgeMeasure.ts`). The room is found through the venue's server while the
+ * service is asked as well, so the server is the way here whatever is preferred.
+ */
+export function openBridge(): void {
+  if (warnAboutDevice()) {
+    return;
+  }
+  const mapId = currentRoomId();
+  const place = vpsOfRoom(mapId)?.locationId;
+  if (!mapId || !place || serverConnection.getView().connection.state !== 'connected') {
+    appActions.showProblem('server');
+    return;
+  }
+  appActions.setProvider('self-hosted');
+  appActions.setOverlayVisible(false);
+  startBridgeMeasure(mapId, place);
+  appActions.go('bridge');
 }
 
 export function openDoor(source: 'room' | 'free' = 'room'): void {

@@ -62,6 +62,7 @@ export type Screen =
   | 'build'
   | 'roomResult'
   | 'placeDoor'
+  | 'bridge'
   | 'ar'
   | 'spaces'
   | 'rooms'

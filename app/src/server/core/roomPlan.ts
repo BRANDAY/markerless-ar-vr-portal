@@ -6,7 +6,7 @@
  * parts, so a server that adds fields - or sends something odd - cannot crash the app.
  */
 
-import { matrixFromRows } from '../../door/core/roomFrame';
+import { invertTransform, matrixFromRows } from '../../door/core/roomFrame';
 
 export type V3 = [number, number, number];
 /** A turn as a quaternion `[x, y, z, w]`. */
@@ -479,27 +479,66 @@ export interface ServerMapInfo {
   portalSource: string;
   /** Staff saved a door in this room: the room a visitor can be shown. */
   portalConfirmed: boolean;
+  /** The name of the room's frame; it changes when the room is scanned again. Empty from an older server. */
+  frameId: string;
+  /**
+   * The ways this room can be recognised right now, in the app's provider words
+   * (`self-hosted`, `reactvision`). Empty from a server that does not say.
+   */
+  recognition: string[];
   /** The room at ReactVision Advanced VPS, when staff registered it there; else null. */
   vps: RoomVps | null;
 }
 
 /**
- * What the server keeps about a room for the second way of finding it, ReactVision
- * Advanced VPS (api-v2, section 11). The server only stores this; it does not talk to the
- * service. The door here is in the frame of THAT service's map - unrelated to the door of
- * section 5, which is in the frame of the server's own map.
+ * The bridge of a room to an external service (api-v2, section 11): how the room's frame
+ * lies in the frame of that service's map. With it, what the service says about its own
+ * map becomes an answer to "where is the room" - and the room's one door serves both ways.
+ */
+export interface RoomBridge {
+  /** `T_service_from_map`: room to service, `p_service = T x p_room`; 16 numbers, column-major. */
+  serviceFromRoom: number[];
+  /** The frame of the room the bridge was measured for. */
+  frameId: string;
+  /** The server's estimate of the bridge's error where it was compared; null when not known. */
+  positionErrorM: number | null;
+  rotationErrorDeg: number | null;
+  /** How many samples went into it. */
+  samples: number | null;
+  /** ISO time it was measured, or empty. */
+  measuredUtc: string;
+}
+
+/**
+ * What the server keeps about a room for the second way of recognising it, ReactVision
+ * Advanced VPS (api-v2, section 11): the place at the service, and the bridge. The server
+ * only stores and hands this out; it does not talk to the service.
  */
 export interface RoomVps {
   /** What `startTracking` of the service takes. */
   locationId: string;
-  /** Null until staff placed the door for this way. */
-  door: {
-    position: V3;
-    quaternion: [number, number, number, number];
-    /** Null: saved without a size, the app draws its default. */
-    width: number | null;
-    height: number | null;
-  } | null;
+  /** Null until it is measured, and again after the room was scanned anew. */
+  bridge: RoomBridge | null;
+}
+
+function parseBridge(value: unknown): RoomBridge | null {
+  const json = asObject(value);
+  if (!json || json.valid === false) {
+    return null;
+  }
+  const back = matrixFromRows(json.T_map_from_service);
+  const serviceFromRoom = matrixFromRows(json.T_service_from_map) ?? (back ? invertTransform(back) : null);
+  if (!serviceFromRoom) {
+    return null;
+  }
+  return {
+    serviceFromRoom,
+    frameId: asString(json.frame_id),
+    positionErrorM: asNumber(json.position_error_m),
+    rotationErrorDeg: asNumber(json.rotation_error_deg),
+    samples: asNumber(json.samples),
+    measuredUtc: asString(json.measured_utc),
+  };
 }
 
 export function parseVps(value: unknown): RoomVps | null {
@@ -508,17 +547,7 @@ export function parseVps(value: unknown): RoomVps | null {
   if (!json || !locationId) {
     return null;
   }
-  const door = asObject(json.door);
-  const position = asV3(door?.position);
-  const q = door?.quaternion_xyzw;
-  const quaternion =
-    Array.isArray(q) && q.length === 4 && q.every((n) => typeof n === 'number' && Number.isFinite(n))
-      ? (q as [number, number, number, number])
-      : null;
-  return {
-    locationId,
-    door: door && position && quaternion ? { position, quaternion, width: asNumber(door.width), height: asNumber(door.height) } : null,
-  };
+  return { locationId, bridge: parseBridge(json.bridge) };
 }
 
 /** One room, as `GET /maps` lists it and as `GET` / `PATCH /maps/{id}` answer. */
@@ -537,6 +566,8 @@ export function parseMapInfo(entry: unknown): ServerMapInfo | null {
     portalSource,
     portalConfirmed:
       typeof map.portal_confirmed === 'boolean' ? map.portal_confirmed : portalSource === 'manual' || portalSource === 'selected',
+    frameId: asString(map.frame_id),
+    recognition: asList(map.recognition).filter((way): way is string => typeof way === 'string'),
     vps: parseVps(map.vps),
   };
 }

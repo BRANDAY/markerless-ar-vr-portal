@@ -148,6 +148,11 @@ export interface RoomFix {
   /** How the room was recognised, in words for the status line and the log. */
   how: string;
   /**
+   * True for a way that answers many times a minute (ReactVision): the door layer then
+   * reads the door record anew only now and then, not with every answer.
+   */
+  continuous?: boolean;
+  /**
    * True when the frame is known only because this very AR session recorded the room. It
    * shows the door; a door is not saved through it - the placing screen has the room
    * recognised first.

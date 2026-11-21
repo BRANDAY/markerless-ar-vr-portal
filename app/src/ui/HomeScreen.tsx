@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 
 import { t, type TextKey } from '../i18n';
 import { resumeBuild } from '../room/roomServer';
-import { roomHasDoor, roomName, roomsActions, useRooms } from '../room/roomsStore';
+import { roomName, roomsActions, useRooms } from '../room/roomsStore';
 import { isBuilding, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
@@ -52,7 +52,7 @@ export function HomeScreen() {
     lastRoomId,
     building,
     // Not known until the list of rooms has been read.
-    doorSaved: currentRoom ? roomHasDoor(currentRoom) : null,
+    doorSaved: currentRoom ? currentRoom.portalConfirmed : null,
   });
   const chip = chipState(connection.state);
   const chipColor = { connected: theme.ok, connecting: theme.amber, offline: theme.danger, none: theme.ink2 }[chip];

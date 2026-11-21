@@ -74,6 +74,12 @@ interface AuthContext {
 }
 
 let configured: Promise<boolean> | null = null;
+let configuredNow: boolean | null = null;
+
+/** The answer of `reactVisionConfigured`, once it is there; null before. */
+export function reactVisionConfiguredNow(): boolean | null {
+  return configuredNow;
+}
 
 /**
  * Whether this build carries a ReactVision project id and client key (they are put into
@@ -98,5 +104,8 @@ export function reactVisionConfigured(): Promise<boolean> {
       return false;
     }
   })();
+  void configured.then((answer) => {
+    configuredNow = answer;
+  });
   return configured;
 }

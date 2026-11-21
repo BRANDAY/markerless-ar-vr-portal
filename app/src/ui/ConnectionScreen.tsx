@@ -5,10 +5,11 @@ import { t } from '../i18n';
 import { reactVisionConfigured } from '../localization/vpsBridge';
 import { saveRoomLocation } from '../room/doorServer';
 import { roomName, roomsActions, useRooms } from '../room/roomsStore';
+import type { RoomBridge } from '../server/core/roomPlan';
 import { appActions } from '../state/appStore';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { chipState } from './core/homeView';
-import { roomProvider } from './flows';
+import { openBridge, roomProvider } from './flows';
 import { AppButton, Card, Row, ScreenFrame, Small } from './kit';
 import { useServerView } from './ServerPanel';
 import { RADIUS, TYPE, useTheme } from './theme';
@@ -19,9 +20,10 @@ import { RADIUS, TYPE, useTheme } from './theme';
  * without ReactVision keys the second option cannot be chosen.
  *
  * What the spec does not have and this page adds: the field for the room's ReactVision
- * location id. Sending a scan to ReactVision from the app is not built (it needs a token
- * endpoint on the venue's server), so the room is scanned with the vendor's own tools and
- * the id it got is typed in here.
+ * location id, and the room's link to that place (the bridge, `BridgeScreen`). Sending a
+ * scan to ReactVision from the app is not built (it needs a token endpoint on the venue's
+ * server), so the room is scanned with the vendor's own tools and the id it got is typed
+ * in here.
  */
 export function ConnectionScreen() {
   const theme = useTheme();
@@ -30,6 +32,7 @@ export function ConnectionScreen() {
   const connection = useServerView().connection;
   const currentId = useRooms((s) => s.currentId);
   const saved = useRooms((s) => s.rooms.find((room) => room.mapId === s.currentId)?.vps?.locationId ?? '');
+  const bridge = useRooms((s) => s.rooms.find((room) => room.mapId === s.currentId)?.vps?.bridge ?? null);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [locationId, setLocationId] = useState(saved);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
@@ -120,6 +123,17 @@ export function ConnectionScreen() {
               />
               {saving === 'saved' ? <Small>{t('connection.location.saved')}</Small> : null}
               {saving === 'failed' ? <Small>{t('connection.location.failed')}</Small> : null}
+              {saved ? (
+                <>
+                  <Small>{bridgeLine(bridge)}</Small>
+                  <AppButton
+                    kind="ghost"
+                    label={t(bridge ? 'connection.bridge.again' : 'connection.bridge.link')}
+                    onPress={openBridge}
+                    disabled={!cloudAvailable || chip !== 'connected' || locationId.trim() !== saved}
+                  />
+                </>
+              ) : null}
             </View>
           ) : (
             <Small>{t('connection.location.noRoom')}</Small>
@@ -128,6 +142,22 @@ export function ConnectionScreen() {
       ) : null}
     </ScreenFrame>
   );
+}
+
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+}
+
+/** The state of the room's link to its place in the cloud, in one line. */
+function bridgeLine(bridge: RoomBridge | null): string {
+  if (!bridge) {
+    return t('connection.bridge.none');
+  }
+  const date = bridge.measuredUtc ? formatDate(bridge.measuredUtc) : '';
+  return bridge.positionErrorM === null
+    ? t('connection.bridge.ok.noError', { date })
+    : t('connection.bridge.ok', { date, cm: Math.max(1, Math.round(bridge.positionErrorM * 100)) });
 }
 
 /** One of the two methods: a card with a round mark, a name and one line. */

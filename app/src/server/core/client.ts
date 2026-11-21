@@ -388,21 +388,16 @@ export function postDeviceLog(
   );
 }
 
-/** What `PATCH /maps/{map_id}` takes as the room's entry at ReactVision Advanced VPS (api-v2, section 11). */
+/** What `PATCH /maps/{map_id}` takes as the room's place at ReactVision Advanced VPS (api-v2, section 11). */
 export interface RoomVpsBody {
   provider: 'reactvision';
   location_id: string;
-  door?: {
-    position: [number, number, number];
-    quaternion_xyzw: [number, number, number, number];
-    width?: number;
-    height?: number;
-  };
 }
 
 /**
  * `PATCH /maps/{map_id}` with `{"vps": ...}`: stores (or with null removes) the room's
- * location id at the service and the door in that service's map. The answer is the room.
+ * place at the service. A measured bridge is kept as long as the place stays the same.
+ * The answer is the room.
  */
 export function patchRoomVps(
   baseUrl: string,
@@ -411,6 +406,23 @@ export function patchRoomVps(
   options?: RequestOptions,
 ): Promise<ApiResult<ServerMapInfo>> {
   return requestJson(`${baseUrl}/maps/${enc(mapId)}`, { method: 'PATCH', body: JSON.stringify({ vps }) }, parseMapInfo, options);
+}
+
+/**
+ * What `POST /maps/{map_id}/vps/bridge` takes (way A of section 11): the phone was located
+ * both ways in one AR session. `T_arworld_from_map` is where the room lies in that session
+ * (from this server's own way), each sample where the service's map lay in it at one
+ * moment. Matrices as four rows of four numbers.
+ */
+export interface BridgeBody {
+  T_arworld_from_map: number[][];
+  location_id?: string;
+  samples: { T_arworld_from_service: number[][] }[];
+}
+
+/** `POST /maps/{map_id}/vps/bridge`: the server works the bridge out, estimates its error and stores it. */
+export function measureBridge(baseUrl: string, mapId: string, body: BridgeBody, options?: RequestOptions): Promise<ApiResult<ServerMapInfo>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}/vps/bridge`, { method: 'POST', body: JSON.stringify(body) }, parseMapInfo, options);
 }
 
 /** `GET /maps`: the rooms the server has. */

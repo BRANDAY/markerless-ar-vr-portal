@@ -21,6 +21,8 @@ import type {
 } from '../localization/types';
 import { measureController } from '../measure/measureController';
 import { toPlaneAnchorData } from '../room/roomGeometry';
+import { arCamera } from '../localization/arCamera';
+import { bridgeMeasuring, useBridge } from '../room/bridgeMeasure';
 import { roomActions, useRoomScan } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, getAppState, useAppState } from '../state/appStore';
@@ -72,6 +74,8 @@ interface SceneProps {
  */
 export function PortalARScene(props: SceneProps) {
   const providerId = useAppState((s) => s.providerId);
+  /** A room is being linked to its place at ReactVision: the library's tracker is needed next to the server's way. */
+  const linking = useBridge(bridgeMeasuring);
   const relocalizeNonce = useAppState((s) => s.relocalizeNonce);
   const providerRun = useAppState((s) => s.providerRun);
   const door = useAppState((s) => s.door);
@@ -86,7 +90,7 @@ export function PortalARScene(props: SceneProps) {
    * screen (not while scanning, not when covered). Going from one of them to another
    * keeps the search and what it found.
    */
-  const active = useAppState((s) => s.screen === 'ar' || s.screen === 'visitor' || s.screen === 'placeDoor');
+  const active = useAppState((s) => s.screen === 'ar' || s.screen === 'visitor' || s.screen === 'placeDoor' || s.screen === 'bridge');
   /** "Place the door": the door drawn is the one the staff member is placing, not the saved one. */
   const placing = useAppState((s) => s.screen === 'placeDoor');
   const draft = useRoomScan((s) => s.doorDraft);
@@ -108,6 +112,11 @@ export function PortalARScene(props: SceneProps) {
   const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);
 
   const cameraRef = useRef<CameraPose | null>(null);
+  // The camera of this view, for code that is neither the scene nor a provider.
+  useEffect(() => {
+    arCamera.setSource(() => cameraRef.current);
+    return () => arCamera.setSource(null);
+  }, []);
   const lastCameraPublishRef = useRef(0);
   const trackingRef = useRef<TrackingState>('unavailable');
   const trackingListenersRef = useRef(new Set<(state: TrackingState) => void>());
@@ -385,7 +394,7 @@ export function PortalARScene(props: SceneProps) {
       <RoomScanLayer />
       <ServerRoomLayer />
       <MeasureLayer />
-      {active && providerId === 'reactvision-vps' ? <VpsLayer arSceneNavigator={props.arSceneNavigator} /> : null}
+      {active && (providerId === 'reactvision-vps' || linking) ? <VpsLayer arSceneNavigator={props.arSceneNavigator} /> : null}
 
       {shownDoor === null && door && pending ? (
         <DoorOutline pose={door.pose} opening={door.opening} />

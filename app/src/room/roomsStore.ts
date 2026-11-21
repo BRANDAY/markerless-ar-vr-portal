@@ -6,6 +6,10 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import { asTransform } from '../door/core/roomFrame';
+import { keptDoorRecord, noteDoorRecord, rememberDoorsWith } from '../door/doorRecords';
+import { reactVisionConfigured, reactVisionConfiguredNow } from '../localization/vpsBridge';
+import { chooseWay, type Way } from '../localization/core/ways';
 import { getMaps, getPortal, getRoom } from '../server/core/client';
 import type { RoomVps, ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import { serverConnection } from '../server/ServerConnection';
@@ -62,8 +66,8 @@ export function roomName(mapId: string | null): string {
   return label || roomDisplayName(mapId);
 }
 
-/** The connection method is ReactVision Advanced VPS (`ui-spec.md`, 5.15). */
-export function usesCloud(): boolean {
+/** The connection method staff prefer is ReactVision Advanced VPS (`ui-spec.md`, 5.15). */
+export function prefersCloud(): boolean {
   return getPrefs().connection === 'reactvision';
 }
 
@@ -78,7 +82,8 @@ function keptVps(): Record<string, RoomVps> {
     const kept: Record<string, RoomVps> = {};
     for (const [mapId, entry] of Object.entries(json ?? {})) {
       if (entry && typeof entry.locationId === 'string' && entry.locationId) {
-        kept[mapId] = entry;
+        const transform = asTransform(entry.bridge?.serviceFromRoom);
+        kept[mapId] = { locationId: entry.locationId, bridge: entry.bridge && transform ? { ...entry.bridge, serviceFromRoom: transform } : null };
       }
     }
     return kept;
@@ -88,9 +93,9 @@ function keptVps(): Record<string, RoomVps> {
 }
 
 /**
- * What the venue's server keeps about a room for ReactVision: the location id and the
- * door in that service's map. From the server's list of rooms; while the server has not
- * answered in this run, from the copy kept on the phone.
+ * What the venue's server keeps about a room for ReactVision: its place there and the
+ * bridge. From the server's list of rooms; while the server has not answered in this
+ * run, from the copy kept on the phone.
  */
 export function vpsOfRoom(mapId: string | null): RoomVps | null {
   if (!mapId) {
@@ -100,9 +105,60 @@ export function vpsOfRoom(mapId: string | null): RoomVps | null {
   return listed ? listed.vps : (keptVps()[mapId] ?? null);
 }
 
-/** Whether a room has a door for the connection method in use. */
-export function roomHasDoor(room: ServerMapInfo): boolean {
-  return usesCloud() ? room.vps?.door != null : room.portalConfirmed;
+/** The door records kept on the phone from earlier runs, as far as they are well-formed. */
+function keptDoors(): Record<string, ServerPortal> {
+  const saved = getPrefs().doorRecords;
+  if (!saved) {
+    return {};
+  }
+  try {
+    const json = JSON.parse(saved) as Record<string, ServerPortal>;
+    const kept: Record<string, ServerPortal> = {};
+    for (const [mapId, record] of Object.entries(json ?? {})) {
+      if (record && typeof record.source === 'string' && typeof record.confirmed === 'boolean') {
+        kept[mapId] = record;
+      }
+    }
+    return kept;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Whether a room can be recognised through ReactVision right now: this build has keys,
+ * the room has a place at the service and a bridge measured for its current frame.
+ */
+export function cloudReady(mapId: string | null): boolean {
+  if (reactVisionConfiguredNow() !== true) {
+    return false;
+  }
+  const bridge = vpsOfRoom(mapId)?.bridge;
+  if (!bridge) {
+    return false;
+  }
+  const listed = state.rooms.find((room) => room.mapId === mapId);
+  // A bridge of an earlier scan of the room is no bridge (the server marks it too).
+  return !listed || !listed.frameId || !bridge.frameId || listed.frameId === bridge.frameId;
+}
+
+/**
+ * The way the room is looked for: the one staff prefer, or the other one when that
+ * cannot work (`core/ways.ts`). Everything after "where is the room" is the same for
+ * both, so nobody sees the difference.
+ */
+export function wayToRoom(): Way {
+  const connection = serverConnection.getView().connection.state;
+  return chooseWay({
+    preferred: prefersCloud() ? 'reactvision' : 'server',
+    cloudReady: cloudReady(currentRoomId()),
+    server:
+      connection === 'connected'
+        ? 'connected'
+        : connection === 'searching' || connection === 'connecting'
+          ? 'trying'
+          : 'unreachable',
+  });
 }
 
 /**
@@ -112,20 +168,22 @@ export function roomHasDoor(room: ServerMapInfo): boolean {
  * In visitor mode only a room with a door that staff saved will do; once the list of
  * rooms is known, a server without such a room has no room for a visitor.
  *
- * With ReactVision as the connection method the venue's server is needed only for the
- * list of rooms and their doors: while it does not answer, the rooms kept on the phone
- * from the last time are used.
+ * While the venue's server has not answered at all in this run, the rooms kept on the
+ * phone that can be recognised through ReactVision are used (their door comes from the
+ * kept copy of the door record).
  */
 export function currentRoomId(): string | null {
   const ids = serverConnection.getView().connection.info?.maps ?? [];
   const { visitorMode, lastRoomId } = getPrefs();
-  if (usesCloud() && ids.length === 0 && state.rooms.length === 0) {
+  if (ids.length === 0 && state.rooms.length === 0 && reactVisionConfiguredNow() === true) {
     const kept = keptVps();
-    const usable = Object.keys(kept).filter((mapId) => !visitorMode || kept[mapId].door !== null);
+    const usable = Object.keys(kept).filter(
+      (mapId) => kept[mapId].bridge !== null && (!visitorMode || keptDoorRecord(mapId)?.confirmed === true),
+    );
     return pickRoom(usable, lastRoomId);
   }
   if (visitorMode && state.rooms.length > 0) {
-    const withDoor = state.rooms.filter((room) => ids.includes(room.mapId) && roomHasDoor(room)).map((room) => room.mapId);
+    const withDoor = state.rooms.filter((room) => ids.includes(room.mapId) && room.portalConfirmed).map((room) => room.mapId);
     return pickRoom(withDoor, lastRoomId);
   }
   return pickRoom(ids, lastRoomId);
@@ -142,6 +200,16 @@ export const roomsActions = {
       return;
     }
     started = true;
+    void reactVisionConfigured(); // asked once, so that the choice of the way knows it
+    // The door layer's records outlive the app run: a door can then be shown when only
+    // the internet is reachable (the room recognised through ReactVision).
+    rememberDoorsWith((mapId, record) => {
+      const kept = { ...keptDoors(), [mapId]: record };
+      const text = JSON.stringify(kept);
+      if (text !== getPrefs().doorRecords) {
+        prefsActions.set({ doorRecords: text });
+      }
+    }, keptDoors());
     serverConnection.subscribe((view) => {
       const { state: connection, info } = view.connection;
       const seen = connection === 'connected' ? `${view.connection.address?.host}:${(info?.maps ?? []).join(',')}` : '';
@@ -175,7 +243,7 @@ export const roomsActions = {
       getPrefs().lastRoomId,
     );
     setState({ rooms: maps.value, currentId, detail: state.detail?.mapId === currentId ? state.detail : null });
-    // Kept on the phone: with ReactVision a door can then be shown without the venue's server.
+    // Kept on the phone: a room can then be recognised through ReactVision without the venue's server.
     const vps: Record<string, RoomVps> = {};
     for (const room of maps.value) {
       if (room.vps) {
@@ -196,6 +264,9 @@ export const roomsActions = {
     const [room, portal] = await Promise.all([getRoom(baseUrl, currentId), getPortal(baseUrl, currentId)]);
     if (mine !== generation) {
       return;
+    }
+    if (portal.ok) {
+      noteDoorRecord(currentId, portal.value);
     }
     setState({
       loading: false,

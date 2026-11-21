@@ -1,57 +1,60 @@
-import { matrixFromYaw } from '../door/core/roomFrame';
+import { applyToPoint } from '../door/core/roomFrame';
+import { DoorPlacer } from '../door/DoorPlacer';
+import { keptDoorPosition } from '../door/doorRecords';
 import { currentRoomId, vpsOfRoom } from '../room/roomsStore';
-import { roomActions, type ServerPlan } from '../room/roomStore';
-import type { ServerPortal } from '../server/core/roomPlan';
 import { getPrefs } from '../state/prefs';
 import { BaseProvider } from './BaseProvider';
 import { INTERRUPTION_GRACE_MS, TrackingWatch } from './core/relocalization';
-import {
-  cameraMatrix,
-  type FlatPose,
-  mapInSession,
-  type MapInSession,
-  parseRenderPose,
-  SteadyAlignment,
-  toSession,
-  yawFromQuaternion,
-} from './core/vpsAlignment';
-import { differs, VPS_MOVE, VPS_REPUBLISH, VPS_SEARCH, vpsProblem, vpsSearchAttempt } from './core/vpsStatus';
+import { cameraMatrix, type FlatPose, mapInSession, type MapInSession, parseRenderPose, SteadyAlignment, toSession } from './core/vpsAlignment';
+import { differs, VPS_REPUBLISH, VPS_SEARCH, vpsProblem, vpsSearchAttempt } from './core/vpsStatus';
+import { roomThroughBridge } from './core/ways';
 import type { LocalizationContext, LocalizationReport, ProviderId, TrackingState, Unsubscribe } from './types';
 import { reactVisionConfigured, vpsBridge, type VpsEvent } from './vpsBridge';
 
-/** The room as the service knows it, with the door staff saved in the service's map. */
+/** The room as this way needs it: its place at the service and its bridge. Nothing about the door. */
 interface CloudRoom {
   mapId: string;
   locationId: string;
-  door: FlatPose | null;
-  width: number | null;
-  height: number | null;
+  /** `T_service_from_map`: the room's frame in the service's map. */
+  serviceFromRoom: number[];
+  /** The frame of the room the bridge was measured for. */
+  frameId: string;
+  /** Where agreement between readings is judged, in the service's map: at the door, else at the room's origin. */
+  judgedAt: FlatPose;
 }
 
-const ORIGIN: FlatPose = { position: [0, 0, 0], yawDeg: 0 };
+/** While one answer is with the door layer, the next ones wait; and they do not come more often than this. */
+const MIN_ANSWER_GAP_MS = 2000;
 
 /**
- * ReactVision Advanced VPS: the second way to find a room (`ui-spec.md`, 5.15;
- * `docs/cloud/cloud-connection.md`). The room was scanned once into the vendor's cloud and
- * has a location id there; the phone downloads that location's map, matches the camera
- * against it and learns where the map lies in the running AR session. The door is then
- * put at the place staff saved IN THAT MAP.
+ * ReactVision Advanced VPS: the second way to recognise a room (`ui-spec.md`, 5.15;
+ * `docs/cloud/cloud-connection.md`; `localization-server/docs/api-v2.md`, section 11).
+ * Like every way it answers one question - WHERE THE ROOM'S FRAME LIES IN THIS AR SESSION
+ * - and hands that to the door layer (`door/DoorPlacer.ts`), which puts the room's one
+ * door there. It knows nothing about the door.
+ *
+ * The room was scanned once into the vendor's cloud and has a location id there. The
+ * phone downloads that location's map, matches the camera against it and learns where
+ * THE SERVICE'S MAP lies in the running AR session. The room's bridge - how the service's
+ * map lies in the room's frame, measured once by staff and kept by the venue's server -
+ * turns that into where the room lies:
+ *
+ *   room in the session = service's map in the session x room in the service's map
  *
  * What comes from where:
  *  - the keys: built into the app from a file outside the repository (`app.config.js`).
  *    A build without them reports "not set up" and does nothing else;
- *  - the room's location id and the door in the service's map: from the venue's own
- *    server (`GET /maps`, field `vps`), or from the copy the phone kept of it. The
- *    service itself has no call to store a placed object;
+ *  - the room's place at the service and its bridge: from the venue's own server
+ *    (`GET /maps`, field `vps`), or from the copy the phone kept of it;
  *  - the matching: the library's `<ViroVPS>` (`ar/VpsLayer.tsx`), asked through
  *    `vpsBridge`. The location is always named - never `"auto"`, which starts from GPS.
  *
  * The door is NOT put inside the library's `<ViroVPSAnchor>`: that moves its content
- * every frame, and the portal must not move while somebody walks through it. Instead the
- * map's place in the session is worked out here (`core/vpsAlignment.ts`: the service's
- * camera pose against the AR engine's, several steady readings averaged) and the door
- * goes out through `emitPose` like every other door; later corrections are marked
- * `automatic`, so they wait while the user is inside the space.
+ * every frame, and the portal must not move while somebody walks through it. The
+ * service's readings are steadied here (`core/vpsAlignment.ts`: the service's camera pose
+ * against the AR engine's, several agreeing readings averaged), and an answer goes to the
+ * door layer only when it differs from the one before; what a new answer does to a door
+ * that stands is the door layer's rule, the same as for the venue's server.
  *
  * NOT RUN AT ALL: there is no ReactVision account yet. Neither a device nor the service
  * has seen this code; what it assumes about the service is listed in the README.
@@ -62,8 +65,14 @@ export class ReactVisionVpsProvider extends BaseProvider {
 
   private subscriptions: Unsubscribe[] = [];
   private stopped = true;
-  /** Changes whenever running work becomes void (stop, a new start). */
+  /** Changes whenever running work becomes void (stop, a new start, tracking lost). */
   private run = 0;
+
+  private readonly door = new DoorPlacer({
+    emitPose: (update) => this.emitPose(update),
+    setStatus: (status, detail, meta) => this.setStatus(status, detail, meta),
+    log: (text) => this.context?.log(`reactvision: ${text}`),
+  });
 
   private room: CloudRoom | null = null;
   private watch = new TrackingWatch();
@@ -75,10 +84,13 @@ export class ReactVisionVpsProvider extends BaseProvider {
   private searchStartedAt = 0;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   private steady = new SteadyAlignment();
-  /** The alignment the placing screen was told about last. */
-  private published: MapInSession | null = null;
-  /** The door on screen, in this session. */
-  private shown: FlatPose | null = null;
+  /** The answer the door layer was given last. */
+  private answered: MapInSession | null = null;
+  private answeredAt = 0;
+  /** An answer is with the door layer. */
+  private busy = false;
+  /** The user asked for this look: a correction may then be applied at once. */
+  private asked = false;
   private lastState = '';
   private badReadings = 0;
 
@@ -90,11 +102,12 @@ export class ReactVisionVpsProvider extends BaseProvider {
     this.interrupted = false;
     this.requested = false;
     this.steady.reset();
-    this.published = null;
-    this.shown = null;
+    this.answered = null;
+    this.busy = false;
+    this.asked = false;
     this.lastState = '';
     this.badReadings = 0;
-    roomActions.setFound(null);
+    this.door.reset();
     this.watch.onState(context.getTrackingState(), Date.now());
     this.subscriptions = [
       vpsBridge.onEvent((event) => this.onVps(event)),
@@ -110,7 +123,7 @@ export class ReactVisionVpsProvider extends BaseProvider {
     this.clearTimers();
     vpsBridge.stop();
     this.requested = false;
-    roomActions.setFound(null);
+    this.door.reset();
     this.subscriptions.forEach((off) => off());
     this.subscriptions = [];
   }
@@ -121,16 +134,17 @@ export class ReactVisionVpsProvider extends BaseProvider {
       return;
     }
     if (!this.room) {
-      void this.prepare(); // e.g. the location id has been entered meanwhile
+      void this.prepare(); // e.g. the bridge has been measured meanwhile
       return;
     }
     this.context?.log('reactvision: looking for the place again');
+    this.asked = true;
     this.search();
   }
 
   // ---- set-up -----------------------------------------------------------------------------
 
-  /** Keys, room, location id: everything that has to be there before the service is asked. */
+  /** Keys, room, place, bridge: everything that has to be there before the service is asked. */
   private async prepare(): Promise<void> {
     const run = this.run;
     const configured = await reactVisionConfigured();
@@ -159,13 +173,24 @@ export class ReactVisionVpsProvider extends BaseProvider {
       );
       return;
     }
-    const yaw = entry.door ? yawFromQuaternion(entry.door.quaternion) : null;
+    if (!entry.bridge) {
+      this.setStatus(
+        'error',
+        `room "${mapId}" is not linked to its ReactVision location yet (no bridge, or the room was scanned again) - ` +
+          'link it under Settings > Connection',
+        { code: 'cloud-not-set-up' },
+      );
+      return;
+    }
+    // Agreement between readings matters where the door is: a small error in the turn is
+    // a large one far from the map's origin. The door layer says where that is.
+    const interest = keptDoorPosition(mapId) ?? [0, 0, 0];
     this.room = {
       mapId,
       locationId: entry.locationId,
-      door: entry.door && yaw !== null ? { position: entry.door.position, yawDeg: yaw } : null,
-      width: entry.door?.width ?? null,
-      height: entry.door?.height ?? null,
+      serviceFromRoom: entry.bridge.serviceFromRoom,
+      frameId: entry.bridge.frameId,
+      judgedAt: { position: applyToPoint(entry.bridge.serviceFromRoom, interest), yawDeg: 0 },
     };
     this.search();
   }
@@ -177,18 +202,17 @@ export class ReactVisionVpsProvider extends BaseProvider {
       return;
     }
     if (this.context?.getTrackingState() !== 'normal') {
-      if (!this.interrupted && !this.shown) {
+      if (!this.interrupted && !this.door.shown) {
         this.setStatus('waiting-for-tracking', 'waiting for tracking NORMAL before looking for the place');
       }
       return; // `onTracking` comes back here
     }
     this.steady.reset();
-    this.published = null;
-    roomActions.setFound(null);
+    this.answered = null;
     this.searchStartedAt = Date.now();
     this.requested = true;
     vpsBridge.track(room.locationId, getPrefs().vpsServerMode ? 'server' : 'device');
-    if (this.shown) {
+    if (this.door.shown) {
       this.setStatus('localizing', 'checking the door position through ReactVision', { attempt: 1, attempts: 5 });
     }
     this.tickSearch();
@@ -197,27 +221,27 @@ export class ReactVisionVpsProvider extends BaseProvider {
   /** The search has no attempts of its own: the coach lines follow the time it takes. */
   private tickSearch(): void {
     this.clearSearchTimer();
-    if (this.stopped || !this.requested || this.published) {
+    if (this.stopped || !this.requested || this.answered) {
       return;
     }
     const elapsedS = (Date.now() - this.searchStartedAt) / 1000;
     const attempt = vpsSearchAttempt(elapsedS);
     if (attempt === null) {
-      if (this.shown) {
+      if (this.door.shown) {
         // The door stays; only its place could not be checked.
         this.setStatus('lost', 'the door is shown where it was, but ReactVision did not recognise the place again', {
           code: 'unconfirmed',
         });
-        this.report('kept', false);
+        this.report('kept');
       } else {
         vpsBridge.stop();
         this.requested = false;
         this.setStatus('lost', `the place was not recognised within ${VPS_SEARCH.giveUpS} s`, { code: 'not-recognised' });
-        this.report('not-found', false);
+        this.report('not-found');
       }
       return;
     }
-    if (!this.shown && !this.interrupted) {
+    if (!this.door.shown && !this.interrupted) {
       this.setStatus('localizing', `looking for the place through ReactVision (${this.lastState || 'starting'})`, {
         attempt,
         attempts: 5,
@@ -260,7 +284,7 @@ export class ReactVisionVpsProvider extends BaseProvider {
       return;
     }
     this.context?.log(`reactvision: ${problem} (${code || 'no code'}) - ${message}`);
-    if (this.shown) {
+    if (this.door.shown) {
       return;
     }
     this.clearSearchTimer();
@@ -285,55 +309,72 @@ export class ReactVisionVpsProvider extends BaseProvider {
       return;
     }
     this.badReadings = 0;
-    const map = this.steady.add(reading, Date.now(), room.door ?? ORIGIN);
-    if (map) {
-      this.apply(room, map, inliers);
+    const map = this.steady.add(reading, Date.now(), room.judgedAt);
+    if (!map || this.busy) {
+      return;
+    }
+    const now = Date.now();
+    const news =
+      this.answered === null ||
+      (now - this.answeredAt >= MIN_ANSWER_GAP_MS && differs(toSession(map, room.judgedAt), toSession(this.answered, room.judgedAt), VPS_REPUBLISH));
+    if (news) {
+      void this.answer(room, map, inliers);
     }
   }
 
-  /** The map's place in the session is known (again): the door follows from it. */
-  private apply(room: CloudRoom, map: MapInSession, inliers: number | null): void {
-    const at = room.door ?? ORIGIN;
-    const first = this.published === null;
-    const doorHere = room.door ? toSession(map, room.door) : null;
-    if (!this.published || differs(toSession(map, at), toSession(this.published, at), VPS_REPUBLISH)) {
-      this.published = map;
-      roomActions.setFound({
-        mapId: room.mapId,
-        frameId: '',
-        transform: matrixFromYaw(map.shift, map.yawDeg),
-        strong: true,
-        plan: planOf(room, doorHere),
-        vps: { locationId: room.locationId, map },
-      });
-    }
+  /** The service's map is placed in the session (again): through the bridge, that is where the room is. */
+  private async answer(room: CloudRoom, map: MapInSession, inliers: number | null): Promise<void> {
+    const run = this.run;
+    const first = this.answered === null;
+    const requested = this.asked;
+    this.answered = map;
+    this.answeredAt = Date.now();
+    this.asked = false;
+    this.busy = true;
     this.clearSearchTimer();
-    const note = `ReactVision${inliers === null ? '' : `, ${inliers} inliers`}`;
-    if (!doorHere) {
-      if (first) {
-        this.setStatus('error', `no door has been saved for ReactVision in room "${room.mapId}" - place the door and save it`, {
-          code: 'no-doorway',
-        });
-        this.report('no-doorway', true, inliers);
-      }
+    const placed = await this.door.roomRecognised(
+      {
+        mapId: room.mapId,
+        frameId: room.frameId,
+        transform: roomThroughBridge(map, room.serviceFromRoom),
+        strong: true,
+        how: `recognised through ReactVision${inliers === null ? '' : `, ${inliers} inliers`}`,
+        continuous: !requested,
+      },
+      { requested },
+    );
+    this.busy = false;
+    if (!placed || this.stopped || run !== this.run) {
       return;
     }
-    const opening = room.width && room.height ? { width: room.width, height: room.height } : undefined;
-    const pose = { position: doorHere.position, rotation: [0, doorHere.yawDeg, 0] as [number, number, number] };
-    if (!this.shown) {
-      this.shown = doorHere;
-      this.emitPose({ pose, opening, quality: { note } });
-      this.setStatus('localized', `door from the place's map (${note})`);
-      this.report('placed', true, inliers);
-    } else if (differs(doorHere, this.shown, VPS_MOVE)) {
-      this.context?.log('reactvision: the door moved after the place was recognised again');
-      this.shown = doorHere;
-      this.emitPose({ pose, opening, automatic: true, quality: { note } });
-      this.setStatus('localized', `door corrected (${note})`);
-      this.report('moved', true, inliers);
-    } else if (this.getStatus() !== 'localized') {
-      this.setStatus('localized', 'door confirmed by a new look');
-      this.report('confirmed', true, inliers);
+    switch (placed.decision.action) {
+      case 'place':
+        this.report('placed', inliers, placed.portal?.source ?? null);
+        break;
+      case 'move':
+        this.report('moved', inliers, placed.portal?.source ?? null);
+        break;
+      case 'keep':
+        if (first) {
+          this.report('confirmed', inliers, placed.portal?.source ?? null);
+        }
+        break;
+      case 'no-doorway':
+        if (first) {
+          this.report('no-doorway', inliers);
+        }
+        break;
+      case 'retry':
+        // The place is recognised, but the door layer has no door record: neither the
+        // venue's server nor a copy on this phone.
+        this.context?.log(`reactvision: ${placed.decision.why}`);
+        this.answered = null; // the next steady reading asks again
+        if (!this.door.shown) {
+          this.setStatus('waiting-for-server', `the place is recognised, but ${placed.decision.why}`, { code: 'server-offline' });
+        }
+        break;
+      case 'ignore':
+        break;
     }
   }
 
@@ -342,7 +383,7 @@ export class ReactVisionVpsProvider extends BaseProvider {
   private onTracking(state: TrackingState): void {
     const event = this.watch.onState(state, Date.now());
     if (state === 'normal' && !event) {
-      if (this.room && !this.requested && !this.published) {
+      if (this.room && !this.requested && !this.answered) {
         this.search(); // the first NORMAL of the session
       }
       return;
@@ -378,27 +419,29 @@ export class ReactVisionVpsProvider extends BaseProvider {
       return;
     }
     this.interrupted = true;
+    this.run++; // an answer on its way belonged to the frame that was interrupted
+    this.busy = false;
     this.steady.reset();
-    this.published = null;
-    roomActions.setFound(null); // nothing can be saved through a frame that was interrupted
+    this.answered = null;
+    this.door.distrust();
     this.clearSearchTimer();
     this.setStatus(
       'lost',
-      this.shown ? 'tracking lost - the door stays where it was, but it may be off' : 'tracking lost - move the phone slowly',
+      this.door.shown ? 'tracking lost - the door stays where it was, but it may be off' : 'tracking lost - move the phone slowly',
       { code: 'tracking-lost' },
     );
   }
 
   // ---- helpers ----------------------------------------------------------------------------
 
-  private report(event: LocalizationReport['event'], trusted: boolean, inliers: number | null = null): void {
+  private report(event: LocalizationReport['event'], inliers: number | null = null, source: string | null = null): void {
     this.context?.reportLocalization({
       event,
       reason: 'start',
       attempts: 0,
       elapsedMs: this.searchStartedAt ? Date.now() - this.searchStartedAt : null,
-      trusted,
-      server: { quality: 'reactvision', inliers, source: 'manual', confidence: null },
+      trusted: this.door.trusted,
+      server: { quality: 'reactvision', inliers, source, confidence: null },
     });
   }
 
@@ -416,28 +459,4 @@ export class ReactVisionVpsProvider extends BaseProvider {
       this.graceTimer = null;
     }
   }
-}
-
-/**
- * What the placing screen reads: the door staff saved for this way, in the session's
- * frame, in the form the venue's own server gives its door. There is no room plan and no
- * suggested doorway on this way.
- */
-function planOf(room: CloudRoom, doorHere: FlatPose | null): ServerPlan {
-  const portal: ServerPortal = {
-    source: doorHere ? 'manual' : 'none',
-    confirmed: doorHere !== null,
-    openingId: null,
-    position: doorHere ? doorHere.position : null,
-    rotation: doorHere ? [0, doorHere.yawDeg, 0] : null,
-    quaternion: null,
-    frameId: '',
-    width: doorHere ? room.width : null,
-    height: doorHere ? room.height : null,
-    confidence: null,
-    updatedUtc: '',
-    suggested: null,
-    reason: doorHere ? '' : 'no door has been saved for ReactVision',
-  };
-  return { mapId: room.mapId, origin: 'localize', room: null, portal };
 }

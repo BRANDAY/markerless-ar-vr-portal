@@ -22,7 +22,11 @@
  * After the localisation the run does what a staff member and a visitor do with the door
  * (`ui-spec.md`, 5.14): a door placed in the clip's AR session is saved in the room's
  * frame, a second localisation in the same session must bring it back to the same place
- * with its size, and the door is removed again. THE DOOR OF
+ * with its size, and the door is removed again. With the capability `service_bridge` the
+ * second way of recognising the room is gone through as well, with a made-up "service"
+ * whose map lies in the room in a known way (there is no ReactVision account): the room
+ * gets a place there, the bridge is measured from samples of the clip's session, the same
+ * door record is placed through the bridge, and the place is removed again. THE DOOR OF
  * THE MAP IS REPLACED AND THEN REMOVED, so with `--localize-only` (somebody else's map)
  * this part runs only when `--door` is given as well.
  *
@@ -33,7 +37,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { doorCandidate, doorRecordBody, portalInSession, settle } from '../../door/core/placement';
+import { applyToPoint, invertTransform, matrixFromYaw, rowsFromMatrix } from '../../door/core/roomFrame';
 import { decide } from '../../localization/core/relocalization';
+import { cameraMatrix, mapInSession, type Mat4, multiply } from '../../localization/core/vpsAlignment';
+import { BRIDGE, BridgeSamples, roomThroughBridge } from '../../localization/core/ways';
 import {
   compactLine,
   compareDoor,
@@ -50,6 +57,8 @@ import {
   getPortal,
   getRoom,
   localize,
+  measureBridge,
+  patchRoomVps,
   postDeviceLog,
   probeHealth,
   removeDoor,
@@ -371,7 +380,73 @@ async function main(): Promise<number> {
         check(false, 'the second localisation gave no door');
       }
 
+      // 7. the second way (api-v2, section 11), with a made-up service: its map lies in
+      //    the room turned by 25 degrees and shifted. What the app would measure in the
+      //    clip's session is worked out from that truth; the server must find the bridge
+      //    again, and the SAME door record must then stand at the same place.
       setClientRole('staff');
+      if (!caps.includes('service_bridge')) {
+        console.log('SKIP  the second way: the server does not announce service_bridge');
+      } else if (!back.ok || !back.value.transform || !record.ok) {
+        check(false, 'the second way could not be tried: no room transform or no door record');
+      } else {
+        const roomInSession = back.value.transform;
+        const truth: Mat4 = matrixFromYaw([2, 0.3, -1], 25); // room to service
+        const serviceInSessionTruth = multiply(roomInSession, invertTransform(truth));
+        const place = await patchRoomVps(baseUrl, mapId, { provider: 'reactvision', location_id: 'e2e-made-up-place' });
+        check(place.ok && place.value.vps?.locationId === 'e2e-made-up-place' && place.value.vps.bridge === null, `the room got a place at the service, no bridge yet${place.ok ? '' : `: ${place.reason}`}`);
+        check(place.ok && !place.value.recognition.includes('reactvision'), `without a bridge the room is recognised through: ${place.ok ? place.value.recognition.join(', ') || '(not said)' : '?'}`);
+
+        // The phone at several places of the room: the AR camera pose, and the pose the
+        // service would report for it; from the two the app reads where the service's map lies.
+        const samples = new BridgeSamples();
+        let reading = null;
+        for (let i = 0; i < BRIDGE.samples; i++) {
+          const camera = cameraMatrix([0.6 * i - 1.5, 1.4, 0.5 * (i % 3)], [Math.sin(i), -0.2, -Math.cos(i)], [0, 1, 0]);
+          if (!camera) {
+            continue;
+          }
+          // a little noise, as two poses that were not taken at the same instant have
+          const noisy = multiply(serviceInSessionTruth, matrixFromYaw([0.01 * Math.sin(3 * i), 0, 0.01 * Math.cos(5 * i)], 0.3 * Math.sin(7 * i)));
+          reading = mapInSession(camera, multiply(invertTransform(noisy), camera));
+          if (reading) {
+            samples.offer(reading, [camera[12], camera[13], camera[14]], i * 3000);
+          }
+        }
+        check(samples.complete, `${samples.count} samples of where the service's map lies in the session`);
+        const measured = await measureBridge(baseUrl, mapId, { T_arworld_from_map: rowsFromMatrix(roomInSession), samples: samples.body() });
+        check(measured.ok, `the server measured the bridge${measured.ok ? '' : `: ${measured.reason}`}`);
+        const bridge = measured.ok ? (measured.value.vps?.bridge ?? null) : null;
+        if (bridge) {
+          const at = record.value.position ?? [0, 0, 0];
+          const there = applyToPoint(bridge.serviceFromRoom, at);
+          const expected = applyToPoint(truth, at);
+          const off = Math.hypot(there[0] - expected[0], there[1] - expected[1], there[2] - expected[2]);
+          console.log(
+            `      bridge from ${bridge.samples} samples; the server's own estimate of its error: ` +
+              `${bridge.positionErrorM === null ? '?' : (bridge.positionErrorM * 100).toFixed(1)} cm, ${bridge.rotationErrorDeg === null ? '?' : bridge.rotationErrorDeg.toFixed(2)} deg`,
+          );
+          check(off < 0.03, `the bridge puts the door ${(off * 100).toFixed(1)} cm from where the made-up service has it`);
+          const rooms = await getMaps(baseUrl);
+          const listed = rooms.ok ? rooms.value.find((room) => room.mapId === mapId) : undefined;
+          check(listed?.recognition.includes('reactvision') === true && listed.vps?.bridge !== null, `GET /maps lists the room as recognisable through: ${listed?.recognition.join(', ') ?? '?'}`);
+
+          // A visitor's phone that finds the room through the service: the same door record.
+          if (reading) {
+            const viaService = portalInSession(roomThroughBridge(reading, bridge.serviceFromRoom), record.value);
+            const apart = viaService.position
+              ? Math.hypot(viaService.position[0] - placed.position[0], viaService.position[1] - placed.position[1], viaService.position[2] - placed.position[2])
+              : NaN;
+            const turned = viaService.rotation ? Math.abs(((yawFromEuler(viaService.rotation) - placed.yaw + 540) % 360) - 180) : NaN;
+            check(apart < 0.05 && turned < 3, `the door through the second way stands ${(apart * 100).toFixed(1)} cm and ${turned.toFixed(1)} deg from where it was placed`);
+          }
+        } else if (measured.ok) {
+          check(false, 'the answer carries no bridge');
+        }
+        const gone = await patchRoomVps(baseUrl, mapId, null);
+        check(gone.ok && gone.value.vps === null, `the room's place at the service removed${gone.ok ? '' : `: ${gone.reason}`}`);
+      }
+
       const removed = await removeDoor(baseUrl, mapId);
       check(removed.ok, `door removed${removed.ok ? '' : `: ${removed.reason}`}`);
       const after = await getPortal(baseUrl, mapId);

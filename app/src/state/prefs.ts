@@ -38,10 +38,12 @@ export interface Prefs {
   vpsServerMode: boolean;
   /**
    * The last copy of what the venue's server keeps about its rooms for ReactVision
-   * (location id, door), as JSON: with it a door can be shown when only the internet is
-   * reachable.
+   * (place and bridge), as JSON: with it and `doorRecords` a door can be shown when only
+   * the internet is reachable.
    */
   vpsRooms: string | null;
+  /** The last copy of the rooms' door records, as JSON (one door per room, in the room's frame). */
+  doorRecords: string | null;
   /** Room to try first. */
   lastRoomId: string | null;
   /** Chosen space per room, until the server stores it. */
@@ -72,6 +74,7 @@ const DEFAULTS: Prefs = {
   connection: 'server',
   vpsServerMode: false,
   vpsRooms: null,
+  doorRecords: null,
   lastRoomId: null,
   spaceByRoom: {},
   lastCapture: null,

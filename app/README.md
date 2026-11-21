@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (193 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (197 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -383,43 +383,79 @@ is outside the repository, which is public.
 
 **In the app.** Settings has a **Connection** page (`ui-spec.md`, 5.15) with the two
 methods. In a build without keys the second one is disabled: "Not set up in this build."
-With "ReactVision cloud" chosen, **Open the door**, the visitor screen and **Place the
-door** use the provider `reactvision-vps` instead of `self-hosted`; everything on screen
-stays the same. The page also has the switch "Recognise in the cloud" (matching on the
-vendor's servers, which the vendor charges for by the minute; off by default) and a field
-for the room's **ReactVision location ID**.
+The page also has the switch "Recognise in the cloud" (matching on the vendor's servers,
+which the vendor charges for by the minute; off by default), a field for the room's
+**ReactVision location ID**, and below it the room's **link** to that place with the
+button **Link to the room**.
 
-**How it works** (`src/localization/ReactVisionVpsProvider.ts`):
+**One door for both ways.** The room has one door record, kept by the venue's server
+([One door, whatever recognises the room](#one-door-whatever-recognises-the-room)).
+Nothing about the door is stored per service. For the second way the room carries two
+things on the venue's server (`GET /maps`, field `vps`; api-v2 section 11), which the
+phone also keeps a copy of:
 
-1. The room's location id and the door for this way come from the venue's own server
-   (`GET /maps`, field `vps`; api-v2 section 11), and from the copy the phone keeps of it,
-   so that a door can be shown when only the internet is reachable. The service itself
-   has no call to store a placed object.
-2. The library's `<ViroVPS>` (`src/ar/VpsLayer.tsx`) downloads the location's map,
+- its **place** at the service (the location id);
+- the **bridge**: how the service's map lies in the room's frame.
+
+**How the provider works** (`src/localization/ReactVisionVpsProvider.ts`):
+
+1. The library's `<ViroVPS>` (`src/ar/VpsLayer.tsx`) downloads the location's map,
    matches the camera against it and reports the camera's pose in the frame of that map.
-3. From that pose and the AR engine's camera pose at the same moment the provider works
-   out where the map lies in the running AR session (`core/vpsAlignment.ts`: four
-   readings in a row have to agree within 4 cm and 2 degrees at the door; they are
+2. From that pose and the AR engine's camera pose at the same moment the provider works
+   out where the service's map lies in the running AR session (`core/vpsAlignment.ts`:
+   four readings in a row have to agree within 4 cm and 2 degrees at the door; they are
    averaged; a reading that would tilt the map is thrown away).
-4. The door goes out through the same path as every other door (`emitPose`), not inside
-   the library's `<ViroVPSAnchor>`, which moves its content every frame - also while
-   somebody is walking through it. A later correction is applied only when it differs by
-   more than 15 cm or 6 degrees, and waits while the user is inside the space.
-5. **Place the door** saves the door in the frame of the service's map, with its size:
-   `PATCH /maps/{id}` with `{"vps": {"location_id": ..., "door": {...}}}`. The two calls
-   to the server were tried against server 0.4.0 on a test room (stored, read back,
-   removed); the conversion itself is covered by unit tests only.
+3. Through the bridge that becomes where the ROOM lies in the session
+   (`core/ways.ts`: service's map in the session x room in the service's map), and that
+   is all the provider says. The door layer puts the room's door there, by the same
+   rules as for the venue's server: a correction is applied only when it differs by more
+   than 15 cm or 6 degrees, and waits while the user is inside the space. The door is
+   not put inside the library's `<ViroVPSAnchor>`, which moves its content every frame.
+4. **Place the door**, **Move the door** and **Remove the door** are the same as with
+   the venue's server: the one record changes, for both ways at once.
+
+**Linking a room** (`src/ui/BridgeScreen.tsx`, `src/room/bridgeMeasure.ts`; not in the
+spec): the staff member walks through the room once. The phone finds the room through
+the venue's server first, then asks ReactVision for the place in the same AR session and
+collects up to 8 samples of where the service's map lies, taken at least 0.4 m and 1.5 s
+apart; **Finish** ends the walk from 4 samples on. They go to
+`POST /maps/{id}/vps/bridge` together with where the room lies in that session; the
+server averages them, estimates the error and stores the bridge. "Linked", with the
+error in centimetres. A room that is scanned again on the venue's server loses door and
+bridge (its frame is new) and has to be linked again; the page then says "Not linked".
+
+**Which way is taken** (`roomsStore.wayToRoom`, `core/ways.ts`): the one chosen on the
+Connection page, or the other one when that cannot work - so that a visitor sees no
+difference:
+
+- ReactVision chosen, but the build has no keys, or the room has no place or no bridge
+  for its current frame: the venue's server;
+- the venue's server chosen, but known to be unreachable, and the room can be recognised
+  through ReactVision: ReactVision, with the door from the copy of the record the phone
+  kept the last time the server answered.
+
+The choice is made when the door is opened; it does not change in the middle of a search.
 
 The service has no "attempt 2 of 5", so the coach lines follow the time: "Try another
 view" after 15 s, "Still looking" after 40 s, and after 90 s the search is given up like a
 search through the server after its attempts.
 
+**Checked without the service** (`npm run e2e:server`, real server 0.6.0, a made-up
+service whose map lies in the room in a known way): the room gets a place, 8 samples as
+the app would take them (with a centimetre and a third of a degree of noise) go to the
+server, the bridge it returns puts the door 2.0 cm from the truth (its own estimate:
+1.5 cm, 0.21 degrees), `GET /maps` then lists the room as recognisable both ways, and
+the same door record placed through the bridge stands 1.6 cm and 0.3 degrees from where
+it was placed through the server.
+
 **What is assumed about the service and not verified:** that `renderPose` uses the AR
 engine's camera convention (X right, Y up, -Z forward) and that the map's Y axis is the
 vertical; that a build without keys makes the library's native module say so (this is
 how the app decides "Not set up in this build"); that `provider: "reactvision"` does not
-disturb the recording and the room mesh the scan uses; that the portal behaves when the
-door is driven this way; how long finding a place takes; all accuracy.
+disturb the recording and the room mesh the scan uses; that the library's tracker and the
+recording of a `/localize` clip can run in one AR session one after the other (linking a
+room needs both); that the portal behaves when the door is driven this way; how long
+finding a place takes; the error of a real bridge, which adds to the service's own.
 
 **Not built:**
 
@@ -427,11 +463,11 @@ door is driven this way; how long finding a place takes; all accuracy.
   endpoint on the venue's server that hands out a short-lived upload token, which does
   not exist yet. Until then a room is scanned with the vendor's own tools and the
   location id it got is typed into the Connection page;
+- changing the way in the middle of a search (e.g. after the cloud did not recognise the
+  place within 90 s);
 - "Also build in the cloud" and the "Server" / "Cloud" tags of the Rooms screen (the
   Rooms screen itself is a later step);
-- the privacy lines for this method (5.2, right column);
-- on this way there is no room plan, so no wall warning inside the space, and Home draws
-  no door on the plan.
+- the privacy lines for this method (5.2, right column).
 
 ### Developer options and the developer tools
 
@@ -502,8 +538,9 @@ Kept as a list for the product side; nothing here was decided silently.
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
 | Language, Credits rows in Settings | not shown | steps G and J |
-| Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere |
-| ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys or the room no location id; a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
+| Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, the line about the room's link and **Link to the room** / **Link again**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere; the room has to be linked to that place once |
+| (not in the spec) linking a room to its place in the cloud | an AR screen of its own: "Walk slowly around the room", "{n} of 8 views taken", **Finish**, "Linked" / "Not linked" with three reasons | one door for both ways needs the bridge between the two maps (api-v2, section 11) |
+| ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys, or the room has no location id or is not linked (in practice rare: such a room is found through the server instead); a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
 | ReactVision: cloud scan, "Also build in the cloud", tags in Rooms, privacy lines of the cloud column | not built | they need a token endpoint on the server, the Rooms screen and the owner's account |
 
 ## Using the developer tools
@@ -738,7 +775,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 193 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 197 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -922,6 +959,7 @@ localisation on was run again against server 0.5.0 after the door layer was intr
 | A second localisation in that session, as a visitor: the app's own sum, room transform x door record | the door stands **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
 | The app's own sum against the door the server multiplied out for the same answer | **0.0 mm, 0.00 degrees** apart, on both rooms |
 | The door removed | ok; the room has no door for visitors again |
+| The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth; the door through the second way stands **1.6 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run6`) |
 | The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.5 s, "good", 1075 inliers; the app's decision: **place**; the door stands **2.3 cm** from where the recording's known transform puts it |
 
 The zero in the second localisation is expected and says less than it seems: the door
@@ -1006,9 +1044,11 @@ src/
     ManualPlacementProvider.ts  stage-1 stand-in
     SelfHostedServerProvider.ts where the room is, from the venue's server; episodes of looking for the room
     core/relocalization.ts    rules: tracking loss, retries, what an answer does to the door (unit-tested)
-    ReactVisionVpsProvider.ts ReactVision Advanced VPS: the door from the place's map in the vendor's cloud (never run)
+    ReactVisionVpsProvider.ts where the room is, from ReactVision Advanced VPS and the room's bridge (never run)
     vpsBridge.ts              between that provider and the library's tracker; "does this build have keys?"
-    core/vpsAlignment.ts, vpsStatus.ts   pure: where the service's map lies in the session, a door between the two frames, the service's states
+    arCamera.ts               the camera of the running AR view, for code outside the scene
+    core/vpsAlignment.ts, vpsStatus.ts   pure: where the service's map lies in the session, the service's states
+    core/ways.ts              pure: which way is taken, the room through the bridge, the samples of a bridge measurement
     stubs.ts                  ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
@@ -1029,7 +1069,8 @@ src/
     scanController.ts         world mesh, session recording, capture folders
     meshFormat.ts             the engine's mesh file (RVWM) and its conversion to PLY (unit-tested)
     roomServer.ts             upload, build progress, room plan, localisation by clip
-    doorServer.ts             saving the door staff placed (in the room's frame), removing a saved door
+    doorServer.ts             saving the door staff placed (in the room's frame), removing a saved door, the room's place at ReactVision
+    bridgeMeasure.ts          linking a room to its place at ReactVision: both ways in one AR session, samples to the server
   server/
     core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network,
                               state machine, room plan, device log; server.e2e.ts = run against a real server
@@ -1053,7 +1094,8 @@ src/
   ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts
   ar/WallGridLayer.tsx        the real room's wall as a grid, inside the space
   ar/VpsLayer.tsx             the library's <ViroVPS> for the ReactVision provider
-  ui/ConnectionScreen.tsx     the connection method: own server or ReactVision cloud; the room's location id
+  ui/ConnectionScreen.tsx     the connection method: own server or ReactVision cloud; the room's location id and its link
+  ui/BridgeScreen.tsx         "Link to the room": the walk that measures the bridge
   ui/PlaceDoorScreen.tsx      "Place the door": put it here, adjust, save to the server
   ui/RoomResultScreen.tsx     what the server understood about a room that was just scanned
   ui/core/doorEdit.ts, placeView.ts   pure: the steps of placing a door, what is sent to the server, what the placing screen shows when
@@ -1117,7 +1159,7 @@ Providers:
 | Provider | State |
 | --- | --- |
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
-| `ReactVisionVpsProvider` | Implemented, **never run** (no account yet): [The second connection method](#the-second-connection-method-reactvision-advanced-vps). In a build without keys it reports "not set up". |
+| `ReactVisionVpsProvider` | Implemented, **never run** (no account yet): [The second connection method](#the-second-connection-method-reactvision-advanced-vps). Says where the room is, through the room's bridge; the door layer puts the same door there. In a build without keys it reports "not set up". |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
 | `SelfHostedServerProvider` | Implemented, **not yet run on a device**. Says where the room is: from the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, the identity after a build in the same session). The door layer puts the door there ([One door, whatever recognises the room](#one-door-whatever-recognises-the-room)). Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
@@ -1347,8 +1389,10 @@ has never been installed.
   amber outline of an unconfirmed doorway; the AR-support query;
 - **ReactVision Advanced VPS**: everything - the build with `provider: "reactvision"`
   (does AR, the recording and the room mesh still work?), "Not set up in this build" in a
-  build without keys, finding a place, the door from the place's map, the door staying
-  put while somebody walks through it, saving a door for this way, the Connection page;
+  build without keys, finding a place, linking a room to its place (both ways in one AR
+  session) and the error the server reports for the bridge, the door through the bridge
+  against the door through the server in the same room, the door staying put while
+  somebody walks through it, the fall-back to the other way, the Connection page;
 - **placing the door**: the whole pass "staff scan the room, place and save the door,
   the app is closed, a visitor opens it, the door stands where it was saved" - the
   assignment's main question; that the door being placed is drawn (the portal with

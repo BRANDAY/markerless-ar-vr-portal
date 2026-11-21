@@ -4,14 +4,13 @@
  * the running AR session, and removing a saved door.
  */
 import { doorRecordBody } from '../door/core/placement';
-import { quaternionFromYaw, toMap } from '../localization/core/vpsAlignment';
-import { patchRoomVps, removeDoor, type RoomVpsBody, saveDoor } from '../server/core/client';
+import { patchRoomVps, removeDoor, saveDoor } from '../server/core/client';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
 import { type DoorDraft, sizeLabel } from '../ui/core/doorEdit';
 import { noteDoorRecord } from '../door/doorRecords';
 import { getRoomScanState } from './roomStore';
-import { roomsActions, usesCloud, vpsOfRoom } from './roomsStore';
+import { roomsActions } from './roomsStore';
 
 const log = (text: string) => appActions.log(`door: ${text}`);
 
@@ -23,62 +22,15 @@ export type DoorSaveResult =
    */
   | { ok: false; why: 'no-room' | 'refused' | 'no-answer' };
 
-/**
- * Whether the size of a door placed by hand is stored: by the venue's server when it
- * announces the capability `door_size`; always with ReactVision as the connection method,
- * whose door is stored with its size in the room's `vps` entry.
- */
+/** Whether the server stores the size of a door placed by hand (capability `door_size`). */
 export function serverKeepsDoorSize(): boolean {
-  return usesCloud() || (serverConnection.getView().connection.info?.capabilities.includes('door_size') ?? false);
-}
-
-const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
-
-/** The room's entry at ReactVision as the server takes it: location id, and the door if there is one. */
-function vpsBody(locationId: string, door: RoomVpsBody['door'] | null): RoomVpsBody {
-  const body: RoomVpsBody = { provider: 'reactvision', location_id: locationId };
-  return door ? { ...body, door } : body;
-}
-
-/**
- * The same button for a room found through ReactVision: the door goes from the session
- * into the frame of that service's map (`core/vpsAlignment.ts`) and is stored with the
- * room's location id on the venue's server, which hands it to every phone
- * (`PATCH /maps/{id}`, api-v2 section 11). The service itself cannot store it.
- */
-async function saveCloudDoor(
-  baseUrl: string,
-  mapId: string,
-  vps: { locationId: string; map: Parameters<typeof toMap>[0] },
-  draft: DoorDraft,
-): Promise<DoorSaveResult> {
-  const inMap = toMap(vps.map, { position: draft.position, yawDeg: draft.yaw });
-  const answer = await patchRoomVps(
-    baseUrl,
-    mapId,
-    vpsBody(vps.locationId, {
-      position: [round(inMap.position[0], 3), round(inMap.position[1], 3), round(inMap.position[2], 3)],
-      quaternion_xyzw: quaternionFromYaw(inMap.yawDeg).map((n) => round(n, 6)) as [number, number, number, number],
-      width: draft.width,
-      height: draft.height,
-    }),
-  );
-  if (!answer.ok) {
-    log(`not saved for ReactVision: ${answer.reason}`);
-    return { ok: false, why: answer.status === null ? 'no-answer' : 'refused' };
-  }
-  log(
-    `saved for ReactVision in "${mapId}", ${sizeLabel(draft)}; in the service's map at ` +
-      `${inMap.position.map((n) => n.toFixed(2)).join(', ')}, heading ${inMap.yawDeg.toFixed(0)}`,
-  );
-  await roomsActions.refresh();
-  return { ok: true };
+  return serverConnection.getView().connection.info?.capabilities.includes('door_size') ?? false;
 }
 
 /**
  * The room's location id at ReactVision, typed in by staff (Settings, Connection). An
- * empty id removes the entry. A changed id drops the door that was saved for the old one:
- * it stood in the frame of another map. False when the server did not take it.
+ * empty id removes the entry. The server keeps a measured bridge as long as the id stays
+ * the same and drops it for another id. False when the server did not take it.
  */
 export async function saveRoomLocation(mapId: string, locationId: string): Promise<boolean> {
   const baseUrl = serverConnection.getBaseUrl();
@@ -87,17 +39,7 @@ export async function saveRoomLocation(mapId: string, locationId: string): Promi
     return false;
   }
   const id = locationId.trim();
-  const before = vpsOfRoom(mapId);
-  const door =
-    before && before.locationId === id && before.door
-      ? {
-          position: before.door.position,
-          quaternion_xyzw: before.door.quaternion,
-          ...(before.door.width !== null ? { width: before.door.width } : {}),
-          ...(before.door.height !== null ? { height: before.door.height } : {}),
-        }
-      : null;
-  const answer = await patchRoomVps(baseUrl, mapId, id ? vpsBody(id, door) : null);
+  const answer = await patchRoomVps(baseUrl, mapId, id ? { provider: 'reactvision', location_id: id } : null);
   if (!answer.ok) {
     log(`location id not saved: ${answer.reason}`);
     return false;
@@ -122,9 +64,6 @@ export async function saveDoorDraft(draft: DoorDraft): Promise<DoorSaveResult> {
   if (!baseUrl) {
     log('not saved: the server is not connected');
     return { ok: false, why: 'no-answer' };
-  }
-  if (found.vps) {
-    return saveCloudDoor(baseUrl, found.mapId, found.vps, draft);
   }
   const withSize = serverKeepsDoorSize();
   const answer = await saveDoor(baseUrl, found.mapId, doorRecordBody(found.transform, draft, withSize));
@@ -153,14 +92,12 @@ export async function removeSavedDoor(mapId: string): Promise<boolean> {
     log('not removed: the server is not connected');
     return false;
   }
-  // With ReactVision the door to remove is the one kept for that way; the location id stays.
-  const cloud = usesCloud() ? vpsOfRoom(mapId) : null;
-  const answer = cloud ? await patchRoomVps(baseUrl, mapId, vpsBody(cloud.locationId, null)) : await removeDoor(baseUrl, mapId);
+  const answer = await removeDoor(baseUrl, mapId);
   if (!answer.ok) {
     log(`not removed: ${answer.reason}`);
     return false;
   }
   log(`removed from "${mapId}"`);
-  await roomsActions.refresh();
+  await roomsActions.refresh(); // reads the record anew, for the door layer's copy too
   return true;
 }

@@ -28,6 +28,7 @@ import { HomeScreen } from './src/ui/HomeScreen';
 import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
 import { PermissionScreen } from './src/ui/PermissionScreen';
+import { BridgeScreen } from './src/ui/BridgeScreen';
 import { PlaceDoorScreen } from './src/ui/PlaceDoorScreen';
 import { ProblemScreen } from './src/ui/ProblemScreen';
 import { RoomResultScreen } from './src/ui/RoomResultScreen';
@@ -151,7 +152,7 @@ function useCameraPermission() {
  * visitor screen counts once its welcome panel has been passed.
  */
 function usesCamera(screen: Screen, visitorStarted: boolean): boolean {
-  return screen === 'ar' || screen === 'scan' || screen === 'placeDoor' || (screen === 'visitor' && visitorStarted);
+  return screen === 'ar' || screen === 'scan' || screen === 'placeDoor' || screen === 'bridge' || (screen === 'visitor' && visitorStarted);
 }
 
 export default function App() {
@@ -247,7 +248,7 @@ export default function App() {
         return true;
       }
       // The placing screen asks before a changed door is left; its own handler does that.
-      if (current === 'placeDoor') {
+      if (current === 'placeDoor' || current === 'bridge') {
         return true;
       }
       if (!appActions.back()) {
@@ -336,6 +337,7 @@ export default function App() {
       break;
     case 'ar':
     case 'placeDoor':
+    case 'bridge':
     case 'scan':
       // The AR view is mounted only once the camera permission is granted: starting an
       // ARCore session without it is a known source of a black camera image.
@@ -373,6 +375,7 @@ export default function App() {
       ) : null}
       {screen === 'scan' && permission === 'granted' ? <ScanScreen /> : null}
       {screen === 'placeDoor' && permission === 'granted' ? <PlaceDoorScreen /> : null}
+      {screen === 'bridge' && permission === 'granted' ? <BridgeScreen /> : null}
       {screen === 'visitor' ? <VisitorScreen permission={permission} permissionChecked={permissionChecked} onAllow={ask} /> : null}
       {plain ? <View style={styles.cover}>{plain}</View> : null}
     </View>

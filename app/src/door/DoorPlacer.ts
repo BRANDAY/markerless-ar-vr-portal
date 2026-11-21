@@ -3,7 +3,7 @@ import type { LocalizationStatus, PoseUpdate, RoomFix, StatusMeta } from '../loc
 import { getRoomScanState, roomActions, type ServerPlan } from '../room/roomStore';
 import type { ServerPortal } from '../server/core/roomPlan';
 import { roomInSession, settle } from './core/placement';
-import { readDoorRecord, readRoomPlan } from './doorRecords';
+import { readDoorRecord, readRoomPlan, RECORD_FRESH_MS } from './doorRecords';
 
 /** What the door layer needs from the provider it works for: the app's door slot, the status line, the log. */
 export interface DoorSink {
@@ -101,8 +101,8 @@ export class DoorPlacer {
   async roomRecognised(fix: RoomFix, how: { requested: boolean; always?: boolean }): Promise<Placement | null> {
     const epoch = this.epoch;
     const [read, ownPlan] = await Promise.all([
-      readDoorRecord(fix.mapId),
-      fix.room === undefined ? readRoomPlan(fix.mapId) : Promise.resolve(null),
+      readDoorRecord(fix.mapId, fix.continuous ? RECORD_FRESH_MS : 0),
+      fix.room === undefined ? readRoomPlan(fix.mapId, fix.frameId) : Promise.resolve(null),
     ]);
     if (epoch !== this.epoch) {
       return null;
@@ -143,9 +143,12 @@ export class DoorPlacer {
         this.place(decision.door, plan, `${fix.how}, corrected`, !how.requested);
         break;
       case 'keep':
+        // A way that answers all the time confirms all the time: one line when it matters.
+        if (!this.isTrusted || !fix.continuous) {
+          this.out.log(`doorway confirmed: the new answer is ${(decision.distanceM * 100).toFixed(0)} cm from the shown one`);
+        }
         this.isTrusted = true;
         this.wasTrusted = true;
-        this.out.log(`doorway confirmed: the new answer is ${(decision.distanceM * 100).toFixed(0)} cm from the shown one`);
         this.out.setStatus('localized', 'doorway confirmed by a second look');
         break;
       case 'ignore':
