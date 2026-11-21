@@ -3,6 +3,7 @@
 From a study prototype to something a customer could use. Written on 21 November 2026.
 "Vrata" (Croatian for "door") is a working name used in these documents and in the mockups; it has not been
 checked against trademarks. The choices marked **Proposal** are for the owner to confirm or change.
+The main scenario (museums and heritage sites) was confirmed by the owner on 21 November 2026.
 
 Related documents: [competitors.md](competitors.md), [ui-spec.md](ui-spec.md), [mockups/](mockups/index.html).
 
@@ -59,9 +60,9 @@ charge per use.
 A fifth option, a consumer app for the home, is not proposed: free portal apps already exist, a home user
 will not run a server, and nothing in the survey shows people paying for it.
 
-### Proposal: start with A, museums and heritage sites
+### Decided: start with A, museums and heritage sites
 
-Reasons:
+Confirmed by the owner on 21 November 2026. Reasons:
 
 1. **The strengths match.** A fixed room, a doorway that matters, a network the venue controls, and data that
    stays in the building.
@@ -257,7 +258,7 @@ accuracy and repeat-visit tests run, so there are real numbers to put next to th
 
 ## 8. Decisions for the owner
 
-1. The main scenario: A (museums and heritage), or another.
+1. ~~The main scenario~~ — decided on 21 November 2026: A, museums and heritage sites.
 2. The name and the visual identity. "Vrata" and the amber-and-teal look in the mockups are placeholders.
 3. Which features go into version 1 (section 6 is the proposal).
 4. Loaned devices or visitors' own phones as the main setup.
