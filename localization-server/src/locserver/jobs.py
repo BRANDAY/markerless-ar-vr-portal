@@ -109,6 +109,8 @@ class JobManager:
         self.device, self.keep = device, keep
         self.runner = runner or self._run_worker
         self._lock = threading.RLock()
+        self._io_lock = threading.Lock()
+        self._save_seq = self._saved_seq = 0
         self._jobs: dict[str, Job] = {}
         self._old: list[dict] = []  # finished jobs of earlier server runs (already public dicts)
         self._queue: queue.Queue[Job] = queue.Queue()
@@ -137,12 +139,20 @@ class JobManager:
         self._save()
 
     def _save(self) -> None:
+        """Write the job index. The state lock is NOT held during the disk write: request handlers
+        (`/health`, `/jobs/...`) wait on that lock, and a slow disk must never stall them."""
         with self._lock:
             mine = [j.public() for j in sorted(self._jobs.values(), key=lambda j: -j.created)]
             data = (mine + self._old)[: self.keep]
+            self._save_seq += 1
+            seq = self._save_seq
+        with self._io_lock:
+            if seq < self._saved_seq:
+                return  # a newer snapshot is already on disk
             tmp = self._index.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
             tmp.replace(self._index)
+            self._saved_seq = seq
 
     # ---------------------------------------------------------------- API --- #
     def new_job_dir(self) -> tuple[str, Path]:
@@ -198,9 +208,10 @@ class JobManager:
             if job.state not in FINAL_STATES:
                 job.cancel_requested = True
                 if job.state == "queued":
-                    self._finish(job, "cancelled")
+                    self._finish(job, "cancelled", save=False)
                 elif job.proc is not None and job.proc.poll() is None:
                     job.proc.terminate()
+        self._save()
         return self.get(job_id)
 
     def wait(self, job_id: str, timeout: float = 30.0) -> dict | None:
@@ -217,7 +228,7 @@ class JobManager:
     def build_dir(self, job: Job) -> Path:
         return self.maps_dir / f"{BUILD_PREFIX}{job.job_id}"
 
-    def _finish(self, job: Job, state: str, error: dict | None = None, result: dict | None = None) -> None:
+    def _finish(self, job: Job, state: str, error: dict | None = None, result: dict | None = None, save: bool = True) -> None:
         job.state, job.error, job.result = state, error, result
         job.finished, job.finished_utc = time.time(), utc_now()
         if state == "succeeded":
@@ -227,7 +238,8 @@ class JobManager:
             job.message = "cancelled"
         else:
             job.message = (error or {}).get("message", "failed")
-        self._save()
+        if save:
+            self._save()
 
     def _loop(self) -> None:
         while True:

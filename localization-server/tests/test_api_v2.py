@@ -23,7 +23,7 @@ def plan():
     return truth, compute_room_plan(make_views(truth), (0, 1, 0))
 
 
-def session_jsonl(n=12, header=True) -> bytes:
+def session_jsonl(n=120, header=True) -> bytes:
     lines = [json.dumps({"type": "header", "intrinsics": {"fx": 500, "fy": 500, "cx": 320, "cy": 240, "width": 640, "height": 480}})] if header else []
     lines += [json.dumps({"type": "pose", "t": i * 33_000_000, "orientation": [0, 0, 0, 1], "position": [0.01 * i, 1.4, 0]}) for i in range(n)]
     return ("\n".join(lines) + "\n").encode()

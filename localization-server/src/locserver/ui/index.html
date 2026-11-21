@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AR Portal server</title>
+<!-- Monitoring panel of the localisation server. One self-contained file: no build step, nothing
+     loaded from the internet. Data: GET /monitor/state, /monitor/feed, /monitor/map/{id} (polled). -->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f3f2ee; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781; --line: #e1e0d9;
+  --accent: #2a78d6; --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --good-text: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --line: #2c2c2a;
+    --accent: #3987e5; --good-text: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --line: #2c2c2a;
+  --accent: #3987e5; --good-text: #0ca30c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .sub { color: var(--ink2); }
+header .grow { flex: 1; }
+button, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+main { padding: 12px 16px 24px; display: grid; gap: 12px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink2); margin: 0 0 8px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.card h2 .grow { flex: 1; }
+.card h2 label, .card h2 select, .card h2 button { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.c12 { grid-column: span 12; } .c7 { grid-column: span 7; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c4 { grid-column: span 4; } .c8 { grid-column: span 8; }
+@media (max-width: 1100px) { .c7, .c5, .c6, .c4, .c8 { grid-column: span 12; } }
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-weight: 600; color: var(--ink2); font-size: 11.5px; padding: 3px 14px 5px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 4px 14px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tr.pick { cursor: pointer; } tr.pick:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); } .ink2 { color: var(--ink2); }
+.mono { font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: 12px; }
+.empty { color: var(--muted); padding: 10px 0; }
+.chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.chip i { font-style: normal; font-weight: 700; width: 1em; text-align: center; }
+.good i { color: var(--good); } .warning i { color: var(--warning); } .serious i { color: var(--serious); } .critical i { color: var(--critical); } .idle i { color: var(--muted); } .info i { color: var(--accent); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; }
+.kv dt { color: var(--ink2); } .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.step { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.step .t { font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
+.step .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.step .d { color: var(--ink2); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.step.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.step.problem { border-color: var(--critical); }
+.next { margin-top: 10px; padding: 8px 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 0 6px 6px 0; }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 4px 0 2px; }
+.bar > div { height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s; }
+.job { padding: 6px 0; border-bottom: 1px solid var(--line); } .job:last-child { border-bottom: 0; }
+.job .row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.log { height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.log .ln { display: grid; grid-template-columns: 84px 118px minmax(70px, 150px) 1fr; gap: 8px; padding: 1.5px 0; border-bottom: 1px dotted var(--line); }
+.log .ln.req { grid-template-columns: 84px minmax(70px, 150px) 1fr 40px 70px; }
+.log .ln > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .ln .msg { white-space: normal; overflow-wrap: anywhere; }
+.log .ln.error .msg { color: var(--critical); }
+.url { display: flex; gap: 8px; align-items: center; }
+.planwrap { position: relative; }
+canvas { display: block; width: 100%; height: 440px; border: 1px solid var(--line); border-radius: 6px; cursor: grab; touch-action: none; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--muted); border-radius: 6px; padding: 5px 8px; font-size: 12px; max-width: 260px; display: none; z-index: 3; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink2); font-size: 12px; margin-top: 6px; align-items: center; }
+.legend svg { vertical-align: -2px; margin-right: 4px; }
+#offline { display: none; background: var(--critical); color: #fff; padding: 6px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AR Portal &middot; localization server</h1>
+  <span class="sub" id="hdr">connecting&hellip;</span>
+  <span class="grow"></span>
+  <span class="chip idle" id="live"><i>&#9679;</i><span>live</span></span>
+  <button id="theme" title="Switch between light and dark">Theme</button>
+</header>
+<div id="offline">The server does not answer. The panel shows the last known state and keeps trying.</div>
+<main>
+  <section class="card c12">
+    <h2>How it is used &mdash; where things stand <span class="grow"></span><span class="muted" id="flowdev" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+    <div class="flow" id="flow"></div>
+    <div class="next" id="next"></div>
+  </section>
+
+  <section class="card c4">
+    <h2>Server</h2>
+    <dl class="kv" id="server"></dl>
+  </section>
+  <section class="card c8">
+    <h2>Devices <span class="grow"></span><span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">click a row to filter the log</span></h2>
+    <div id="devices"></div>
+  </section>
+
+  <section class="card c5">
+    <h2>Maps</h2>
+    <div id="maps"></div>
+    <h2 style="margin-top:14px">Jobs</h2>
+    <div id="jobs"></div>
+  </section>
+  <section class="card c7">
+    <h2>Room plan <select id="mapsel" title="Map to show"></select><span class="grow"></span>
+      <button id="vtop" class="on">Top view</button><button id="v3d">3D</button></h2>
+    <div class="planwrap"><canvas id="plan"></canvas><div class="tip" id="tip"></div></div>
+    <div class="legend" id="legend"></div>
+    <div class="ink2" id="plansum" style="margin-top:6px"></div>
+  </section>
+
+  <section class="card c12">
+    <h2>Localizations</h2>
+    <div id="locs"></div>
+  </section>
+
+  <section class="card c6">
+    <h2>Device log <select id="devsel"><option value="">all devices</option></select>
+      <select id="lvl"><option value="debug">all levels</option><option value="info" selected>info and above</option><option value="warn">warnings and errors</option><option value="error">errors only</option></select>
+      <span class="grow"></span><button id="clr1">Clear</button></h2>
+    <div class="log mono" id="dlog"></div>
+  </section>
+  <section class="card c6">
+    <h2>Server requests <label><input type="checkbox" id="hidepolls" checked> hide polls</label><span class="grow"></span><button id="clr2">Clear</button></h2>
+    <div class="log mono" id="rlog"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = String(text); return e; }
+function chip(kind, icon, label) { const c = el("span", "chip " + kind); c.append(el("i", "", icon), el("span", "", label)); return c; }
+const fmtTime = ms => { const d = new Date(ms); return d.toLocaleTimeString("en-GB") + "." + String(d.getMilliseconds()).padStart(3, "0"); };
+const dur = s => s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : (s / 3600).toFixed(1) + " h";
+const num = (v, d = 0) => v === null || v === undefined ? "–" : Number(v).toFixed(d);
+
+let S = null, selMap = null, pickedMap = false, selDev = "", mapData = null, mapKey = "", lastFeed = 0;
+const devEntries = [], reqEntries = [], MAXLOG = 1500;
+
+// ---------------------------------------------------------------- theme
+$("theme").onclick = () => {
+  const dark = getComputedStyle(document.documentElement).colorScheme.includes("dark");
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("locserver-theme", document.documentElement.dataset.theme); } catch (e) {}
+  drawPlan();
+};
+try { const t = localStorage.getItem("locserver-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+
+// ---------------------------------------------------------------- render: flow, server, devices
+const STEP_ICON = { done: ["good", "✓", "done"], active: ["info", "●", "now"], todo: ["idle", "○", "to do"], problem: ["critical", "✕", "needs attention"] };
+function renderFlow(f) {
+  const box = $("flow"); box.replaceChildren();
+  f.steps.forEach((s, i) => {
+    const d = el("div", "step " + s.status), t = el("div", "t");
+    const ic = STEP_ICON[s.status] || STEP_ICON.todo;
+    t.append(el("span", "n", (i + 1) + "."), el("span", "", s.title));
+    d.append(t, chip(ic[0], ic[1], ic[2]), el("div", "d", s.detail || ""));
+    box.append(d);
+  });
+  $("next").replaceChildren(el("b", "", "Next: "), document.createTextNode(f.next));
+  $("flowdev").textContent = (f.device_id ? "device " + f.device_id : "no device") + (f.map_id ? " · map " + f.map_id : "") + (f.device_step ? " · app step: " + f.device_step : "");
+}
+function kv(dl, k, v) { const dd = el("dd"); if (v instanceof Node) dd.append(v); else dd.textContent = v; dl.append(el("dt", "", k), dd); }
+function renderServer(s) {
+  $("hdr").textContent = s.name + " · v" + s.version + " · up " + dur(s.uptime_s);
+  const dl = $("server"); dl.replaceChildren();
+  kv(dl, "Name", s.name);
+  kv(dl, "Version", s.version + "  (API " + s.api_version + ", revision " + s.api_revision + ")");
+  kv(dl, "Compute", s.device === "cuda" ? "GPU: " + s.device_name : "CPU only (" + s.device_name + ")");
+  if (s.vram_mb) kv(dl, "GPU memory", s.vram_mb.allocated + " MB in use, peak " + s.vram_mb.peak + " MB");
+  kv(dl, "Processor", (s.cpu || "?") + " · " + s.cpu_count + " threads");
+  kv(dl, "System", s.os);
+  kv(dl, "Running for", dur(s.uptime_s));
+  const urls = el("div");
+  if (!s.urls.length) urls.append(chip("critical", "✕", "no LAN address - the PC is not on a network"));
+  s.urls.forEach(u => { const r = el("div", "url"); const b = el("button", "", "Copy"); b.onclick = () => navigator.clipboard && navigator.clipboard.writeText(u); r.append(el("span", "mono", u), b); urls.append(r); });
+  kv(dl, "Reachable at", urls);
+  kv(dl, "Models", s.models.extractor + " + " + s.models.matcher);
+  const sl = s.stalls;
+  if (sl) kv(dl, "Stalls", sl.count ? chip("warning", "▲", sl.count + (sl.count === 1 ? " stall" : " stalls") + ", longest " + sl.longest_s + " s (see " + (sl.report || "the server log") + ")")
+    : chip("good", "✓", "none: always answered within " + sl.limit_s + " s"));
+}
+function renderDevices(list) {
+  const box = $("devices");
+  if (!list.length) { box.replaceChildren(el("div", "empty", "No device has contacted the server yet. Start the app on a phone in the same Wi-Fi network and enter one of the addresses on the left.")); return; }
+  const t = el("table"), h = el("tr");
+  ["State", "Device", "Address", "Last seen", "Server", "Latency", "App step", "Tracking", "Requests", "Errors", ""].forEach((x, i) => h.append(el("th", i >= 4 && i <= 5 || i >= 8 ? "num" : "", x)));
+  t.append(h);
+  list.forEach(d => {
+    const r = el("tr", "pick" + (d.device_id === selDev ? " sel" : ""));
+    r.onclick = () => { selDev = selDev === d.device_id ? "" : d.device_id; $("devsel").value = selDev; renderDevices(S.devices); rebuildLogs(); };
+    const st = el("td"); st.append(d.online ? chip("good", "●", "online") : chip("serious", "○", "lost"));
+    const name = el("td"); name.append(el("div", "", d.name || (d.identified ? d.device_id : "unnamed client")), el("div", "muted", d.device_id + (d.app_version ? " · app " + d.app_version : "")));
+    const stt = d.state || {};
+    r.append(st, name, el("td", "mono", d.address || "–"), el("td", "", d.online ? d.last_seen_age_s.toFixed(1) + " s ago" : dur(d.last_seen_age_s) + " ago"),
+      el("td", "num", num(d.server_ms, 1) + " ms"), el("td", "num", d.rtt_ms === null ? "–" : num(d.rtt_ms) + " ms"),
+      el("td", "", stt.step || "–"), el("td", "", stt.tracking || "–"), el("td", "num", d.requests), el("td", "num", d.errors));
+    const fg = el("td", "num");
+    if (!d.online) { const b = el("button", "", "Forget"); b.title = "Remove this device from the list (its log file on disk stays)"; b.onclick = ev => { ev.stopPropagation(); if (selDev === d.device_id) selDev = ""; fetch("/monitor/forget/" + encodeURIComponent(d.device_id), { method: "POST" }); }; fg.append(b); }
+    r.append(fg);
+    r.title = (d.last_request || "") + (stt.detail ? "\n" + stt.detail : "") + (d.clock_offset_ms !== null ? "\nclock offset " + d.clock_offset_ms + " ms" : "");
+    t.append(r);
+  });
+  box.replaceChildren(t);
+  const sel = $("devsel"), have = new Set([...sel.options].map(o => o.value));
+  list.forEach(d => { if (!have.has(d.device_id)) { const o = el("option", "", d.name || d.device_id); o.value = d.device_id; sel.append(o); } });
+  sel.value = selDev;
+}
+
+// ---------------------------------------------------------------- render: maps, jobs, localizations
+const ROOM = { ok: ["good", "✓", "plan ok"], partial: ["warning", "▲", "partial plan"], unavailable: ["idle", "○", "no plan"] };
+function renderMaps(maps) {
+  const box = $("maps");
+  if (!maps.length) { box.replaceChildren(el("div", "empty", "No map yet. A map appears here when the app has uploaded a room recording and the build has finished.")); return; }
+  const t = el("table"), h = el("tr");
+  ["Map", "Images", "3D points", "Room plan", "Portal"].forEach((x, i) => h.append(el("th", i === 1 || i === 2 ? "num" : "", x)));
+  t.append(h);
+  maps.forEach(m => {
+    const r = el("tr", "pick" + (m.map_id === selMap ? " sel" : "")); r.onclick = () => { selMap = m.map_id; pickedMap = true; $("mapsel").value = selMap; renderMaps(S.maps); loadMap(true); };
+    const id = el("td"); id.append(el("div", "", m.label || m.map_id), el("div", "muted", m.map_id + (m.metric ? " · metric" : " · no scale")));
+    const rp = el("td"); const rs = ROOM[m.room_status] || ROOM.unavailable; rp.append(chip(rs[0], rs[1], rs[2]));
+    const po = el("td"); po.append(m.portal_source === "none" ? chip("serious", "○", "no doorway") : chip("good", "✓", m.portal_source));
+    r.append(id, el("td", "num", m.num_images), el("td", "num", m.num_points3D === null ? "–" : m.num_points3D), rp, po); t.append(r);
+  });
+  box.replaceChildren(t);
+  const sel = $("mapsel"); const want = maps.map(m => m.map_id).join("|");
+  if (sel.dataset.k !== want) { sel.replaceChildren(); maps.forEach(m => { const o = el("option", "", m.map_id); o.value = m.map_id; sel.append(o); }); sel.dataset.k = want; }
+  const flowMap = S.flow.map_id && maps.some(m => m.map_id === S.flow.map_id) ? S.flow.map_id : null;
+  if (!selMap || !maps.some(m => m.map_id === selMap)) { selMap = flowMap || maps[maps.length - 1].map_id; pickedMap = false; }
+  else if (!pickedMap && flowMap && flowMap !== selMap) selMap = flowMap;
+  sel.value = selMap;
+}
+const JOB = { queued: ["idle", "○"], running: ["info", "●"], succeeded: ["good", "✓"], failed: ["critical", "✕"], cancelled: ["idle", "–"] };
+function renderJobs(jobs) {
+  const box = $("jobs");
+  if (!jobs.length) { box.replaceChildren(el("div", "empty", "No build has run since the server started.")); return; }
+  box.replaceChildren();
+  jobs.forEach(j => {
+    const d = el("div", "job"), row = el("div", "row"), ic = JOB[j.state] || JOB.queued;
+    row.append(chip(ic[0], ic[1], j.state), el("b", "", (j.kind === "build_map" ? "build map " : "room plan ") + j.map_id), el("span", "muted", "job " + j.job_id));
+    d.append(row);
+    if (j.state === "running" || j.state === "queued") {
+      const bar = el("div", "bar"), fill = el("div"); fill.style.width = (j.progress * 100).toFixed(1) + "%"; bar.append(fill);
+      d.append(bar, el("div", "ink2", (j.progress * 100).toFixed(0) + " %" + (j.stage ? " · step " + j.stage_index + " of " + j.stage_count + ": " + j.stage : " · waiting") +
+        (j.eta_s ? " · about " + dur(j.eta_s) + " left" : "") + " · " + (j.message || "")));
+    } else if (j.state === "failed") {
+      d.append(el("div", "", (j.error ? j.error.code + ": " + j.error.message : "failed")));
+    } else if (j.result) {
+      const r = j.result, rm = r.room || {};
+      d.append(el("div", "ink2", "took " + dur(j.elapsed_s) + " · " + r.num_images + " images" + (rm.status ? " · plan " + rm.status + ": " + rm.num_walls + " walls, " + rm.num_corners + " corners, " + rm.num_openings + " openings" : "") +
+        (r.portal ? " · portal: " + r.portal.source : "")));
+      (r.warnings || []).forEach(w => d.append(chip("warning", "▲", w)));
+    }
+    box.append(d);
+  });
+}
+function renderLocs(list) {
+  const box = $("locs");
+  if (!list.length) { box.replaceChildren(el("div", "empty", "No localization request yet.")); return; }
+  const t = el("table"), h = el("tr");
+  ["Time", "Device", "Map", "Result", "Inliers", "Time taken", "Alignment", "Portal", "Reason"].forEach((x, i) => h.append(el("th", i === 4 || i === 5 ? "num" : "", x)));
+  t.append(h);
+  const names = Object.fromEntries((S.devices || []).map(d => [d.device_id, d.name || d.device_id]));
+  list.forEach(l => {
+    const r = el("tr"), res = el("td");
+    res.append(l.quality === "good" ? chip("good", "✓", "good") : l.success ? chip("warning", "▲", "weak") : chip("critical", "✕", "failed"));
+    r.append(el("td", "mono", fmtTime(l.server_time_ms)), el("td", "", names[l.device_id] || l.device_id), el("td", "", l.map_id), res,
+      el("td", "num", l.num_inliers), el("td", "num", num(l.elapsed_ms) + " ms"), el("td", "", l.alignment || "–"), el("td", "", l.portal_source || "–"), el("td", "ink2", l.reason || ""));
+    t.append(r);
+  });
+  box.replaceChildren(t);
+}
+
+// ---------------------------------------------------------------- logs
+const LV = { debug: 0, info: 1, warn: 2, error: 3 }, LVI = { debug: ["idle", "·"], info: ["info", "·"], warn: ["warning", "▲"], error: ["critical", "✕"] };
+function devName(id) { const d = S && S.devices.find(x => x.device_id === id); return d && d.name ? d.name : id; }
+function devLine(e) {
+  const d = el("div", "ln " + e.level), ic = LVI[e.level] || LVI.info;
+  d.append(el("span", "muted", fmtTime(e.server_time_ms)), chip(ic[0], ic[1], e.level + " " + e.type), el("span", "ink2", devName(e.device_id)), el("span", "msg", e.message));
+  d.title = "device " + e.device_id + ", session " + e.session_id + ", seq " + e.seq + (e.data ? "\n" + JSON.stringify(e.data) : "");
+  return d;
+}
+function reqLine(e) {
+  const d = el("div", "ln req" + (e.status >= 400 ? " error" : ""));
+  d.append(el("span", "muted", fmtTime(e.server_time_ms)), el("span", "ink2", devName(e.device_id)), el("span", "msg", e.method + " " + e.path), el("span", "", e.status), el("span", "muted", e.ms + " ms"));
+  return d;
+}
+const isPoll = e => e.method === "GET" && (e.path === "/health" || e.path.startsWith("/jobs")) || e.path.endsWith("/log");
+const showDev = e => (!selDev || e.device_id === selDev) && LV[e.level] >= LV[$("lvl").value];
+const showReq = e => (!selDev || e.device_id === selDev) && !($("hidepolls").checked && isPoll(e) && e.status < 400);
+function append(box, node) { const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40; box.append(node); while (box.childElementCount > MAXLOG) box.firstChild.remove(); if (stick) box.scrollTop = box.scrollHeight; }
+function rebuildLogs() {
+  const a = $("dlog"), b = $("rlog");
+  a.replaceChildren(...devEntries.filter(showDev).map(devLine)); b.replaceChildren(...reqEntries.filter(showReq).map(reqLine));
+  if (!a.childElementCount) a.append(el("div", "empty", "Nothing yet. The app sends its events here (scan steps, tracking state, errors)."));
+  if (!b.childElementCount) b.append(el("div", "empty", "No request to show."));
+  a.scrollTop = a.scrollHeight; b.scrollTop = b.scrollHeight;
+}
+["lvl", "hidepolls", "devsel"].forEach(id => $(id).onchange = () => { if (id === "devsel") { selDev = $("devsel").value; if (S) renderDevices(S.devices); } rebuildLogs(); });
+$("clr1").onclick = () => { devEntries.length = 0; rebuildLogs(); };
+$("clr2").onclick = () => { reqEntries.length = 0; rebuildLogs(); };
+async function pollFeed() {
+  const r = await fetch("/monitor/feed?after=" + lastFeed + "&limit=1000"); const j = await r.json();
+  if (j.last_id < lastFeed) { devEntries.length = 0; reqEntries.length = 0; lastFeed = 0; rebuildLogs(); return; }  // server restarted
+  for (const e of j.entries) {
+    lastFeed = Math.max(lastFeed, e.id);
+    const dev = e.kind === "device", arr = dev ? devEntries : reqEntries, box = dev ? $("dlog") : $("rlog");
+    arr.push(e); if (arr.length > MAXLOG) arr.shift();
+    if (dev ? showDev(e) : showReq(e)) { const first = box.firstChild; if (first && first.className === "empty") first.remove(); append(box, dev ? devLine(e) : reqLine(e)); }
+  }
+}
+
+// ---------------------------------------------------------------- room plan (orthographic view, drag to orbit)
+const view = { yaw: 0, tilt: 0, zoom: 1, panX: 0, panY: 0 };
+let hits = [];
+$("vtop").onclick = () => { view.yaw = 0; view.tilt = 0; view.zoom = 1; view.panX = view.panY = 0; setMode(); drawPlan(); };
+$("v3d").onclick = () => { view.yaw = -0.6; view.tilt = 0.95; setMode(); drawPlan(); };
+function setMode() { $("vtop").classList.toggle("on", view.tilt < 0.05); $("v3d").classList.toggle("on", view.tilt >= 0.05); }
+$("mapsel").onchange = () => { selMap = $("mapsel").value; pickedMap = true; if (S) renderMaps(S.maps); loadMap(true); };
+async function loadMap(force) {
+  if (!selMap) { mapData = null; drawPlan(); return; }
+  const m = S.maps.find(x => x.map_id === selMap), key = selMap + "|" + (m ? m.created_utc + m.room_status + m.portal_source : "");
+  if (!force && key === mapKey && mapData) {  // only the phone position can have changed
+    const l = S.localizations.find(x => x.map_id === selMap && x.success); mapData.last_localization = l || mapData.last_localization; drawPlan(); return;
+  }
+  try { const r = await fetch("/monitor/map/" + encodeURIComponent(selMap)); if (!r.ok) throw 0; mapData = await r.json(); mapKey = key; } catch (e) { mapData = null; }
+  drawPlan();
+}
+function basis(up) {  // rows e1, e2, up: map -> plan frame (h along up)
+  const n = Math.hypot(...up), u = up.map(v => v / n);
+  let a = [0, u[2], -u[1]]; if (Math.hypot(...a) < 0.5) a = [u[1], -u[0], 0];
+  const la = Math.hypot(...a), e1 = a.map(v => v / la);
+  const e2 = [u[1] * e1[2] - u[2] * e1[1], u[2] * e1[0] - u[0] * e1[2], u[0] * e1[1] - u[1] * e1[0]];
+  return [e1, e2, u];
+}
+function drawPlan() {
+  const cv = $("plan"), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), C = n => css.getPropertyValue(n).trim();
+  hits = [];
+  g.font = "12px 'Segoe UI', system-ui, sans-serif";
+  if (!mapData) { g.fillStyle = C("--muted"); g.fillText(selMap ? "Loading…" : "No map selected.", 14, 24); $("plansum").textContent = ""; $("legend").replaceChildren(); return; }
+  const B = basis(mapData.up), room = mapData.room, toPlan = p => [0, 1, 2].map(i => B[i][0] * p[0] + B[i][1] * p[1] + B[i][2] * p[2]);
+  const cy_ = Math.cos(view.yaw), sy_ = Math.sin(view.yaw), ct = Math.cos(view.tilt), st = Math.sin(view.tilt);
+  const flat = p => { const q = toPlan(p), a = q[0] * cy_ - q[1] * sy_, b = q[0] * sy_ + q[1] * cy_; return [a, b * ct + q[2] * st]; };
+  // fit: walls and cameras decide the frame (stray points do not)
+  const frame = [...mapData.cameras, ...room.walls.flatMap(w => w.corners)];
+  if (!frame.length) frame.push(...mapData.points.slice(0, 500));
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  frame.forEach(p => { const f = flat(p); x0 = Math.min(x0, f[0]); x1 = Math.max(x1, f[0]); y0 = Math.min(y0, f[1]); y1 = Math.max(y1, f[1]); });
+  const pad = 46, sc = Math.min((W - 2 * pad) / Math.max(x1 - x0, 0.5), (H - 2 * pad) / Math.max(y1 - y0, 0.5)) * view.zoom;
+  const P = p => { const f = flat(p); return [W / 2 + view.panX + (f[0] - (x0 + x1) / 2) * sc, H / 2 + view.panY - (f[1] - (y0 + y1) / 2) * sc]; };
+  const path = pts => { g.beginPath(); pts.forEach((p, i) => { const s = P(p); i ? g.lineTo(s[0], s[1]) : g.moveTo(s[0], s[1]); }); };
+  const label = (text, at, color) => { const w = g.measureText(text).width + 8; g.fillStyle = C("--surface"); g.globalAlpha = 0.85; g.fillRect(at[0] - w / 2, at[1] - 9, w, 17); g.globalAlpha = 1; g.fillStyle = color || C("--ink2"); g.textAlign = "center"; g.fillText(text, at[0], at[1] + 4); g.textAlign = "left"; };
+  // map points
+  g.fillStyle = C("--muted"); g.globalAlpha = 0.55;
+  for (const p of mapData.points) { const s = P(p); if (s[0] > 0 && s[0] < W && s[1] > 0 && s[1] < H) g.fillRect(s[0], s[1], 1.3, 1.3); }
+  g.globalAlpha = 1;
+  // floor
+  if (room.floor && room.floor.outline) { path(room.floor.outline); g.closePath(); g.fillStyle = C("--accent"); g.globalAlpha = 0.06; g.fill(); g.globalAlpha = 1; }
+  // camera path of the recording
+  if (mapData.cameras.length > 1) { path(mapData.cameras); g.strokeStyle = C("--muted"); g.lineWidth = 1; g.setLineDash([4, 3]); g.stroke(); g.setLineDash([]); }
+  // walls
+  room.walls.forEach(w => {
+    const c = w.corners;
+    if (view.tilt > 0.05) { path(c); g.closePath(); g.fillStyle = C("--ink"); g.globalAlpha = 0.05; g.fill(); g.globalAlpha = 1; g.strokeStyle = C("--ink"); g.lineWidth = 1.2; g.stroke(); }
+    path([c[0], c[1]]); g.strokeStyle = C("--ink"); g.lineWidth = 3; g.lineCap = "round"; g.stroke();
+    const m = P([0, 1, 2].map(i => (c[0][i] + c[1][i]) / 2)), inn = P([0, 1, 2].map(i => (c[0][i] + c[1][i]) / 2 + w.normal[i] * 0.28));
+    label(w.id + " · " + w.width.toFixed(2) + " m", inn);
+    hits.push({ at: m, text: "Wall " + w.id + "\n" + w.width.toFixed(2) + " m long, " + w.height.toFixed(2) + " m high\nconfidence " + w.confidence + ", seen solid over " + Math.round(w.coverage * 100) + " %" });
+  });
+  // corners: small squares on the floor (and posts in 3D)
+  room.corners.forEach(k => {
+    const b = P(k.bottom); if (view.tilt > 0.05) { path([k.bottom, k.top]); g.strokeStyle = C("--ink"); g.lineWidth = 2; g.stroke(); }
+    g.fillStyle = C("--surface"); g.fillRect(b[0] - 6, b[1] - 6, 12, 12); g.fillStyle = C("--ink"); g.fillRect(b[0] - 4, b[1] - 4, 8, 8);
+    hits.push({ at: b, text: "Corner " + k.id + " (" + k.walls.join(" + ") + ")\nangle " + k.angle_deg.toFixed(1) + "°, confidence " + k.confidence });
+  });
+  // openings
+  room.openings.forEach(o => {
+    const c = o.corners, best = o.id === room.best_opening_id || o.id === mapData.portal.opening_id;
+    if (view.tilt > 0.05) { path(c); g.closePath(); g.fillStyle = C("--accent"); g.globalAlpha = 0.18; g.fill(); g.globalAlpha = 1; g.strokeStyle = C("--accent"); g.lineWidth = 1.5; g.stroke(); }
+    path([c[0], c[1]]); g.strokeStyle = C("--surface"); g.lineWidth = 9; g.stroke(); g.strokeStyle = C("--accent"); g.lineWidth = 5; g.setLineDash(best ? [] : [6, 4]); g.stroke(); g.setLineDash([]);
+    const m = P(o.center_bottom), out = P([0, 1, 2].map(i => o.center_bottom[i] - o.normal[i] * 0.3));
+    label(o.id + " · " + o.state + " · " + o.confidence.toFixed(2), out, C("--ink"));
+    hits.push({ at: m, text: "Opening " + o.id + " in " + o.wall_id + " (" + o.state + ")\n" + o.width.toFixed(2) + " × " + o.height.toFixed(2) + " m" + (o.height_measured ? "" : " (height assumed)") +
+      "\nconfidence " + o.confidence + "\ngeometry " + (o.evidence.geometry ?? "–") + ", detector " + (o.evidence.detector ?? "–") + ", " + o.evidence.views + " key frames" });
+  });
+  // portal anchor: a pin with an arrow into the room
+  const po = mapData.portal;
+  if (po.source !== "none" && po.position) {
+    const q = po.quaternion_xyzw, z = [2 * (q[0] * q[2] + q[3] * q[1]), 2 * (q[1] * q[2] - q[3] * q[0]), 1 - 2 * (q[0] * q[0] + q[1] * q[1])];
+    const a = P(po.position), b = P([0, 1, 2].map(i => po.position[i] + z[i] * 0.6));
+    g.strokeStyle = C("--accent"); g.lineWidth = 2; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    const an = Math.atan2(b[1] - a[1], b[0] - a[0]); g.beginPath(); g.moveTo(b[0], b[1]); g.lineTo(b[0] - 9 * Math.cos(an - 0.45), b[1] - 9 * Math.sin(an - 0.45)); g.lineTo(b[0] - 9 * Math.cos(an + 0.45), b[1] - 9 * Math.sin(an + 0.45)); g.closePath(); g.fillStyle = C("--accent"); g.fill();
+    g.beginPath(); g.arc(a[0], a[1], 7, 0, 7); g.fillStyle = C("--surface"); g.fill(); g.beginPath(); g.arc(a[0], a[1], 5, 0, 7); g.fillStyle = C("--accent"); g.fill();
+    label("portal (" + po.source + ")", [b[0], b[1] - 14], C("--ink"));
+    hits.push({ at: a, text: "Portal anchor\nsource: " + po.source + (po.opening_id ? ", opening " + po.opening_id : "") + (po.width ? "\n" + po.width.toFixed(2) + " × " + po.height.toFixed(2) + " m" : "") + "\nthe arrow points into the scanned room" });
+  }
+  // phone: last successful localisation
+  const l = mapData.last_localization;
+  if (l && l.position) {
+    const a = P(l.position), b = P([0, 1, 2].map(i => l.position[i] + l.forward[i] * 0.5)), an = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    g.beginPath(); g.moveTo(a[0] + 13 * Math.cos(an), a[1] + 13 * Math.sin(an)); g.lineTo(a[0] + 9 * Math.cos(an + 2.5), a[1] + 9 * Math.sin(an + 2.5)); g.lineTo(a[0] + 9 * Math.cos(an - 2.5), a[1] + 9 * Math.sin(an - 2.5)); g.closePath();
+    g.fillStyle = C("--good"); g.fill(); g.strokeStyle = C("--surface"); g.lineWidth = 2; g.stroke();
+    const age = S ? (S.server_time_ms - l.server_time_ms) / 1000 : 0;
+    label("phone · " + dur(age) + " ago", [a[0], a[1] + 22], C("--ink"));
+    hits.push({ at: a, text: "Phone at the last successful localization\n" + l.quality + ", " + l.num_inliers + " inliers, " + dur(age) + " ago\ndevice " + l.device_id });
+  }
+  // scale bar
+  const bar = 1 * sc; if (mapData.metric && bar > 20 && bar < W) { g.strokeStyle = C("--ink2"); g.lineWidth = 2; g.beginPath(); g.moveTo(14, H - 14); g.lineTo(14 + bar, H - 14); g.stroke(); g.fillStyle = C("--ink2"); g.fillText("1 m", 18 + bar, H - 10); }
+  // summary + legend
+  const fl = room.floor;
+  $("plansum").textContent = room.status === "unavailable" ? "No room plan: " + (room.reason || "not computed") + ". Showing the map's points and the camera path only."
+    : "Plan " + room.status + " · " + room.walls.length + " walls · " + room.corners.length + " corners · " + room.openings.length + " openings" +
+      (room.height ? " · ceiling height " + room.height.toFixed(2) + " m" : "") + (fl ? " · floor at " + fl.level.toFixed(2) + " m" : "") +
+      " · portal: " + po.source + (po.reason ? " (" + po.reason + ")" : "") + (room.sources && room.sources.length ? " · from: " + room.sources.join(", ") : "");
+  const lg = $("legend"); if (!lg.childElementCount) {
+    const item = (svg, text) => { const s = el("span"); s.innerHTML = svg; s.append(document.createTextNode(text)); return s; };
+    lg.append(item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="currentColor" stroke-width="3"/></svg>', "wall"),
+      item('<svg width="10" height="10"><rect x="1" y="1" width="8" height="8" fill="currentColor"/></svg>', "corner"),
+      item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--accent)" stroke-width="5"/></svg>', "door opening (dashed: not used)"),
+      item('<svg width="22" height="12"><circle cx="5" cy="6" r="4" fill="var(--accent)"/><line x1="5" y1="6" x2="20" y2="6" stroke="var(--accent)" stroke-width="2"/></svg>', "portal anchor"),
+      item('<svg width="14" height="12"><path d="M13 6 L2 1 L2 11 Z" fill="var(--good)"/></svg>', "phone (last localization)"),
+      item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--muted)" stroke-dasharray="4 3"/></svg>', "camera path of the scan"),
+      el("span", "muted", "drag to turn · wheel to zoom · hover for details"));
+  }
+}
+(function interact() {
+  const cv = $("plan"), tip = $("tip"); let drag = null;
+  cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, yaw: view.yaw, tilt: view.tilt }; cv.setPointerCapture(e.pointerId); cv.style.cursor = "grabbing"; });
+  cv.addEventListener("pointerup", () => { drag = null; cv.style.cursor = "grab"; });
+  cv.addEventListener("pointermove", e => {
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (drag) { view.yaw = drag.yaw + (e.clientX - drag.x) * 0.008; view.tilt = Math.max(0, Math.min(1.45, drag.tilt + (e.clientY - drag.y) * 0.006)); setMode(); drawPlan(); tip.style.display = "none"; return; }
+    let best = null, bd = 16; hits.forEach(h => { const d = Math.hypot(h.at[0] - x, h.at[1] - y); if (d < bd) { bd = d; best = h; } });
+    if (best) { tip.textContent = best.text; tip.style.whiteSpace = "pre-line"; tip.style.display = "block"; tip.style.left = Math.min(x + 14, r.width - 270) + "px"; tip.style.top = (y + 14) + "px"; } else tip.style.display = "none";
+  });
+  cv.addEventListener("pointerleave", () => tip.style.display = "none");
+  cv.addEventListener("wheel", e => { e.preventDefault(); view.zoom = Math.max(0.3, Math.min(8, view.zoom * (e.deltaY < 0 ? 1.12 : 0.89))); drawPlan(); }, { passive: false });
+  window.addEventListener("resize", drawPlan);
+})();
+
+// ---------------------------------------------------------------- main loop
+let fails = 0, tick = 0;
+async function refresh() {
+  try {
+    const r = await fetch("/monitor/state" + (selDev ? "?device=" + encodeURIComponent(selDev) : ""), { cache: "no-store" }); if (!r.ok) throw new Error(r.status);
+    S = await r.json(); fails = 0;
+    $("offline").style.display = "none"; $("live").className = "chip good"; $("live").lastChild.textContent = "live";
+    renderFlow(S.flow); renderServer(S.server); renderDevices(S.devices); renderMaps(S.maps); renderJobs(S.jobs); renderLocs(S.localizations);
+    await pollFeed();
+    await loadMap(tick++ % 15 === 0 && !mapData);
+  } catch (e) {
+    if (++fails >= 2) { $("offline").style.display = "block"; $("live").className = "chip critical"; $("live").lastChild.textContent = "no answer"; }
+  }
+  setTimeout(refresh, 1000);
+}
+// optional start-up choices in the address: /ui#view=3d&theme=dark&map=<map id>&device=<device id>
+(function fromAddress() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("theme") === "dark" || h.get("theme") === "light") document.documentElement.dataset.theme = h.get("theme");
+  if (h.get("view") === "3d") { view.yaw = -0.6; view.tilt = 0.95; setMode(); }
+  if (h.get("map")) { selMap = h.get("map"); pickedMap = true; }
+  if (h.get("device")) selDev = h.get("device");
+})();
+rebuildLogs(); refresh();
+</script>
+</body>
+</html>

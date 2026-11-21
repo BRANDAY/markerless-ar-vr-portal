@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
 import json
 import logging
 import shutil
@@ -13,7 +15,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
 
 from . import API_VERSION, SERVICE_ID, __version__, config, netinfo
 from . import geometry as g
@@ -22,6 +26,7 @@ from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
 from .jobs import JobManager
 from .localize import DeviceCalibrationStore, LocalizeOptions, Localizer
 from .mapstore import LocMap, check_id, list_map_dirs, load_map
+from .monitor import MAX_BATCH_BYTES, BatchTooLarge, LoopWatchdog, Monitor, usage_flow
 from .responses import (
     AlignOptions,
     Observation,
@@ -42,7 +47,9 @@ MAX_VIDEO_BYTES = 150 * 2**20
 SESSION_TTL_S = 30 * 60
 SESSION_MAX_OBS = 60
 MAX_MESH_BYTES = 200 * 2**20
-CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal"]
+CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui"]
+UI_FILE = Path(__file__).parent / "ui" / "index.html"
+UNTRACKED_PREFIXES = ("/ui", "/monitor", "/favicon", "/docs", "/openapi")  # the panel itself is not a device
 API_REVISION = 2
 
 
@@ -65,6 +72,10 @@ class State:
         self.started = time.time()
         self.reload()
         self.jobs = JobManager(self.maps_dir, self.work_dir, self.reload_one, device, job_runner)
+        self.monitor = Monitor(self.work_dir)
+        self.watchdog = LoopWatchdog(self.work_dir)
+        self._points_cache: dict = {}
+        self._addr_cache: tuple = (0.0, [])
         self._warm_up()
 
     def _warm_up(self) -> None:
@@ -188,9 +199,145 @@ def pick_clip_frames(frames: list[Frame], n: int) -> list[Frame]:
 
 def create_app(state: State | None = None, maps_dir: Path | None = None, device: str = "auto",
                server_name: str | None = None) -> FastAPI:
-    app = FastAPI(title="locserver", version=__version__, description="Markerless visual localisation for an AR portal")
     st = state or State(maps_dir or config.maps_dir(), device, server_name=server_name)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        """While the server runs, a watchdog notes every moment in which it stopped answering."""
+        st.watchdog.start()
+        heart = asyncio.create_task(st.watchdog.heart())
+        try:
+            yield
+        finally:
+            st.watchdog.stop()
+            heart.cancel()
+
+    app = FastAPI(title="locserver", version=__version__, description="Markerless visual localisation for an AR portal",
+                  lifespan=lifespan)
     app.state.locserver = st
+
+    # ---------------------------------------------- devices + monitoring --- #
+    @app.middleware("http")
+    async def track_requests(request: Request, call_next):
+        """Book every request on the device that sent it (headers of docs/api-v2.md 9.1)."""
+        t0 = time.perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            path = request.url.path
+            if not path.startswith(UNTRACKED_PREFIXES):
+                h = request.headers
+                st.monitor.touch(h.get("x-device-id"), request.client.host if request.client else None, request.method, path, status,
+                                 (time.perf_counter() - t0) * 1000, h.get("x-device-name"), h.get("x-session-id"), h.get("x-app-version"))
+
+    @app.post("/devices/{device_id}/log")
+    async def device_log_post(device_id: str, request: Request):
+        """A batch of log events from the app (docs/api-v2.md 9.2)."""
+        if int(request.headers.get("content-length") or 0) > MAX_BATCH_BYTES:
+            raise HTTPException(413, f"a log batch must be smaller than {MAX_BATCH_BYTES // 1024} kB")
+        raw = await request.body()
+        if len(raw) > MAX_BATCH_BYTES:
+            raise HTTPException(413, f"a log batch must be smaller than {MAX_BATCH_BYTES // 1024} kB")
+        try:
+            # in a worker thread: it appends to a file, and no disk write may run on the event loop
+            return await run_in_threadpool(st.monitor.ingest, device_id, json.loads(raw), request.client.host if request.client else None)
+        except BatchTooLarge as e:
+            raise HTTPException(413, str(e))
+        except (ValueError, TypeError) as e:
+            raise HTTPException(422, f"bad log batch: {e}")
+
+    @app.get("/devices")
+    async def devices_list():
+        return {"devices": st.monitor.list_devices()}
+
+    @app.get("/devices/{device_id}/log")
+    async def device_log_get(device_id: str, after: int = 0, limit: int = 500):
+        if device_id not in st.monitor.devices:
+            raise HTTPException(404, "unknown device")
+        return st.monitor.device_log(device_id, after, limit)
+
+    @app.delete("/devices/{device_id}")
+    async def device_forget(device_id: str):
+        if not st.monitor.forget(device_id):
+            raise HTTPException(404, "unknown device")
+        return {"deleted": device_id}
+
+    @app.get("/ui", response_class=HTMLResponse)
+    async def ui():
+        """The monitoring panel: one self-contained page, nothing loaded from the internet."""
+        try:
+            return HTMLResponse(UI_FILE.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+        except OSError:
+            raise HTTPException(500, f"the panel file is missing: {UI_FILE}")
+
+    def _addresses() -> list[str]:
+        t, addrs = st._addr_cache
+        if time.time() - t > 30:
+            addrs = netinfo.lan_ipv4_addresses()
+            st._addr_cache = (time.time(), addrs)
+        return addrs
+
+    @app.get("/monitor/state")
+    def monitor_state(request: Request, device: str | None = None):
+        """Everything the panel shows, in one answer (internal: may change without notice)."""
+        import os
+        import platform
+
+        port = request.url.port or config.port()
+        maps_ = [{**m.summary(), **_map_extras(m)} for m in st.maps.values()]
+        jobs_ = st.jobs.list()[:8]
+        devices_ = st.monitor.list_devices()
+        return {
+            "server": {
+                "name": st.server_name, "version": __version__, "api_version": API_VERSION, "api_revision": API_REVISION,
+                "capabilities": CAPABILITIES, "device": st.pipe.device, "device_name": st.pipe.device_name,
+                "vram_mb": st.pipe.vram_mb(), "cpu": platform.processor() or platform.machine(), "cpu_count": os.cpu_count(),
+                "os": f"{platform.system()} {platform.release()}", "uptime_s": round(time.time() - st.started, 1),
+                "urls": [f"http://{a}:{port}" for a in _addresses()], "port": port, "sessions": len(st.sessions),
+                "models": {"extractor": EXTRACTOR_NAME, "matcher": MATCHER_NAME},
+                "stalls": st.watchdog.public(),
+            },
+            "devices": devices_, "maps": maps_, "jobs": jobs_,
+            "localizations": st.monitor.recent_localizations(30),
+            "flow": usage_flow(devices_, maps_, jobs_, st.monitor, device),
+            "last_id": st.monitor.feed_after(10**18)["last_id"], "server_time_ms": int(time.time() * 1000),
+        }
+
+    @app.post("/monitor/forget/{device_id}")
+    async def monitor_forget(device_id: str):
+        """The panel's "Forget" button (not booked as a request of the panel's own address)."""
+        return {"deleted": device_id if st.monitor.forget(device_id) else None}
+
+    @app.get("/monitor/feed")
+    async def monitor_feed(after: int = 0, limit: int = 500):
+        return st.monitor.feed_after(after, limit)
+
+    @app.get("/monitor/map/{map_id}")
+    def monitor_map(map_id: str, max_points: int = 6000):
+        """Room plan, portal, a thinned point cloud and the camera path of one map (map coordinates)."""
+        from .roomstage import map_up
+
+        m = st.get_map(map_id)
+        key = (m.map_id, m.meta.get("created_utc"), max_points)
+        if key not in st._points_cache:
+            ids = np.concatenate([im.point3D_ids for im in m.images])
+            xyz = np.concatenate([im.xyz for im in m.images])
+            _, first = np.unique(ids, return_index=True)
+            first = first[(ids[first] >= 0) & np.isfinite(xyz[first]).all(1)]
+            pts = xyz[first]
+            if len(pts) > max_points:
+                pts = pts[np.random.default_rng(0).choice(len(pts), max_points, replace=False)]
+            st._points_cache = {key: (np.round(pts.astype(float), 3).tolist(),
+                                      np.round(np.array([im.center for im in m.images]), 3).tolist())}
+        points, cameras = st._points_cache[key]
+        room = m.room()
+        up = (room or {}).get("up") or (map_up(m).tolist() if map_up(m) is not None else [0.0, 1.0, 0.0])
+        return {"map_id": m.map_id, "up": up, "metric": m.metric, "room": room or empty_room("not computed"),
+                "portal": strip_private(resolve_portal(m)), "points": points, "cameras": cameras,
+                "last_localization": st.monitor.last_localization(m.map_id, success_only=True)}
 
     # ------------------------------------------------------------- info --- #
     @app.get("/health")
@@ -246,7 +393,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         detect_openings: bool = Form(True),
     ):
         """Build a map from a room recording in the background. Answers at once with a job."""
-        from .recording import parse_session_jsonl
+        from .recording import parse_session_jsonl, recording_problem
 
         try:
             check_id(map_id, "map id")
@@ -277,9 +424,12 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 slog = parse_session_jsonl(d / "session.jsonl")
             except (OSError, ValueError) as e:
                 raise HTTPException(422, f"cannot read session.jsonl: {e}")
-            if slog.intrinsics is None or len(slog.poses) < 10:
-                raise HTTPException(422, f"session.jsonl needs a header with intrinsics and at least 10 pose lines "
+            if slog.intrinsics is None or not slog.poses:
+                raise HTTPException(422, f"session.jsonl needs a header with intrinsics and pose lines "
                                          f"(found intrinsics: {slog.intrinsics is not None}, poses: {len(slog.poses)})")
+            problem = recording_problem(slog)
+            if problem:  # say so now, not after minutes of reconstruction
+                raise HTTPException(422, problem[1], headers={"X-Error-Code": problem[0]})
             params = {"display_rotation_cw": display_rotation_cw, "device_id": device_id, "label": label,
                       "max_frames": max_frames, "detect_openings": detect_openings, "mesh": None, "mesh_format": mesh_format}
             if mesh is not None:
@@ -496,6 +646,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
     # --------------------------------------------------------- localize --- #
     @app.post("/localize")
     def localize(
+        request: Request,
         image: UploadFile | None = File(None, description="JPEG/PNG camera image"),
         video: UploadFile | None = File(None, description="short clip; the sharpest frames are used"),
         session_jsonl: UploadFile | None = File(None, description="ViroReact session.jsonl belonging to `video`"),
@@ -660,6 +811,15 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         else:
             out["alignment"] = None
         out["elapsed_ms"] = round((time.perf_counter() - t_req) * 1000, 1)
+        al_out = out.get("alignment") or {}
+        st.monitor.record_localization({
+            "device_id": Monitor.resolve_id(request.headers.get("x-device-id") or device_id, request.client.host if request.client else None),
+            "map_id": m.map_id, "success": bool(best.success), "quality": best.quality, "reason": best.reason,
+            "num_inliers": int(best.num_inliers), "frames": len(results), "elapsed_ms": out["elapsed_ms"],
+            "alignment": al_out.get("status"), "portal_source": (al_out.get("portal") or {}).get("source"),
+            "position": out["pose"]["position"] if out.get("pose") else None,
+            "forward": [float(v) for v in np.asarray(out["pose"]["T_map_from_cvcam"])[:3, 2]] if out.get("pose") else None,
+        })
         return out
 
     return app
@@ -682,6 +842,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--maps-dir", default=None, help=f"default: {config.maps_dir()}")
     ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--panel", action="store_true", help="also open the monitoring panel in a desktop window")
     a = ap.parse_args(argv)
     config.setup_logging(a.log_level)
     app = create_app(maps_dir=Path(a.maps_dir) if a.maps_dir else None, device=a.device, server_name=a.name)
@@ -689,6 +850,13 @@ def main(argv: list[str] | None = None) -> int:
     log.info("device %s (%s), maps %s from %s", st.pipe.device, st.pipe.device_name, sorted(st.maps), st.maps_dir)
     for line in netinfo.banner_lines(a.host, a.port, netinfo.lan_ipv4_addresses(), st.server_name):
         print(line, flush=True)
+    panel_url = f"http://127.0.0.1:{a.port}/ui"
+    print(f"  Monitoring panel on this PC: {panel_url}   (own window: uv run locserver-panel)", flush=True)
+    print("", flush=True)
+    if a.panel:
+        from .panel import open_panel
+
+        threading.Timer(1.5, lambda: print(open_panel(panel_url), flush=True)).start()
     uvicorn.run(app, host=a.host, port=a.port, log_level=a.log_level.lower())
     return 0
 

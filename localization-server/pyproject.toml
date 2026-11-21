@@ -1,6 +1,6 @@
 [project]
 name = "locserver"
-version = "0.2.0"
+version = "0.3.0"
 description = "Self-hosted markerless visual-localisation server (ALIKED + LightGlue + COLMAP) for an AR-to-VR portal app"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -24,6 +24,7 @@ locserver-serve = "locserver.server:main"
 locserver-evaluate = "locserver.evaluate:main"
 locserver-localize = "locserver.localize_cli:main"
 locserver-doctor = "locserver.doctor:main"
+locserver-panel = "locserver.panel:main"
 
 [dependency-groups]
 dev = [

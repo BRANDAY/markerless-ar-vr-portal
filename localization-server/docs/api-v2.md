@@ -73,7 +73,20 @@ Responses:
 | `202` + `{"job": Job}` | accepted; poll the job |
 | `409` | the map exists and `replace` is not true, **or** a build for this `map_id` is already queued/running (`detail` contains its `job_id`) |
 | `413` | upload larger than the limit (default 2048 MB, env `LOCSERVER_MAX_RECORDING_MB`) |
-| `422` | missing file, unreadable `session.jsonl` (no intrinsics header / fewer than 10 pose lines), bad `map_id` |
+| `422` | missing file, unreadable `session.jsonl` (no intrinsics header / no pose lines), bad `map_id`, **or a recording that cannot become a map** - see below |
+
+**A recording that cannot work is refused at once** (since server 0.3.0), not
+after minutes of reconstruction. The answer is `422` with the reason as a
+sentence for the user in `detail` and a fixed word in the response header
+`X-Error-Code`:
+
+| `X-Error-Code` | Rule (from the pose lines of `session.jsonl`) | Example of `detail` |
+|---|---|---|
+| `recording_too_short` | fewer than 30 pose lines, or less than 3 s between the first and the last | `the recording is too short to build a map: 0.9 s, 15 frames (at least 3 s and 30 frames are needed). Record while walking through the room - one to two minutes is a good length` |
+| `too_little_motion` | the camera positions span less than 0.30 m | `the phone hardly moved during the recording: 6 cm (at least 30 cm are needed). Turning on the spot is not enough - walk through the room and along the walls while recording` |
+
+These are floors, not a promise: a recording that passes them can still fail in
+the build (`job.error`) or give a thin map (`job.result.warnings`).
 
 Only cheap checks happen before the `202`; everything else is reported through
 the job. The previous map with the same id (if any) stays loaded and usable
@@ -95,6 +108,29 @@ changes nothing.
 * ARCore tracking must be `NORMAL` during the recording (poses are used as
   metric, gravity-aligned ground truth).
 
+### How the files are read
+
+As written by the phone (`app/docs/capture-format.md`; checked on two captures
+of a Xiaomi 14 Ultra, 2026-11-20 - `tests/test_device_capture.py`):
+
+* The video frames are stored in the sensor's orientation (1920 x 1080
+  landscape) with a rotation tag of 90 degrees clockwise, and the intrinsics of
+  the header belong to those stored pixels; the pose of a frame is that of the
+  camera of the **upright** picture. The server turns every frame upright by the
+  container's tag and the intrinsics with it (`fx' = fy`, `fy' = fx`,
+  `cx' = height - cy`, `cy' = cx`). On the two captures the poses then predict
+  the motion of image features to about 1 px; with any other orientation the
+  error is more than ten times larger (12 to 17 times). `display_rotation_cw` overrides the tag and is
+  not needed for these files.
+* The n-th `pose` line belongs to the n-th frame. Frames and poses are paired by
+  number when their counts are equal, otherwise by time (`t - t(first pose)`
+  against the frame time of the container, which agreed to 0.1 ms). The frame
+  rate may vary (33-133 ms between frames were seen).
+* `orientation` is `[x, y, z, w]`, camera to world. `gravity` and the `imu`
+  lines are not used (the AR world is gravity-aligned already), so the zero
+  `gravity` of the first pose line does no harm.
+* The same holds for the clip sent to `/localize`.
+
 ### Coordinate frame of a recording-built map
 
 The map frame **is the AR world frame of the recording session**: metres, +Y up
@@ -109,8 +145,14 @@ Geometry of the room as the phone reconstructed it (ViroReact world mesh
 snapshot). Requirements: vertex coordinates in the AR world frame of the
 **same** session as the recording, metres. Accepted containers: Wavefront OBJ
 (`v`, `f`) and PLY (ASCII or binary little-endian, `vertex` + optional `face`).
-The exact file the app produces will be described in
-`app/docs/capture-format.md`; the server will follow that document. An
+The app sends `world_mesh.ply` with `mesh_format=ply`: binary little-endian,
+vertex properties `float x, y, z, confidence`, faces as
+`list uchar int vertex_indices` (`app/docs/capture-format.md`, section 5). That
+layout is read (extra vertex properties such as `confidence` are skipped);
+checked with the two meshes of the first phone captures, converted the way the
+app converts them (6,560 and 50,321 vertices). What has **not** been seen yet is
+a mesh uploaded together with a full recording, i.e. how well it agrees with
+the camera poses and how much it improves the plan. An
 unreadable or empty mesh never fails the build: it is ignored and reported in
 `job.result.warnings`.
 
@@ -451,6 +493,7 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 | Openings: image detector (closed doors) | done | synthetic boxes in tests; the real detector only looked at on TUM frames (no door ground truth there) |
 | `mesh` input | OBJ/PLY reader done, tested on hand-made files | waits for `app/docs/capture-format.md` and a real snapshot |
 | `/maps/{id}/portal`, `/localize` / `/align` / `/sessions` additions | done | tests |
+| Section 9: device headers, `POST /devices/{id}/log`, `GET /devices`, log read-back, `/ui` | done (server 0.3.0) | tests; a run of `scripts/simulate_phone.py` against the running server. No log from the real app has been received yet |
 
 **Not verified: anything on a real room recorded with the phone.** No such
 recording exists yet. In particular unknown: how well the depth network and
@@ -459,8 +502,9 @@ enough over a whole scan.
 
 ## 9. Devices and device log
 
-**Status: DRAFT (2026-11-20), written before the implementation** so that the
-app can start sending. Purpose: the server's monitoring panel (`/ui`, opened on
+**Status: implemented in server 0.3.0 (2026-11-20) exactly as drafted**; the
+only sender so far is `scripts/simulate_phone.py`, which is also the reference
+client for this section. Purpose: the server's monitoring panel (`/ui`, opened on
 the PC) shows which phones are connected, what each of them is doing and where
 the usage scenario currently stands. The capability name is `device_log`
 (check `capabilities` in `/health`; on a server without it the calls below
@@ -609,3 +653,9 @@ notice; do not build the app on it.
   `openings[].height_measured`, `key_frames`, `stats`, source `sfm_points`;
   recording advice changed from "turns/walks" to "walks" (parallax is needed).
 * 2026-11-20 — section 9 (devices, device log) drafted; capability `device_log`.
+* 2026-11-20 — section 9 implemented as drafted (server 0.3.0); new capabilities
+  `device_log` and `monitor_ui` (the latter: the server has the panel at `/ui`).
+* 2026-11-21 — first phone captures (app/docs/capture-format.md): section 2 says
+  how the files are read; a recording that is too short or does not move is
+  refused at upload with `X-Error-Code`; the minimum of 10 pose lines became
+  30 lines and 3 s; mesh layout of the app confirmed.
