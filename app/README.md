@@ -250,6 +250,13 @@ What staff meet, in order:
    space, at full strength from 0.3 m. The walls are those of the room plan the server
    sends with the door's position, so there is no warning for a door without a room, or
    for a room whose shape the server could not measure.
+   **The shutter** (a 68-point button at the bottom, once a door stands and inside the
+   space; on the visitor screen too) takes a photo of the view through the AR view's own
+   screenshot call, which is expected to leave the buttons out. The picture goes to the
+   phone's gallery (if the engine refuses that, into the app's own storage), and a small
+   preview with "Saved to your photos" or "Photo taken" shows for 4 seconds. **Not tried
+   on a device**: that the picture is without the interface, where it lands, and whether
+   the gallery needs a permission. The spec's **Share** is not offered, see below.
 4. **Settings:** server, automatic search, **Switch to visitor mode**, **Change staff
    PIN**, privacy, "How it works", the version line.
 
@@ -538,6 +545,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
 | Language, Credits rows in Settings | not shown | steps G and J |
+| Photo preview with **Share** | the preview has no Share; it says "Saved to your photos" / "Photo taken" instead, and "The photo could not be taken" when the engine refuses (texts of this app) | handing a picture file to another app needs a native module the build does not have (React Native's own share sheet takes text only on Android); the spec lists it among the additions that need a native rebuild |
 | Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, the line about the room's link and **Link to the room** / **Link again**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere; the room has to be linked to that place once |
 | (not in the spec) linking a room to its place in the cloud | an AR screen of its own: "Walk slowly around the room", "{n} of 8 views taken", **Finish**, "Linked" / "Not linked" with three reasons | one door for both ways needs the bridge between the two maps (api-v2, section 11) |
 | ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys, or the room has no location id or is not linked (in practice rare: such a room is found through the server instead); a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
@@ -1100,6 +1108,8 @@ src/
   ui/RoomResultScreen.tsx     what the server understood about a room that was just scanned
   ui/core/doorEdit.ts, placeView.ts   pure: the steps of placing a door, what is sent to the server, what the placing screen shows when
   ar/PlaceMarker.tsx          outline and arrow on the floor under a door that is being placed
+  ar/photoCamera.ts           the photo of the view: the AR view's screenshot call, gallery first
+  ui/Shutter.tsx              the shutter button and the 4 s preview; ui/core/photo.ts: file name, the call's answer (pure)
   ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
   ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
   ui/ProblemScreen.tsx, MoreScreens.tsx, PlanDrawing.tsx, flows.ts   the other screens and the paths between them
@@ -1393,6 +1403,9 @@ has never been installed.
   session) and the error the server reports for the bridge, the door through the bridge
   against the door through the server in the same room, the door staying put while
   somebody walks through it, the fall-back to the other way, the Connection page;
+- **the photo**: that it shows the scene without the buttons, that it reaches the
+  gallery (or at least the app's storage) and the preview shows it, on the staff and on
+  the visitor screen, at the door and inside the space;
 - **placing the door**: the whole pass "staff scan the room, place and save the door,
   the app is closed, a visitor opens it, the door stands where it was saved" - the
   assignment's main question; that the door being placed is drawn (the portal with

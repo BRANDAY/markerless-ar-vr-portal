@@ -13,6 +13,7 @@ import { arView } from './core/arView';
 import { homeScreen, openGuidedScan, openPlaceDoor } from './flows';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle, Small } from './kit';
 import { useServerView } from './ServerPanel';
+import { Shutter } from './Shutter';
 import { HUD, TYPE, useInsets } from './theme';
 
 /** The hint under the door goes away after this long. */
@@ -167,6 +168,7 @@ export function ArScreen() {
             <HudPill text={t('ar.hint.walk')} />
           </View>
         ) : null}
+        {view.situation !== 'finding' ? <Shutter /> : null}
         {developer ? (
           <View style={styles.devRow} pointerEvents="box-none">
             <Pressable style={styles.tools} onPress={appActions.toggleOverlay} accessibilityRole="button">

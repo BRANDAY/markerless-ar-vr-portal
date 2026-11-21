@@ -258,6 +258,10 @@ export const en = {
   'ar.room.fallback': 'this room',
   'ar.inside.behind': 'Door is behind you',
   'ar.inside.about': 'About this place',
+  'photo.take': 'Take a photo',
+  'photo.saved': 'Saved to your photos',
+  'photo.taken': 'Photo taken',
+  'photo.failed': 'The photo could not be taken',
   'ar.inside.wall.1': 'A real wall is close',
   'ar.inside.wall.2': 'The grid shows where your room ends.',
 

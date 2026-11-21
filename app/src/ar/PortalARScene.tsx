@@ -34,6 +34,7 @@ import { MeasureLayer } from './MeasureLayer';
 import { PlaceMarker } from './PlaceMarker';
 import { RoomScanLayer } from './RoomScanLayer';
 import { ServerRoomLayer } from './ServerRoomLayer';
+import { photoCamera } from './photoCamera';
 import { VpsLayer } from './VpsLayer';
 import './materials';
 
@@ -127,6 +128,7 @@ export function PortalARScene(props: SceneProps) {
   navigatorRef.current = props.arSceneNavigator;
   useEffect(() => {
     scanController.attach(props.arSceneNavigator);
+    photoCamera.attach(props.arSceneNavigator);
   }, [props.arSceneNavigator]);
   const sceneRef = useRef<ViroARScene>(null);
 

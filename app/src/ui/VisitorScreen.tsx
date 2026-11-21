@@ -14,6 +14,7 @@ import { enterStaffMode, roomProvider } from './flows';
 import { Icon } from './icons';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Notice, ScreenFrame, Sheet, SheetTitle, Small, Title } from './kit';
 import { PinSheet } from './modeSheets';
+import { Shutter } from './Shutter';
 import { useServerView } from './ServerPanel';
 import { SIZE, TYPE, useInsets, useTheme } from './theme';
 
@@ -232,6 +233,7 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
             <HudPill text={t('ar.hint.walk')} />
           </View>
         ) : null}
+        {view.situation !== 'finding' ? <Shutter /> : null}
       </View>
 
       {aboutOpen ? <AboutSheet space={space} onClose={() => setAboutOpen(false)} /> : null}
