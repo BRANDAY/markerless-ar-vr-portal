@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { t } from '../i18n';
+import { getLanguage, t } from '../i18n';
 import { reactVisionConfigured } from '../localization/vpsBridge';
 import { saveRoomLocation } from '../room/doorServer';
 import { roomName, roomsActions, useRooms } from '../room/roomsStore';
@@ -149,7 +149,7 @@ export function ConnectionScreen() {
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(getLanguage());
 }
 
 /** The state of the room's link to its place in the cloud, in one line. */

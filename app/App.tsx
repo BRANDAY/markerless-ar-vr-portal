@@ -18,6 +18,7 @@ import { deviceLogger } from './src/server/deviceLogger';
 import { useSpaceOfRoom } from './src/spaces/spaceChoice';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
+import { useAppLanguage } from './src/state/language';
 import { prefsActions, usePrefs } from './src/state/prefs';
 import { ArScreen } from './src/ui/ArScreen';
 import { startScreen } from './src/ui/core/modes';
@@ -159,6 +160,8 @@ function usesCamera(screen: Screen, visitorStarted: boolean): boolean {
 }
 
 export default function App() {
+  // First of all: every text below is looked up in this language (`ui-spec.md`, 4.2).
+  useAppLanguage();
   const { permission, ask, checked: permissionChecked } = useCameraPermission();
   const scanning = useRoomScan((state) => state.scanning);
   const wireframe = useRoomScan((state) => state.wireframe);

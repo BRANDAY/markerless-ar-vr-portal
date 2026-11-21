@@ -13,6 +13,7 @@ import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
 import { type VisitorSheet, visitorSheetText, visitorView } from './core/visitorView';
 import { enterStaffMode, roomProvider } from './flows';
 import { Icon } from './icons';
+import { LanguageChips } from './LanguageChips';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Notice, ScreenFrame, Sheet, SheetTitle, Small, Title } from './kit';
 import { PinSheet } from './modeSheets';
 import { Shutter } from './Shutter';
@@ -122,6 +123,7 @@ function WelcomePanel({ onStart, onLock }: { onStart: () => void; onLock: () => 
           <>
             <AppButton label={t('visitor.start')} onPress={onStart} />
             <Small style={styles.centered}>{t('visitor.line.server')}</Small>
+            <LanguageChips />
           </>
         }
       >

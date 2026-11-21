@@ -2,16 +2,18 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import appConfig from '../../app.json';
-import { t } from '../i18n';
+import { availableLanguages, getLanguage, t } from '../i18n';
+import { LANGUAGE_NAMES } from '../i18n/languages';
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { roomActions, useRoomScan } from '../room/roomStore';
 import { putTestRoom } from '../spaces/spaceChoice';
 import { appActions, useAppState } from '../state/appStore';
+import { chooseLanguage } from '../state/language';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { chipState } from './core/homeView';
 import { openDoor } from './flows';
 import { PinSheet, SwitchToVisitorSheet } from './modeSheets';
-import { Body, Eyebrow, Row, ScreenFrame, Small, useSevenTaps } from './kit';
+import { Body, Eyebrow, Row, ScreenFrame, Sheet, SheetTitle, Small, useSevenTaps } from './kit';
 import { useServerView } from './ServerPanel';
 import { TYPE, useTheme } from './theme';
 
@@ -22,7 +24,7 @@ export function SettingsScreen() {
   const auto = usePrefs((s) => s.findAutomatically);
   const developer = usePrefs((s) => s.developerOptions);
   const cloud = usePrefs((s) => s.connection === 'reactvision');
-  const [sheet, setSheet] = useState<'switch' | 'pin' | null>(null);
+  const [sheet, setSheet] = useState<'switch' | 'pin' | 'language' | null>(null);
 
   const chip = chipState(connection.state);
   const serverName = connection.info?.serverName ?? '';
@@ -55,6 +57,7 @@ export function SettingsScreen() {
       <Row icon="search" title={t('settings.auto')} toggle={{ value: auto, onChange: (value) => prefsActions.set({ findAutomatically: value }) }} />
       <Row icon="door" title={t('settings.switch')} arrow onPress={() => setSheet('switch')} />
       <Row icon="lock" title={t('settings.changePin')} arrow onPress={() => setSheet('pin')} />
+      <Row icon="settings" title={t('settings.language')} value={LANGUAGE_NAMES[getLanguage()] ?? getLanguage()} arrow onPress={() => setSheet('language')} />
       <Row icon="lock" title={t('settings.privacy')} arrow onPress={() => appActions.go('privacy')} />
       <Row icon="info" title={t('settings.credits')} arrow onPress={() => appActions.go('credits')} />
       <Row icon="info" title={t('settings.how')} arrow onPress={() => appActions.go('welcome')} />
@@ -67,6 +70,24 @@ export function SettingsScreen() {
       {developer ? <DeveloperOptions /> : null}
     </ScreenFrame>
     {sheet === 'switch' ? <SwitchToVisitorSheet onClose={() => setSheet(null)} /> : null}
+    {sheet === 'language' ? (
+      <Sheet onClose={() => setSheet(null)}>
+        <SheetTitle>{t('settings.language')}</SheetTitle>
+        {availableLanguages()
+          .filter((code) => LANGUAGE_NAMES[code])
+          .map((code) => (
+            <Row
+              key={code}
+              title={LANGUAGE_NAMES[code]}
+              value={code === getLanguage() ? '✓' : undefined}
+              onPress={() => {
+                chooseLanguage(code);
+                setSheet(null);
+              }}
+            />
+          ))}
+      </Sheet>
+    ) : null}
     {sheet === 'pin' ? <PinSheet purpose="change" onClose={() => setSheet(null)} onDone={() => setSheet(null)} /> : null}
     </>
   );

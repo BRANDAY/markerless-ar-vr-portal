@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (208 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (211 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -309,6 +309,24 @@ What staff meet, in order:
      spec's text, and it says more than the server does.
    - Under the list: "Rooms live on the server ...", and **Scan a new room**.
    Not seen on a device.
+8. **Language** (spec 4.2, 5.12, 5.13): English and **Croatian** (`src/i18n/hr.ts`, every
+   text of `en.ts`; the type makes a missing key an error, and a test compares the
+   `{parameters}` of each pair). The app speaks the language chosen in it, else the
+   phone's, else English (`src/i18n/languages.ts`, tested; the phone's language is read
+   in `src/state/language.ts`). It is chosen under **Settings > Language** (a list) and
+   by the chips at the bottom of the visitor's welcome panel, which need no PIN. Dates
+   follow the app's language.
+   - **The Croatian texts were written by the assistant and have not been read by a
+     native speaker.** The notes at the top of `hr.ts` say what was decided (the polite
+     form; "aplikacija {app}" so that the product's name stays out of the cases; counts
+     as "Pronađenih zidova: {n}").
+   - Not translated: the developer options and tools, what the server says in its own
+     words (the warnings about a room's link), and the names of works, people and
+     licences on the credits page.
+   - Not seen on a device: that a phone set to Croatian starts the app in Croatian (the
+     phone's language is asked from React Native, with the JavaScript engine's own
+     answer as the second source), and that nothing is cut off - Croatian lines are
+     longer than the English ones.
 
 ### Scanning a room
 
@@ -619,7 +637,8 @@ Kept as a list for the product side; nothing here was decided silently.
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
-| Language row in Settings | not shown | step J |
+| Settings > Language "opens a list" | the list holds the languages only; there is no entry "same as the phone" | once a language is chosen in the app it stays chosen; before that the phone's is used |
+| Croatian | written by the assistant, not reviewed by a native speaker | no reviewer; see the notes in `src/i18n/hr.ts` |
 | The chosen space "stored per room", the same on every phone | stored per room on the phone that chose it | the server has no place for it (S5) |
 | Spaces: filter chips, a download button | neither is shown | one space is built in (the chips are for more than six), and nothing can be downloaded (S7) |
 | Spaces sheet: **Put behind my door** | for the space that already stands behind the door the sheet shows the tag "Behind your door" in place of the button | there is nothing to put |
@@ -863,7 +882,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 208 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 211 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -1170,7 +1189,9 @@ src/
     storage.ts                last working address on the phone
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
   brand.ts                    product name and palette (placeholders), the one place to change them
-  i18n/                       every user-facing text (en.ts), lookup t(key, params)
+  i18n/                       every user-facing text (en.ts, hr.ts), lookup t(key, params), which language is shown (languages.ts)
+  state/language.ts           the phone's language and the one chosen in the app, applied at the root
+  ui/LanguageChips.tsx        the language chips of the visitor's welcome panel
   state/prefs.ts              what is remembered between launches (onboarding, developer options...)
   room/roomsStore.ts          rooms of the server, plan and doorway of the current one (map frame)
   ui/theme.ts, kit.tsx, icons.tsx   sizes and type, shared pieces, icons

@@ -1,15 +1,16 @@
 /**
  * Text lookup: `t('home.openDoor')`, `t('connect.found.title', { server: 'PC' })`.
- * One dictionary per language, keyed by name; a key missing in a language falls back to
- * English. Pure, so the texts can be checked in the unit tests.
+ * One dictionary per language (English `en.ts`, Croatian `hr.ts`), keyed by name; a key
+ * missing in a language falls back to English. Which language is shown: `languages.ts`. Pure, so the texts can be checked in the unit tests.
  */
 import { BRAND } from '../brand';
 import { en, type TextKey } from './en';
+import { hr } from './hr';
 
 export type { TextKey } from './en';
 export type Dictionary = Partial<Record<TextKey, string>>;
 
-const dictionaries: Record<string, Dictionary> = { en };
+const dictionaries: Record<string, Dictionary> = { en, hr };
 let language = 'en';
 
 export function registerLanguage(code: string, dictionary: Dictionary): void {
