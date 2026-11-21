@@ -187,7 +187,8 @@ The user can walk only as far as the real floor allows. Four measures, in order 
 | Server on the venue's network (as today) | V1 | — | |
 | Server installer for a non-developer, with a start icon and automatic firewall rule | V1 | M, server | Today: command line, six steps |
 | No server: door placed by hand, not remembered. For trying the app and for demos | V1 | S | Exists |
-| Hosted server run by us: encrypted connection, access keys, separate customers | Later | L, server | A rented GPU machine costs about USD 0.2–0.9 an hour (figures in the research notes). Removes the PC from the venue, gives up the "data stays in the building" promise |
+| A ready-made cloud positioning service as a second way to keep the door in place, connected through the app's existing provider interface | Trial | M | Owner's decision, 21 November 2026: our own server stays the main way; we do not build cloud computing of our own, we learn to connect to an existing service. Explored in a separate chat. Such a service finds the room again; finding the doorway stays with our server, or the door is placed once by hand |
+| A hosted copy of our own server, run by us | Not planned | L, server | Dropped by the same decision |
 | Hybrid: build the map on a rented machine, find the room on a small box in the venue | Later | L, server | The pattern larger vendors sell at a premium |
 | Finding the room on the phone, no network | Later | L | Research task |
 
@@ -264,4 +265,5 @@ accuracy and repeat-visit tests run, so there are real numbers to put next to th
 3. ~~Which features go into version 1~~ — decided on 21 November 2026: the set in section 6.
 4. ~~Loaned devices or visitors' own phones~~ — decided on 21 November 2026: devices loaned by the venue
    are the main setup; visitors' own Android phones are an addition.
-5. Whether a hosted server is wanted at all, given that local data is a selling point.
+5. ~~Whether a hosted server is wanted~~ — decided on 21 November 2026: our own server is the main way. No
+   cloud of our own. Connecting to an existing cloud service is tried in a separate chat.
