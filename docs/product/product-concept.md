@@ -228,7 +228,8 @@ The user can walk only as far as the real floor allows. Four measures, in order 
 
 ## 6. What version 1 is
 
-**Proposal.** The smallest set that a venue could run without us in the room:
+**Decided** (confirmed by the owner on 21 November 2026). The smallest set that a venue could run without
+us in the room:
 
 1. The redesigned interface with debug controls hidden.
 2. The guided scan with doorway approval.
@@ -260,6 +261,6 @@ accuracy and repeat-visit tests run, so there are real numbers to put next to th
 
 1. ~~The main scenario~~ — decided on 21 November 2026: A, museums and heritage sites.
 2. The name and the visual identity. "Vrata" and the amber-and-teal look in the mockups are placeholders.
-3. Which features go into version 1 (section 6 is the proposal).
+3. ~~Which features go into version 1~~ — decided on 21 November 2026: the set in section 6.
 4. Loaned devices or visitors' own phones as the main setup.
 5. Whether a hosted server is wanted at all, given that local data is a selling point.
