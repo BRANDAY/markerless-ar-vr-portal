@@ -400,13 +400,14 @@ describe('room-scan requests against a local mock', () => {
   });
   test('the bridge: samples of one AR session go to the server, the measured bridge comes back', async () => {
     const identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
-    const body = { T_arworld_from_map: identity, location_id: 'loc-1', samples: [{ T_arworld_from_service: identity }, { T_arworld_from_service: identity }] };
+    const body = { session_id: 'run-1-w0', location_id: 'loc-1', samples: [{ T_arworld_from_service: identity }, { T_arworld_from_service: identity }] };
     const measured = await measureBridge(baseUrl, 'room', body);
     assert.equal(measured.ok, true);
     const bridge = measured.ok ? measured.value.vps?.bridge : null;
     assert.equal(bridge?.samples, 2);
     assert.equal(bridge?.positionErrorM, 0.031);
     assert.equal(bridge?.frameId, 'f1');
+    assert.deepEqual(bridge?.warnings, []);
     assert.equal(measured.ok && measured.value.frameId, 'f1');
     // column-major: the last column is the shift
     assert.deepEqual(bridge?.serviceFromRoom.slice(12), [1, 0.2, 2, 1]);
@@ -452,7 +453,7 @@ describe('parseMaps', () => {
     });
     assert.deepEqual(doors?.map((room) => room.portalConfirmed), [true, true, false]);
     // the room at ReactVision Advanced VPS (section 11): its place there, and the bridge
-    const bridge = { T_service_from_map: [[0, 0, 1, 1], [0, 1, 0, 0.2], [-1, 0, 0, 2], [0, 0, 0, 1]], frame_id: 'f1', valid: true, samples: 10, position_error_m: 0.031, rotation_error_deg: 0.4, measured_utc: '2026-11-22T10:05:00Z' };
+    const bridge = { T_service_from_map: [[0, 0, 1, 1], [0, 1, 0, 0.2], [-1, 0, 0, 2], [0, 0, 0, 1]], frame_id: 'f1', valid: true, samples: 10, position_error_m: 0.031, rotation_error_deg: 0.4, measured_utc: '2026-11-22T10:05:00Z', warnings: ['measured through this session only', 7, ''] };
     const cloud = parseMaps({
       maps: [
         { map_id: 'a', frame_id: 'f1', recognition: ['self-hosted', 'reactvision'], vps: { provider: 'reactvision', location_id: 'loc-1', bridge, note: 'x' } },
@@ -476,6 +477,7 @@ describe('parseMaps', () => {
       rotationErrorDeg: 0.4,
       samples: 10,
       measuredUtc: '2026-11-22T10:05:00Z',
+      warnings: ['measured through this session only'],
     });
     assert.deepEqual(cloud?.[1].vps, { locationId: 'loc-2', bridge: null });
     assert.equal(cloud?.[2].vps, null);

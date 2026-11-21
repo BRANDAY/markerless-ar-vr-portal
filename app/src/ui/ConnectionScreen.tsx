@@ -126,6 +126,9 @@ export function ConnectionScreen() {
               {saved ? (
                 <>
                   <Small>{bridgeLine(bridge)}</Small>
+                  {(bridge?.warnings ?? []).map((line) => (
+                    <Small key={line}>{t('bridge.warning', { text: line })}</Small>
+                  ))}
                   <AppButton
                     kind="ghost"
                     label={t(bridge ? 'connection.bridge.again' : 'connection.bridge.link')}

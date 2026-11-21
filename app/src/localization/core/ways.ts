@@ -23,6 +23,32 @@ export function roomThroughBridge(map: MapInSession, serviceFromRoom: Mat4): Mat
 export type Way = 'self-hosted' | 'reactvision-vps';
 
 /**
+ * Whether a room can be recognised through ReactVision right now: the build has keys, the
+ * room has a bridge, the bridge belongs to the room's current frame - and, when the
+ * server lists the ways a room can be recognised (`recognition` of `GET /maps`), the
+ * service is among them. A room the server has not listed in this run (the copy kept on
+ * the phone) is judged by its bridge alone.
+ */
+export function recognisableThroughCloud(input: {
+  keys: boolean;
+  /** The frame the bridge was measured for; null: no bridge. */
+  bridgeFrameId: string | null;
+  /** As the server lists the room; null: not listed in this run. */
+  listed: { frameId: string; recognition: string[] } | null;
+}): boolean {
+  if (!input.keys || input.bridgeFrameId === null) {
+    return false;
+  }
+  if (!input.listed) {
+    return true;
+  }
+  if (input.listed.recognition.length > 0 && !input.listed.recognition.includes('reactvision')) {
+    return false;
+  }
+  return !input.listed.frameId || !input.bridgeFrameId || input.listed.frameId === input.bridgeFrameId;
+}
+
+/**
  * The way a room is looked for. Staff set a preference (`ui-spec.md`, 5.15); when that way
  * cannot work, the other one is taken, so that a visitor sees no difference:
  *  - ReactVision preferred, but this build has no keys or the room has no place or no
@@ -46,6 +72,14 @@ export function chooseWay(input: {
 // ---- measuring the bridge -----------------------------------------------------------------
 
 export const BRIDGE = {
+  /**
+   * Before the service is asked, the venue's server looks at the room this many times,
+   * from places at least `lookApartM` apart: its alignment of the session is shared by
+   * all samples, and one clip's alignment has been seen to be 11 cm off at the door
+   * (api-v2, section 11).
+   */
+  looks: 3,
+  lookApartM: 1,
   /** This many samples make a measurement... */
   samples: 8,
   /** ...and with this many it may be ended by hand. */

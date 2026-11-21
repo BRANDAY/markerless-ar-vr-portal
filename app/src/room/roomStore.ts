@@ -53,6 +53,8 @@ export interface FoundRoom {
   strong: boolean;
   /** The room plan, the door and the suggested doorway, in this session's frame. */
   plan: ServerPlan;
+  /** See `RoomFix.serverSession`. */
+  serverSession?: string;
 }
 
 /** Sending a capture to the server and waiting for the map. */

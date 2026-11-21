@@ -410,12 +410,14 @@ export function patchRoomVps(
 
 /**
  * What `POST /maps/{map_id}/vps/bridge` takes (way A of section 11): the phone was located
- * both ways in one AR session. `T_arworld_from_map` is where the room lies in that session
- * (from this server's own way), each sample where the service's map lay in it at one
- * moment. Matrices as four rows of four numbers.
+ * both ways in one AR session. Where the room lies in that session the server knows itself
+ * under `session_id` (its alignment gathered over the session's looks); a client that has
+ * no such id sends `T_arworld_from_map` instead. Each sample is where the service's map
+ * lay in the session at one moment. Matrices as four rows of four numbers.
  */
 export interface BridgeBody {
-  T_arworld_from_map: number[][];
+  session_id?: string;
+  T_arworld_from_map?: number[][];
   location_id?: string;
   samples: { T_arworld_from_service: number[][] }[];
 }

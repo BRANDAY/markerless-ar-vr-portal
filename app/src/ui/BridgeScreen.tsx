@@ -6,14 +6,15 @@ import { BRIDGE } from '../localization/core/ways';
 import { finishBridgeMeasure, startBridgeMeasure, stopBridgeMeasure, useBridge } from '../room/bridgeMeasure';
 import { roomName as nameOfRoom, vpsOfRoom } from '../room/roomsStore';
 import { appActions, useAppState } from '../state/appStore';
-import { AppButton, Body, CoachCard, HudButton, HudPill, Sheet, SheetTitle } from './kit';
+import { AppButton, Body, CoachCard, HudButton, HudPill, Sheet, SheetTitle, Small } from './kit';
 import { useInsets } from './theme';
 
 /**
  * "Link to the room": the staff member walks through the room once while the phone finds
  * it both ways - through the venue's server and through ReactVision - and the server
  * works out how the two maps lie to each other (the room's bridge;
- * `localization-server/docs/api-v2.md`, section 11). After that the room's one door is
+ * `localization-server/docs/api-v2.md`, section 11). The server looks at the room from
+ * three places first, then the service is asked while the staff member walks on. After that the room's one door is
  * the same whichever way a phone finds the room.
  *
  * Not in `ui-spec.md` (revision 2 knows the cloud only as a second place to keep rooms):
@@ -23,6 +24,8 @@ export function BridgeScreen() {
   const insets = useInsets();
   const phase = useBridge((s) => s.phase);
   const mapId = useBridge((s) => s.mapId);
+  const looks = useBridge((s) => s.looks);
+  const moveOn = useBridge((s) => s.moveOn);
   const count = useBridge((s) => s.count);
   const enough = useBridge((s) => s.enough);
   const result = useBridge((s) => s.result);
@@ -72,7 +75,10 @@ export function BridgeScreen() {
       <View style={styles.spacer} pointerEvents="none" />
 
       <View style={styles.bottom} pointerEvents="box-none">
-        {phase === 'finding' ? <CoachCard line1={t('ar.coach.find.1')} line2={t('ar.coach.find.2')} /> : null}
+        {phase === 'finding' && !moveOn ? <CoachCard line1={t('ar.coach.find.1')} line2={t('ar.coach.find.2')} /> : null}
+        {phase === 'finding' && moveOn ? (
+          <CoachCard line1={t('bridge.look.1')} line2={t('bridge.look.2', { n: looks + 1, total: BRIDGE.looks })} />
+        ) : null}
         {phase === 'walking' ? (
           <CoachCard
             line1={t('bridge.walk.1')}
@@ -89,6 +95,10 @@ export function BridgeScreen() {
         <Sheet onClose={close}>
           <SheetTitle>{t('bridge.done.title')}</SheetTitle>
           <Body dim>{cm === null ? t('bridge.done.body.unknown') : t('bridge.done.body', { cm })}</Body>
+          {/* The estimate is a lower bound; what the server says about it is passed on as it is. */}
+          {(result?.warnings ?? []).map((line) => (
+            <Small key={line}>{t('bridge.warning', { text: line })}</Small>
+          ))}
           <AppButton label={t('place.done')} onPress={close} />
         </Sheet>
       ) : null}

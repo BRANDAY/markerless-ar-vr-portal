@@ -37,7 +37,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { doorCandidate, doorRecordBody, portalInSession, settle } from '../../door/core/placement';
-import { applyToPoint, invertTransform, matrixFromYaw, rowsFromMatrix } from '../../door/core/roomFrame';
+import { applyToPoint, invertTransform, matrixFromYaw } from '../../door/core/roomFrame';
 import { decide } from '../../localization/core/relocalization';
 import { cameraMatrix, mapInSession, type Mat4, multiply } from '../../localization/core/vpsAlignment';
 import { BRIDGE, BridgeSamples, roomThroughBridge } from '../../localization/core/ways';
@@ -423,7 +423,8 @@ async function main(): Promise<number> {
           }
         }
         check(samples.complete, `${samples.count} samples of where the service's map lies in the session`);
-        const measured = await measureBridge(baseUrl, mapId, { T_arworld_from_map: rowsFromMatrix(roomInSession), samples: samples.body() });
+        // As the app sends it: the server's own alignment of the clip's session, by its id.
+        const measured = await measureBridge(baseUrl, mapId, { session_id: arSession, samples: samples.body() });
         check(measured.ok, `the server measured the bridge${measured.ok ? '' : `: ${measured.reason}`}`);
         const bridge = measured.ok ? (measured.value.vps?.bridge ?? null) : null;
         if (bridge) {
@@ -435,6 +436,7 @@ async function main(): Promise<number> {
             `      bridge from ${bridge.samples} samples; the server's own estimate of its error: ` +
               `${bridge.positionErrorM === null ? '?' : (bridge.positionErrorM * 100).toFixed(1)} cm, ${bridge.rotationErrorDeg === null ? '?' : bridge.rotationErrorDeg.toFixed(2)} deg`,
           );
+          bridge.warnings.forEach((line) => console.log(`      the server warns: ${line}`));
           check(off < 0.03, `the bridge puts the door ${(off * 100).toFixed(1)} cm from where the made-up service has it`);
           const rooms = await getMaps(baseUrl);
           const listed = rooms.ok ? rooms.value.find((room) => room.mapId === mapId) : undefined;

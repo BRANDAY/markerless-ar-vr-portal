@@ -420,6 +420,7 @@ export class SelfHostedServerProvider extends BaseProvider {
         strong: outcome.quality === 'good',
         room: outcome.room,
         how: 'recognised room',
+        serverSession: sessionId,
       },
       // A move nobody asked for waits while the user is inside the space.
       { requested: episode.reason === 'manual' },

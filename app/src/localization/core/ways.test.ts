@@ -5,7 +5,7 @@ import { portalInSession } from '../../door/core/placement';
 import { applyToPoint, invertTransform, matrixFromRows, matrixFromYaw, quaternionFromViroEuler } from '../../door/core/roomFrame';
 import type { ServerPortal } from '../../server/core/roomPlan';
 import { cameraMatrix, mapInSession, type MapInSession, type Mat4, multiply } from './vpsAlignment';
-import { BRIDGE, BridgeSamples, chooseWay, roomThroughBridge, serviceInSession } from './ways';
+import { BRIDGE, BridgeSamples, chooseWay, recognisableThroughCloud, roomThroughBridge, serviceInSession } from './ways';
 
 const near = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
 const nearAll = (a: readonly number[], b: readonly number[], eps = 1e-6) => a.forEach((value, i) => near(value, b[i], eps));
@@ -26,6 +26,22 @@ test('ways: the preferred one, or the other one when it cannot work', () => {
   assert.equal(way('reactvision', true, 'unreachable'), 'reactvision-vps');
   assert.equal(way('reactvision', false, 'connected'), 'self-hosted');
   assert.equal(way('reactvision', false, 'unreachable'), 'self-hosted');
+});
+
+test('ways: which rooms the cloud can recognise', () => {
+  const listed = { frameId: 'f2', recognition: ['self-hosted', 'reactvision'] };
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: 'f2', listed }), true);
+  // no keys in the build, or no bridge
+  assert.equal(recognisableThroughCloud({ keys: false, bridgeFrameId: 'f2', listed }), false);
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: null, listed }), false);
+  // the server lists the ways and the service is not among them
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: 'f2', listed: { frameId: 'f2', recognition: ['self-hosted'] } }), false);
+  // a bridge of an earlier scan of the room
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: 'f1', listed }), false);
+  // a server that names neither frames nor ways: the bridge decides
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: '', listed: { frameId: '', recognition: [] } }), true);
+  // the room from the copy on the phone, the server not reachable
+  assert.equal(recognisableThroughCloud({ keys: true, bridgeFrameId: 'f1', listed: null }), true);
 });
 
 test('ways: the room through the bridge is the room the server would report', () => {

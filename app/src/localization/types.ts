@@ -148,6 +148,12 @@ export interface RoomFix {
   /** How the room was recognised, in words for the status line and the log. */
   how: string;
   /**
+   * When the way is the venue's server: the id under which it keeps its alignment of this
+   * AR session, gathered over all the looks of the session. Measuring a room's bridge
+   * refers to it.
+   */
+  serverSession?: string;
+  /**
    * True for a way that answers many times a minute (ReactVision): the door layer then
    * reads the door record anew only now and then, not with every answer.
    */

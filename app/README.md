@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (197 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (198 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -422,21 +422,41 @@ phone also keeps a copy of:
    the venue's server: the one record changes, for both ways at once.
 
 **Linking a room** (`src/ui/BridgeScreen.tsx`, `src/room/bridgeMeasure.ts`; not in the
-spec): the staff member walks through the room once. The phone finds the room through
-the venue's server first, then asks ReactVision for the place in the same AR session and
-collects up to 8 samples of where the service's map lies, taken at least 0.4 m and 1.5 s
-apart; **Finish** ends the walk from 4 samples on. They go to
-`POST /maps/{id}/vps/bridge` together with where the room lies in that session; the
-server averages them, estimates the error and stores the bridge. "Linked", with the
-error in centimetres. A room that is scanned again on the venue's server loses door and
-bridge (its frame is new) and has to be linked again; the page then says "Not linked".
+spec): the staff member walks through the room once.
+
+1. The venue's server looks at the room **three times, from places at least a metre
+   apart** ("Go to another part of the room" between the looks; the next look starts by
+   itself once the phone is somewhere new). Its alignment of the session is shared by all
+   samples that follow, so an error in it goes into the bridge unseen.
+2. Then ReactVision is asked for the place in the same AR session, and up to 8 samples of
+   where the service's map lies are collected, at least 0.4 m and 1.5 s apart; **Finish**
+   ends the walk from 4 samples on.
+3. The samples go to `POST /maps/{id}/vps/bridge` with the id of the session, under
+   which the server keeps its own alignment; it averages them, estimates the error and
+   stores the bridge. "Linked", with the error in centimetres - and, as they come, **the
+   server's own warnings** about that figure ("The server adds: ..."), on the sheet and
+   on the Connection page.
+
+The server's contract says a bridge is best measured in the AR session that recorded the
+room, right after the build: there the session's frame is the room's frame, and the
+shared error does not exist (in its simulator a bridge measured in a later session
+through one clip was 11 cm off at the door against an estimate of 2.8 cm; in the
+recording's session 1.1 cm). **This app cannot do that**: its AR view is closed while
+the map is built, and a new view is a new AR session (the upload does not name the
+session either). The three looks are what the contract asks for in "any other session".
+Keeping the AR view open through the build would make the better way possible; it is
+not built.
+
+A room that is scanned again on the venue's server loses door and bridge (its frame is
+new) and has to be linked again; the page then says "Not linked".
 
 **Which way is taken** (`roomsStore.wayToRoom`, `core/ways.ts`): the one chosen on the
 Connection page, or the other one when that cannot work - so that a visitor sees no
 difference:
 
 - ReactVision chosen, but the build has no keys, or the room has no place or no bridge
-  for its current frame: the venue's server;
+  for its current frame, or the server does not list the service among the ways the room
+  can be recognised (`recognition` of `GET /maps`): the venue's server;
 - the venue's server chosen, but known to be unreachable, and the room can be recognised
   through ReactVision: ReactVision, with the door from the copy of the record the phone
   kept the last time the server answered.
@@ -450,8 +470,9 @@ search through the server after its attempts.
 **Checked without the service** (`npm run e2e:server`, real server 0.6.0, a made-up
 service whose map lies in the room in a known way): the room gets a place, 8 samples as
 the app would take them (with a centimetre and a third of a degree of noise) go to the
-server, the bridge it returns puts the door 2.0 cm from the truth (its own estimate:
-1.5 cm, 0.21 degrees), `GET /maps` then lists the room as recognisable both ways, and
+server with the id of the clip's session, the bridge it returns puts the door 2.0 cm from
+the truth (its own estimate: 3.3 cm, 0.21 degrees, with the warning that the session's
+alignment is part of the bridge and not of that figure), `GET /maps` then lists the room as recognisable both ways, and
 the same door record placed through the bridge stands 1.7 cm and 0.3 degrees from where
 it was placed through the server. The run also checks that the frame the answer of
 `/localize` names is the frame of the door record: the door layer refuses to put a door of
@@ -549,7 +570,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | Language, Credits rows in Settings | not shown | steps G and J |
 | Photo preview with **Share** | the preview has no Share; it says "Saved to your photos" / "Photo taken" instead, and "The photo could not be taken" when the engine refuses (texts of this app) | handing a picture file to another app needs a native module the build does not have (React Native's own share sheet takes text only on Android); the spec lists it among the additions that need a native rebuild |
 | Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, the line about the room's link and **Link to the room** / **Link again**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere; the room has to be linked to that place once |
-| (not in the spec) linking a room to its place in the cloud | an AR screen of its own: "Walk slowly around the room", "{n} of 8 views taken", **Finish**, "Linked" / "Not linked" with three reasons | one door for both ways needs the bridge between the two maps (api-v2, section 11) |
+| (not in the spec) linking a room to its place in the cloud | an AR screen of its own: "Go to another part of the room" (three looks by the server), "Walk slowly around the room", "{n} of 8 views taken", **Finish**, "Linked" with the server's warnings / "Not linked" with three reasons | one door for both ways needs the bridge between the two maps (api-v2, section 11) |
 | ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys, or the room has no location id or is not linked (in practice rare: such a room is found through the server instead); a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
 | ReactVision: cloud scan, "Also build in the cloud", tags in Rooms, privacy lines of the cloud column | not built | they need a token endpoint on the server, the Rooms screen and the owner's account |
 
@@ -785,7 +806,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 197 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 198 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -969,7 +990,7 @@ localisation on was run again against server 0.5.0 after the door layer was intr
 | A second localisation in that session, as a visitor: the app's own sum, room transform x door record | the door stands **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
 | The app's own sum against the door the server multiplied out for the same answer | **0.0 mm, 0.00 degrees** apart, on both rooms |
 | The door removed | ok; the room has no door for visitors again |
-| The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth; the door through the second way stands **1.7 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run6`) |
+| The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth (the server's estimate: 3.3 cm, with its warning about the session's alignment); the door through the second way stands **1.7 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run7`) |
 | The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.5 s, "good", 1075 inliers; the app's decision: **place**; the door stands **2.3 cm** from where the recording's known transform puts it |
 
 The zero in the second localisation is expected and says less than it seems: the door

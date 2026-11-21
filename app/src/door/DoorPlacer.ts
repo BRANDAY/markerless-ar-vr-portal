@@ -125,7 +125,14 @@ export class DoorPlacer {
       portal,
     };
     if (!fix.fromRecording) {
-      roomActions.setFound({ mapId: fix.mapId, frameId: fix.frameId, transform: fix.transform, strong: fix.strong, plan });
+      roomActions.setFound({
+        mapId: fix.mapId,
+        frameId: fix.frameId,
+        transform: fix.transform,
+        strong: fix.strong,
+        plan,
+        serverSession: fix.serverSession,
+      });
     }
 
     switch (decision.action) {

@@ -9,7 +9,7 @@ import { useSyncExternalStore } from 'react';
 import { asTransform } from '../door/core/roomFrame';
 import { keptDoorRecord, noteDoorRecord, rememberDoorsWith } from '../door/doorRecords';
 import { reactVisionConfigured, reactVisionConfiguredNow } from '../localization/vpsBridge';
-import { chooseWay, type Way } from '../localization/core/ways';
+import { chooseWay, recognisableThroughCloud, type Way } from '../localization/core/ways';
 import { getMaps, getPortal, getRoom } from '../server/core/client';
 import type { RoomVps, ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import { serverConnection } from '../server/ServerConnection';
@@ -83,7 +83,11 @@ function keptVps(): Record<string, RoomVps> {
     for (const [mapId, entry] of Object.entries(json ?? {})) {
       if (entry && typeof entry.locationId === 'string' && entry.locationId) {
         const transform = asTransform(entry.bridge?.serviceFromRoom);
-        kept[mapId] = { locationId: entry.locationId, bridge: entry.bridge && transform ? { ...entry.bridge, serviceFromRoom: transform } : null };
+        kept[mapId] = { locationId: entry.locationId, bridge:
+            entry.bridge && transform
+              ? { ...entry.bridge, serviceFromRoom: transform, warnings: Array.isArray(entry.bridge.warnings) ? entry.bridge.warnings : [] }
+              : null,
+        };
       }
     }
     return kept;
@@ -130,16 +134,12 @@ function keptDoors(): Record<string, ServerPortal> {
  * the room has a place at the service and a bridge measured for its current frame.
  */
 export function cloudReady(mapId: string | null): boolean {
-  if (reactVisionConfiguredNow() !== true) {
-    return false;
-  }
-  const bridge = vpsOfRoom(mapId)?.bridge;
-  if (!bridge) {
-    return false;
-  }
   const listed = state.rooms.find((room) => room.mapId === mapId);
-  // A bridge of an earlier scan of the room is no bridge (the server marks it too).
-  return !listed || !listed.frameId || !bridge.frameId || listed.frameId === bridge.frameId;
+  return recognisableThroughCloud({
+    keys: reactVisionConfiguredNow() === true,
+    bridgeFrameId: vpsOfRoom(mapId)?.bridge?.frameId ?? null,
+    listed: listed ? { frameId: listed.frameId, recognition: listed.recognition } : null,
+  });
 }
 
 /**

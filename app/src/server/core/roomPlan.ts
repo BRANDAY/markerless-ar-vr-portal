@@ -507,6 +507,12 @@ export interface RoomBridge {
   samples: number | null;
   /** ISO time it was measured, or empty. */
   measuredUtc: string;
+  /**
+   * What the server has to say about this measurement, in its own words: the estimate is
+   * a lower bound, and a bridge measured through one session's alignment can be further
+   * off than it says. For the staff member.
+   */
+  warnings: string[];
 }
 
 /**
@@ -538,6 +544,7 @@ function parseBridge(value: unknown): RoomBridge | null {
     rotationErrorDeg: asNumber(json.rotation_error_deg),
     samples: asNumber(json.samples),
     measuredUtc: asString(json.measured_utc),
+    warnings: asList(json.warnings).filter((line): line is string => typeof line === 'string' && line.length > 0),
   };
 }
 
