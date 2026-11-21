@@ -21,6 +21,20 @@ STAMP=$(date +%H%M%S)
 
 mkdir -p "$OUT/phone" || exit 1
 
+# adb from PATH, else from the Android SDK folder.
+if ! command -v adb >/dev/null 2>&1; then
+  for dir in "${ANDROID_HOME:-}" "${LOCALAPPDATA:-}/Android/Sdk"; do
+    if [ -n "$dir" ] && [ -x "$dir/platform-tools/adb.exe" ]; then
+      PATH="$dir/platform-tools:$PATH"
+      break
+    fi
+  done
+fi
+if ! command -v adb >/dev/null 2>&1; then
+  echo "adb not found: put the Android SDK's platform-tools on PATH" >&2
+  exit 1
+fi
+
 if ! adb get-state >/dev/null 2>&1; then
   echo "no phone: 'adb devices' shows no device ready for commands" >&2
   exit 1
