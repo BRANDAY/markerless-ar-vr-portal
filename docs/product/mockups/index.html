@@ -213,6 +213,19 @@ p.b{margin:0;color:var(--a-ink2)}
 @keyframes dash{to{stroke-dashoffset:-26}}
 .banner{position:absolute;left:14px;right:14px;top:98px;z-index:3;border-radius:18px;padding:12px 14px;display:flex;gap:10px;align-items:center;background:rgba(120,30,22,.82);border:1px solid rgba(255,255,255,.2);color:var(--hud-fg)}
 .devstrip{position:absolute;left:14px;right:14px;bottom:118px;z-index:3;border-radius:12px;padding:8px 10px;font:500 11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--hud-dim)}
+.two{display:flex;gap:10px}.two .btn{flex:1}
+.adj{position:absolute;left:12px;right:12px;bottom:26px;z-index:3;border-radius:22px;padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px}
+.adj .r{display:flex;align-items:center;gap:8px}
+.adj .r>span:first-child{width:50px;font-size:12.5px;color:var(--hud-dim)}
+.adj .r b{min-width:62px;text-align:center;font:600 15px var(--text);font-variant-numeric:tabular-nums}
+.kb{all:unset;cursor:pointer;box-sizing:border-box;min-width:42px;height:40px;padding:0 10px;border-radius:12px;border:1px solid var(--hud-line);display:grid;place-items:center;font:600 15px var(--text);text-align:center}
+.kb.w{flex:1;font-size:13.5px}
+.dots{display:flex;gap:14px;justify-content:center}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--a-ink2)}
+.dots i.on{background:var(--a-ink);border-color:var(--a-ink)}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad span{height:52px;border-radius:16px;background:var(--a-surface);border:1px solid var(--a-line);display:grid;place-items:center;font:600 20px var(--text)}
+.why2{font-size:12px;color:var(--a-ink2);text-align:center}
 @media (prefers-reduced-motion:reduce){.sweep,.pulse,.dash,.steps li.cur .m{animation:none}.side{transition:none}}
 </style>
 </head>
@@ -338,16 +351,16 @@ p.b{margin:0;color:var(--a-ink2)}
         </div>
         <div class="stack" style="gap:8px">
           <h1 class="t" data-only="w1">A door to somewhere else</h1>
-          <p class="b" data-only="w1">Vrata puts a virtual door into a real doorway. Walk through it and you are standing in another place.</p>
-          <h1 class="t" data-only="w2">Scan the room once</h1>
-          <p class="b" data-only="w2">Walk around the room for about two minutes. Vrata learns the walls and finds the doorway by itself.</p>
-          <h1 class="t" data-only="w3">The door stays put</h1>
-          <p class="b" data-only="w3">Next time, point the phone at the room. The door comes back to the same doorway. No markers, nothing to place by hand.</p>
+          <p class="b" data-only="w1">Vrata puts a virtual door into a real room. Walk through it and you are standing in another place.</p>
+          <h1 class="t" data-only="w2">Scan the room, place the door</h1>
+          <p class="b" data-only="w2">Walk around the room for about two minutes, then put the door where you want it. You do this once.</p>
+          <h1 class="t" data-only="w3">Visitors just open the app</h1>
+          <p class="b" data-only="w3">The door comes from the server and stands in the same place for everyone. No markers, and nothing for a visitor to set up.</p>
         </div>
         <div class="pager" id="wPager"><i class="on"></i><i></i><i></i></div>
         <div class="stack" style="gap:2px">
           <button class="btn primary" id="wNext">Continue</button>
-          <button class="btn text" data-go="permission">Skip</button>
+          <button class="btn text" data-go="connect">Skip</button>
         </div>
       </section>
 
@@ -388,7 +401,6 @@ p.b{margin:0;color:var(--a-ink2)}
           <button class="btn ghost" data-only="searching" data-var="none">Enter address instead</button>
           <button class="btn primary" data-only="none" data-var="searching">Search again</button>
           <button class="btn ghost" data-only="none" style="margin-top:8px">Enter address</button>
-          <button class="btn text" data-go="door">Try a door without a server</button>
         </div>
       </section>
 
@@ -397,23 +409,25 @@ p.b{margin:0;color:var(--a-ink2)}
         <div class="top"><div class="h" style="font:700 22px var(--display)">Vrata</div>
           <span class="chip" data-go="app-settings" style="cursor:pointer"><span class="dot"></span>Front desk PC</span>
           <button class="iconbtn" data-go="app-settings" aria-label="Settings"><svg class="ic"><use href="#i-sliders"/></svg></button></div>
-        <div class="card stack" data-only="ready" style="gap:12px">
-          <div style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">This room</span><span class="tag">Ready</span></div>
-          <svg class="plan" viewBox="0 0 280 200" style="width:100%;height:150px"><use href="#plan-room"/></svg>
-          <div style="display:flex;align-items:center;gap:8px"><div class="tx" style="flex:1"><b style="font:600 17px var(--text)">Seminar room B</b><br><small style="color:var(--a-ink2)">18 Nov · doorway 0.82 × 2.02 m</small></div><button class="iconbtn" data-go="rooms" aria-label="Rooms"><svg class="ic"><use href="#i-chev"/></svg></button></div>
+        <div class="card stack" data-only="ready nodoor" style="gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">This room</span><span class="tag" data-only="ready">Ready</span><span class="tag amber" data-only="nodoor">No door yet</span></div>
+          <svg class="plan" viewBox="0 0 280 200" style="width:100%;height:150px"><use href="#plan-room"/>
+            <g data-only="nodoor"><path d="M106 30h42" stroke="var(--a-teal-soft)" stroke-width="10"/><path d="M106 30h42" stroke="var(--a-ink2)" stroke-width="5" stroke-linecap="round" opacity=".55"/></g></svg>
+          <div style="display:flex;align-items:center;gap:8px"><div class="tx" style="flex:1"><b style="font:600 17px var(--text)">Seminar room B</b><br><small style="color:var(--a-ink2)" data-only="ready">Door placed 18 Nov · 0.90 × 2.00 m</small><small style="color:var(--a-ink2)" data-only="nodoor">Put the door where visitors should find it.</small></div><button class="iconbtn" data-go="rooms" aria-label="Rooms"><svg class="ic"><use href="#i-chev"/></svg></button></div>
         </div>
         <div class="spacecard" data-only="ready" data-go="spaces" style="cursor:pointer"><svg class="thumb" width="56" height="56"><use href="#th-court"/></svg><div class="tx" style="flex:1"><span class="eyebrow">Behind the door</span><br><b>Sponza Palace atrium</b></div><span class="val" style="color:var(--a-ink2)">Change</span></div>
         <div class="card stack" data-only="empty" style="gap:10px;align-items:flex-start">
           <div class="tile teal"><svg class="ic"><use href="#i-scan"/></svg></div>
           <h2 class="t">No room here yet</h2>
-          <p class="b">Scan this room once and Vrata will remember where its doorway is. It takes about two minutes of walking.</p>
+          <p class="b">Scan this room once, then put a door in it. It takes about two minutes of walking.</p>
         </div>
         <div class="grow"></div>
         <div class="stack" style="gap:2px">
           <button class="btn primary" data-only="ready" data-go="locate"><svg class="ic"><use href="#i-door"/></svg>Open the door</button>
+          <button class="btn primary" data-only="nodoor" data-go="place-door"><svg class="ic"><use href="#i-door"/></svg>Place the door</button>
           <button class="btn primary" data-only="empty" data-go="scan-prepare"><svg class="ic"><use href="#i-scan"/></svg>Scan this room</button>
-          <button class="btn text" data-only="ready" data-go="scan-prepare">Scan another room</button>
-          <button class="btn text" data-only="empty" data-go="door">Try a door without scanning</button>
+          <button class="btn text" data-only="ready" data-go="visitor">Switch to visitor mode</button>
+          <button class="btn text" data-only="nodoor" data-go="scan-prepare">Scan again</button>
         </div>
       </section>
 
@@ -423,7 +437,7 @@ p.b{margin:0;color:var(--a-ink2)}
         <h1 class="t">Before you start</h1>
         <div class="card stack" style="gap:0;padding:4px 16px">
           <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-bulb"/></svg></div><div class="tx"><b>Turn on the lights</b><small>A bright room scans better.</small></div></div>
-          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-door"/></svg></div><div class="tx"><b>Keep the doorway clear</b><small>Nothing standing in it. Open or closed is fine.</small></div></div>
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-door"/></svg></div><div class="tx"><b>Keep the place for the door clear</b><small>Nothing standing where the door will be.</small></div></div>
           <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-walk"/></svg></div><div class="tx"><b>Clear a path along the walls</b><small>You will walk around the room, not just turn.</small></div></div>
         </div>
         <div class="notice"><svg class="ic s"><use href="#i-clock"/></svg><span>About 2 minutes of scanning, then 3–15 minutes while the server builds the map. You can use the phone meanwhile.</span></div>
@@ -448,12 +462,12 @@ p.b{margin:0;color:var(--a-ink2)}
         </svg>
         <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Stop scanning"><svg class="ic"><use href="#i-x"/></svg></button><span class="hud-sp"></span><span class="hud-pill glass"><span class="dot" style="background:#FF5A4D"></span><span id="scanTime">0:47</span></span></div>
         <div class="coach glass" data-only="walls"><svg class="ic l" style="color:var(--scan)"><use href="#i-walk"/></svg><div><b>Walk slowly along the walls</b><small>Point at where the wall meets the floor.</small></div></div>
-        <div class="coach glass" data-only="doorway"><svg class="ic l" style="color:var(--door)"><use href="#i-door"/></svg><div><b>Now show the doorway</b><small>Step back until all of it fits, then look at it from a second spot.</small></div></div>
+        <div class="coach glass" data-only="doorway"><svg class="ic l" style="color:var(--door)"><use href="#i-door"/></svg><div><b>Now show where the door will be</b><small>Look at it from where visitors will stand, then from a second spot.</small></div></div>
         <div class="coach glass" data-only="finish"><svg class="ic l" style="color:var(--scan)"><use href="#i-check"/></svg><div><b>That’s enough</b><small>Keep going for a better map, or finish now.</small></div></div>
         <div class="hud-bottom">
           <div class="meter"><div class="glass ok"><b>Floor ✓</b>found</div><div class="glass ok"><b data-only="walls">2 walls</b><b data-only="doorway finish">4 walls</b>found</div><div class="glass"><b data-only="walls">3.1 m</b><b data-only="doorway">7.4 m</b><b data-only="finish">9.8 m</b>walked</div></div>
           <button class="btn ghost" data-only="walls" aria-disabled="true" data-var="doorway">Keep going · 13 s</button>
-          <button class="btn ghost" data-only="doorway" data-var="finish">I showed the doorway</button>
+          <button class="btn ghost" data-only="doorway" data-var="finish">Done, I showed it</button>
           <button class="btn primary" data-only="finish" data-go="build">Finish scan</button>
         </div>
       </section>
@@ -469,7 +483,7 @@ p.b{margin:0;color:var(--a-ink2)}
           <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Reading the scan</li>
           <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Building the 3D map</li>
           <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Measuring the room</li>
-          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Finding the doorway</li>
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Drawing the room plan</li>
         </ul>
         <div class="grow"></div>
         <div class="notice" data-only="running"><svg class="ic s"><use href="#i-info"/></svg><span>You can leave this screen. Vrata will tell you when the room is ready.</span></div>
@@ -477,29 +491,57 @@ p.b{margin:0;color:var(--a-ink2)}
         <button class="btn primary" data-only="done" data-go="room-ready">See the room</button>
       </section>
 
-      <!-- 8 Room ready -->
+      <!-- 8 Room result -->
       <section class="screen" id="s-room-ready">
         <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Your room</div></div>
         <div class="card" style="padding:10px">
           <svg class="plan" viewBox="0 0 280 214" style="width:100%;height:200px"><use href="#plan-room"/>
+            <g data-only="none"><path d="M104 30h46M30 72v42" stroke="var(--a-teal-soft)" stroke-width="10"/><path d="M104 30h46M30 72v42" stroke="var(--a-teal)" stroke-width="3"/></g>
             <text x="140" y="20" text-anchor="middle">5.2 m</text><text x="262" y="88">3.1 m</text>
             <text x="127" y="50" text-anchor="middle" data-only="found" style="fill:var(--a-amber-text);font-weight:600">A</text><text x="42" y="97" data-only="found">B</text>
             <path d="M30 204h42M30 200v8M72 200v8" stroke="var(--a-ink2)" stroke-width="1.5" fill="none"/><text x="80" y="208">1 m</text></svg>
         </div>
-        <div class="stack" data-only="found" style="gap:8px">
-          <h2 class="t">Two doorways found</h2><p class="b">The door will stand in the one you pick.</p>
-          <div class="opt sel"><span class="radio"></span><div class="tx" style="flex:1"><b>Doorway A</b><br><small style="color:var(--a-ink2)">0.82 × 2.02 m · open</small></div><span class="tag amber">Best match</span></div>
-          <div class="opt"><span class="radio"></span><div class="tx" style="flex:1"><b>Doorway B</b><br><small style="color:var(--a-ink2)">0.90 × 2.00 m · closed</small></div></div>
-        </div>
-        <div class="stack" data-only="nodoor" style="gap:8px">
-          <h2 class="t">No doorway found</h2><p class="b">The room map is fine, but Vrata could not see a doorway clearly. Scan again and look at the whole doorway from two spots, or place the door yourself.</p>
+        <div class="stack" style="gap:8px">
+          <h2 class="t">The room is ready</h2>
+          <p class="b" data-only="found">Vrata found 2 doorways. You can put the door in one of them or anywhere else in the room.</p>
+          <p class="b" data-only="none">Next, put the door where you want it.</p>
         </div>
         <div class="grow"></div>
         <div class="stack" style="gap:2px">
-          <button class="btn primary" data-only="found" data-go="locate">Use doorway A</button>
-          <button class="btn text" data-only="found" data-go="scan-prepare">None of these · scan again</button>
-          <button class="btn primary" data-only="nodoor" data-go="scan-prepare">Scan again</button>
-          <button class="btn text" data-only="nodoor" data-go="door">Place the door by hand</button>
+          <button class="btn primary" data-go="place-door"><svg class="ic"><use href="#i-door"/></svg>Place the door</button>
+          <button class="btn text" data-go="scan-prepare">Scan again</button>
+        </div>
+      </section>
+
+      <!-- Place the door -->
+      <section class="screen cam" id="s-place-door">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#cam-room"/>
+          <svg x="140" y="318" width="88" height="222" viewBox="0 0 88 222"><use href="#door-world"/></svg>
+          <rect x="136" y="314" width="96" height="228" fill="none" stroke="#6b4a2b" stroke-width="8"/><rect x="136" y="314" width="96" height="228" fill="none" stroke="#8a6238" stroke-width="2"/>
+          <polygon points="134,542 234,542 246,562 122,562" fill="#FFB84D" opacity=".22" stroke="#FFB84D" stroke-width="2.5"/>
+          <path d="M184 628V586M172 598l12-14 12 14" fill="none" stroke="#FFB84D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M180 392v16M172 400h16" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".9"/>
+        </svg>
+        <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button><span class="hud-sp"></span><span class="hud-pill glass">Seminar room B</span></div>
+        <div class="coach glass" data-only="found"><svg class="ic l" style="color:var(--door)"><use href="#i-door"/></svg><div><b>Vrata found a doorway</b><small>The door is standing in it. Save it, or move it.</small></div></div>
+        <div class="hud-bottom" data-only="found">
+          <div class="two"><button class="btn ghost">Put it here</button><button class="btn ghost" data-var="adjust">Adjust</button></div>
+          <button class="btn primary" data-var="saved">Save door</button>
+        </div>
+        <div class="adj glass" data-only="adjust">
+          <div class="r"><span>Move</span><button class="kb">←</button><button class="kb">→</button><button class="kb">↑</button><button class="kb">↓</button><small style="color:var(--hud-dim);margin-left:auto">5 cm</small></div>
+          <div class="r"><span>Turn</span><button class="kb">⟲</button><button class="kb">⟳</button><button class="kb w">Turn around</button><small style="color:var(--hud-dim)">5°</small></div>
+          <div class="r"><span>Width</span><button class="kb" data-adj="w-">−</button><b id="adjW">0.90 m</b><button class="kb" data-adj="w+">+</button></div>
+          <div class="r"><span>Height</span><button class="kb" data-adj="h-">−</button><b id="adjH">2.00 m</b><button class="kb" data-adj="h+">+</button></div>
+          <div class="r"><button class="kb w">Use the found doorway</button><button class="kb w" data-var="found">Done</button></div>
+          <button class="btn primary" data-var="saved">Save door</button>
+        </div>
+        <div class="sheet" data-only="saved">
+          <div class="tile teal" style="width:52px;height:52px;border-radius:16px"><svg class="ic l"><use href="#i-check"/></svg></div>
+          <h2 class="t">Door saved</h2>
+          <p class="b">Every phone that opens this room will see the door here.</p>
+          <button class="btn primary" data-go="visitor" data-var="door">See it as a visitor</button>
+          <button class="btn text" data-go="home">Done</button>
         </div>
       </section>
 
@@ -533,9 +575,10 @@ p.b{margin:0;color:var(--a-ink2)}
           <button class="shutter" aria-label="Take a photo"></button>
         </div>
         <div class="sheet" data-only="menu">
-          <div class="row" data-var="placed" style="cursor:pointer"><svg class="ic"><use href="#i-refresh"/></svg><div class="tx"><b>Find the door again</b><small>If it has slipped out of the doorway</small></div></div>
+          <div class="row" data-var="placed" style="cursor:pointer"><svg class="ic"><use href="#i-refresh"/></svg><div class="tx"><b>Find the door again</b><small>If it has slipped out of place</small></div></div>
+          <div class="row" data-go="place-door" style="cursor:pointer"><svg class="ic"><use href="#i-door"/></svg><div class="tx"><b>Move the door</b></div></div>
+          <div class="row" style="cursor:pointer"><svg class="ic"><use href="#i-trash"/></svg><div class="tx"><b>Remove the door</b></div></div>
           <div class="row" data-go="spaces" style="cursor:pointer"><svg class="ic"><use href="#i-layers"/></svg><div class="tx"><b>Change the space</b></div></div>
-          <div class="row" data-go="room-ready" style="cursor:pointer"><svg class="ic"><use href="#i-door"/></svg><div class="tx"><b>Use another doorway</b></div></div>
           <button class="btn text" data-var="placed">Close</button>
         </div>
       </section>
@@ -588,8 +631,9 @@ p.b{margin:0;color:var(--a-ink2)}
       <section class="screen" id="s-rooms">
         <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Rooms</div></div>
         <div class="card stack" style="gap:0;padding:2px 16px">
-          <div class="row"><div class="tile teal"><svg class="ic"><use href="#i-plan"/></svg></div><div class="tx"><b>Seminar room B</b><small>Ready · 2 doorways · Sponza atrium</small></div><button class="iconbtn" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
+          <div class="row"><div class="tile teal"><svg class="ic"><use href="#i-plan"/></svg></div><div class="tx"><b>Seminar room B</b><small>Ready · Sponza atrium</small></div><button class="iconbtn" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
           <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-clock"/></svg></div><div class="tx"><b>Lobby</b><small>Building the map · 42%</small></div><button class="iconbtn" data-go="build" aria-label="Open"><svg class="ic"><use href="#i-chev"/></svg></button></div>
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-door"/></svg></div><div class="tx"><b>Hall 2</b><small>No door yet · place the door</small></div><button class="iconbtn" data-go="place-door" aria-label="Place the door"><svg class="ic"><use href="#i-chev"/></svg></button></div>
           <div class="row"><div class="tile red"><svg class="ic"><use href="#i-alert"/></svg></div><div class="tx"><b>Office 214</b><small>Scan again · the room has changed</small></div><button class="iconbtn" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
         </div>
         <p class="b" style="font-size:13px">Rooms live on the server “Front desk PC”. Every phone that connects to it sees the same rooms.</p>
@@ -623,38 +667,69 @@ p.b{margin:0;color:var(--a-ink2)}
         </div>
       </section>
 
-      <!-- 15 Settings -->
+      <!-- Settings -->
       <section class="screen" id="s-app-settings" style="gap:10px">
-        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Settings</div></div>
-        <div class="card stack" style="gap:0;padding:2px 16px">
-          <div class="row" data-go="connect" style="cursor:pointer"><svg class="ic"><use href="#i-server"/></svg><div class="tx"><b>Server</b><small><span class="dot" style="display:inline-block;margin-right:6px"></span>Front desk PC · connected</small></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+        <div class="top" data-only="user dev"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Settings</div></div>
+        <div class="top" data-only="method"><button class="iconbtn" data-var="user" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Connection</div></div>
+        <div class="card stack" data-only="user dev" style="gap:0;padding:2px 16px">
+          <div class="row" data-var="method" style="cursor:pointer"><svg class="ic"><use href="#i-server"/></svg><div class="tx"><b>Connection</b><small><span class="dot" style="display:inline-block;margin-right:6px"></span>Vrata Server · Front desk PC</small></div><svg class="ic s"><use href="#i-chev"/></svg></div>
           <div class="row"><svg class="ic"><use href="#i-wifi"/></svg><div class="tx"><b>Find servers automatically</b></div><span class="switch on"></span></div>
         </div>
-        <div class="card stack" style="gap:0;padding:2px 16px">
-          <div class="row" data-go="visitor" style="cursor:pointer"><svg class="ic"><use href="#i-user"/></svg><div class="tx"><b>Visitor mode</b><small>Hide setup behind a PIN</small></div><span class="switch"></span></div>
-          <div class="row"><svg class="ic"><use href="#i-globe"/></svg><div class="tx"><b>Language</b></div><span class="val">English</span></div>
-          <div class="row"><svg class="ic"><use href="#i-shield"/></svg><div class="tx"><b>Privacy and data</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
-          <div class="row"><svg class="ic"><use href="#i-info"/></svg><div class="tx"><b>Credits and licences</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+        <div class="card stack" data-only="user dev" style="gap:0;padding:2px 16px">
+          <div class="row" data-go="visitor" style="cursor:pointer"><svg class="ic"><use href="#i-user"/></svg><div class="tx"><b>Switch to visitor mode</b><small>You will need the staff PIN to come back</small></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row"><svg class="ic"><use href="#i-lock"/></svg><div class="tx"><b>Change staff PIN</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row" data-only="user"><svg class="ic"><use href="#i-globe"/></svg><div class="tx"><b>Language</b></div><span class="val">English</span></div>
+          <div class="row" data-only="user"><svg class="ic"><use href="#i-shield"/></svg><div class="tx"><b>Privacy and data</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row" data-only="user"><svg class="ic"><use href="#i-info"/></svg><div class="tx"><b>Credits and licences</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
         </div>
         <div class="card stack" data-only="dev" style="gap:0;padding:2px 16px">
           <div class="row"><div class="tx"><span class="eyebrow">Developer</span></div></div>
-          <div class="row" data-go="door" data-var="dev" style="cursor:pointer"><div class="tx"><b>Diagnostics on the AR screen</b></div><span class="switch on"></span></div>
-          <div class="row"><div class="tx"><b>Localisation provider</b></div><span class="val">Self-hosted</span></div>
-          <div class="row"><div class="tx"><b>Event log</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row" data-go="door" data-var="dev" style="cursor:pointer"><div class="tx"><b>Diagnostics and Tools on the AR screen</b></div><span class="switch on"></span></div>
+          <div class="row"><div class="tx"><b>Door in front of the camera</b><small>Not tied to the room</small></div><span class="switch"></span></div>
+          <div class="row"><div class="tx"><b>Keep the AR view running</b></div><span class="switch"></span></div>
+        </div>
+        <div class="stack" data-only="method" style="gap:10px">
+          <p class="b" style="font-size:13.5px">How the app finds the room and keeps the door in place.</p>
+          <div class="opt sel"><span class="radio"></span><div class="tx" style="flex:1"><b>Vrata Server on this network</b><br><small style="color:var(--a-ink2)">Rooms and doors are kept on a PC in this building. Nothing leaves the network.</small></div></div>
+          <div class="opt"><span class="radio"></span><div class="tx" style="flex:1"><b>ReactVision cloud</b><br><small style="color:var(--a-ink2)">Rooms are kept in ReactVision’s cloud. Finding the room needs no PC in the building. Requires a paid ReactVision plan.</small></div></div>
+          <div class="card stack" style="gap:0;padding:2px 16px">
+            <div class="row"><svg class="ic"><use href="#i-server"/></svg><div class="tx"><b>Front desk PC</b><small><span class="dot" style="display:inline-block;margin-right:6px"></span>Connected · 2 rooms</small></div><span class="val">Search again</span></div>
+          </div>
         </div>
         <div class="grow"></div>
-        <button class="btn text" data-var="dev" style="font-size:13px">Vrata 1.0.0 · tap 7 times for developer options</button>
+        <button class="btn text" data-only="user dev" data-var="dev" style="font-size:13px">Vrata 1.0.0 · tap 7 times for developer options</button>
       </section>
 
-      <!-- 16 Visitor mode -->
+      <!-- Visitor screen -->
       <section class="screen" id="s-visitor">
-        <div class="top"><div class="h" style="color:var(--a-ink2);font-weight:500">Sponza Museum</div><button class="iconbtn" data-go="app-settings" aria-label="Staff"><svg class="ic s"><use href="#i-lock"/></svg></button></div>
-        <div class="hero"><svg width="200" height="250" viewBox="0 0 200 250" aria-hidden="true"><polygon points="62,232 138,232 176,250 24,250" fill="var(--a-amber)" opacity=".28"/><rect x="62" y="34" width="76" height="198" rx="3" fill="var(--a-amber)" stroke="var(--a-ink)" stroke-width="5"/><path d="M80 232V124q20-52 40 0v108z" fill="var(--a-amber-ink)" opacity=".25"/></svg></div>
-        <h1 class="t">Step into the Sponza Palace</h1>
-        <p class="b">Hold up the phone and point it at this room. A door will appear in the doorway. Walk through it.</p>
-        <div class="notice"><svg class="ic s"><use href="#i-walk"/></svg><span>Walk slowly and mind other visitors. The app shows you where the real walls are.</span></div>
-        <button class="btn primary" data-go="locate">Start</button>
-        <div style="display:flex;justify-content:center;gap:8px"><span class="chip sel">English</span><span class="chip">Hrvatski</span><span class="chip">Deutsch</span></div>
+        <div class="top" data-only="welcome"><div class="h" style="color:var(--a-ink2);font-weight:500">Sponza Museum</div><button class="iconbtn" data-var="pin" aria-label="Staff"><svg class="ic s"><use href="#i-lock"/></svg></button></div>
+        <div class="top" data-only="pin"><button class="iconbtn" data-var="welcome" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button></div>
+        <div class="hero" data-only="welcome"><svg width="190" height="236" viewBox="0 0 200 250" aria-hidden="true"><polygon points="62,232 138,232 176,250 24,250" fill="var(--a-amber)" opacity=".28"/><rect x="62" y="34" width="76" height="198" rx="3" fill="var(--a-amber)" stroke="var(--a-ink)" stroke-width="5"/><path d="M80 232V124q20-52 40 0v108z" fill="var(--a-amber-ink)" opacity=".25"/></svg></div>
+        <h1 class="t" data-only="welcome">Step through the door</h1>
+        <p class="b" data-only="welcome">Point the phone at the room. A door will appear. Walk through it.</p>
+        <div class="notice" data-only="welcome"><svg class="ic s"><use href="#i-walk"/></svg><span>Walk slowly and mind the people around you.</span></div>
+        <button class="btn primary" data-only="welcome" data-var="looking">Start</button>
+        <p class="why2" data-only="welcome">To find the door, the camera picture is sent to this venue’s server.</p>
+        <div data-only="welcome" style="display:flex;justify-content:center;gap:8px"><span class="chip sel">English</span><span class="chip">Hrvatski</span><span class="chip">Deutsch</span></div>
+        <div class="grow" data-only="pin"></div>
+        <div class="stack" data-only="pin" style="gap:8px;text-align:center;align-items:center"><div class="tile" style="width:56px;height:56px;border-radius:18px"><svg class="ic l"><use href="#i-lock"/></svg></div><h1 class="t">Staff only</h1><p class="b">Enter the staff PIN.</p></div>
+        <div class="dots" data-only="pin"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+        <div class="pad" data-only="pin"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span style="visibility:hidden"></span><span>0</span><span>⌫</span></div>
+        <button class="btn text" data-only="pin" data-go="home">Prototype: correct PIN</button>
+      </section>
+      <section class="screen cam" id="s-visitor-cam">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#cam-room"/><use href="#cam-doorway"/>
+          <g data-only="door"><polygon points="140,540 228,540 262,640 106,640" fill="#FFD38A" opacity=".22"/><svg x="140" y="318" width="88" height="222" viewBox="0 0 88 222"><use href="#door-world"/></svg><rect x="136" y="314" width="96" height="228" fill="none" stroke="#6b4a2b" stroke-width="8"/><rect x="136" y="314" width="96" height="228" fill="none" stroke="#8a6238" stroke-width="2"/></g></svg>
+        <div class="hud-top"><span class="hud-sp"></span><button class="hud-btn glass" data-var="welcome" aria-label="Help"><svg class="ic"><use href="#i-info"/></svg></button></div>
+        <div class="coach glass" data-only="looking"><svg class="ic l sweep" style="color:var(--door)"><use href="#i-phone"/></svg><div><b>Point at the room and hold still</b><small>Looking for the door…</small></div></div>
+        <div class="hud-bottom" data-only="looking"><button class="btn text" data-var="door">Prototype: show the door</button></div>
+        <div class="hud-bottom" data-only="door"><span class="hud-pill glass hint">Walk through the door</span><button class="shutter" data-go="inside" aria-label="Take a photo"></button></div>
+        <div class="sheet" data-only="notready">
+          <h2 class="t">The door isn’t ready</h2>
+          <p class="b">Please ask a member of staff.</p>
+          <button class="btn primary" data-var="looking">Try again</button>
+          <p class="why2">No door has been placed yet</p>
+        </div>
       </section>
     </div>
     </div>
@@ -668,73 +743,75 @@ p.b{margin:0;color:var(--a-ink2)}
 <script>
 (function(){
 var S=[
- {id:'welcome',g:'First run',t:'Welcome',vars:[['w1','1'],['w2','2'],['w3','3']],
-  why:'Three cards say what the app does, what it asks of the user, and what they get back.',
-  rules:['One idea per card, one button. “Skip” is always there.','Shown once. Later it can be reopened from Settings.','No sign-up, no account.'],
-  now:'Today the app opens straight into the camera with debug buttons.'},
- {id:'permission',g:'First run',t:'Camera permission',
-  why:'Says why the camera is needed and where the room video goes before Android shows its own dialog.',
-  rules:['The system dialog appears only after “Allow camera”.','The privacy lines must stay true: they describe a server on the local network.','“Not now” leads to the “camera is off” screen, not to a dead end.'],
-  now:'Today the permission dialog appears with no explanation. Deleting a room from the server is not possible yet (server work).'},
- {id:'connect',g:'First run',t:'Find the server',vars:[['searching','Searching'],['found','Found'],['none','Not found']],
-  why:'The app looks for a server by itself. The user only confirms.',
-  rules:['No IP addresses unless the user asks for “Enter address”.','The server is called by its name, never by its address.','There is always a way to try a door without a server (placed by hand, not remembered).'],
-  now:'Today this is a status chip plus a settings panel with technical wording.'},
- {id:'home',g:'Main',t:'Home',vars:[['ready','Room ready'],['empty','No room yet']],
-  why:'One screen answers “what can I do right now?”. One amber button.',
-  rules:['The amber button is the next sensible step: “Open the door” or “Scan this room”.','The room card shows the plan the server drew, with the doorway in amber.','Server state is a small chip. It turns red and gets a label only when something is wrong.'],
-  now:'Today there is no home screen.'},
- {id:'scan-prepare',g:'Scan a room',t:'Before you scan',
+ {id:'visitor',g:'Visitor',t:'Visitor screen',vars:[['welcome','First launch'],['looking','Finding the door'],['door','Door'],['notready','Not ready'],['pin','Staff PIN']],camVars:['looking','door','notready'],
+  why:'All of visitor mode is this one screen. A fresh install starts here. The phone holds nothing but the app: the room and the door come from the server.',
+  rules:['The welcome panel shows on the first launch only. Later launches open the camera at once.','No scanning, no placing, no settings. The door is shown only where a staff member saved it.','Every failure is a sheet with plain words, “Try again” and a small reason line for staff.','The lock on the welcome panel asks for the staff PIN.'],
+  now:'Does not exist today. The app starts with a door placed in front of the camera.'},
+ {id:'welcome',g:'Staff: first time',t:'Welcome cards',vars:[['w1','1'],['w2','2'],['w3','3']],
+  why:'Shown once, the first time staff mode is opened. Three cards: what it is, what staff do, what visitors get.',
+  rules:['One idea per card, one button. “Skip” is always there.','Visitors never see these cards.'],
+  now:'Built in step 3 with the earlier texts.'},
+ {id:'permission',g:'Staff: first time',t:'Camera permission',
+  why:'Says why the camera is needed and where the room video goes. Rarely seen: the visitor welcome panel usually asks first.',
+  rules:['The privacy lines depend on the connection method: own server or ReactVision cloud.','The same lines appear before a scan, which is when a video is recorded.'],
+  now:'Built in step 3.'},
+ {id:'connect',g:'Staff: first time',t:'Find the server',vars:[['searching','Searching'],['found','Found'],['none','Not found']],
+  why:'The app looks for a server by itself. Staff only confirm. Visitors never see this screen.',
+  rules:['No IP addresses unless the user asks for “Enter address”.','The server is called by its name.','No “try a door without a server”: that is a developer tool now.'],
+  now:'Built in step 2.'},
+ {id:'home',g:'Staff',t:'Home',vars:[['ready','Door placed'],['nodoor','No door yet'],['empty','No room yet']],
+  why:'One screen answers “what is the next step for this room?”. One amber button.',
+  rules:['Scan this room → Place the door → Open the door.','The plan shows the saved door in amber.','“Switch to visitor mode” hands the phone over.'],
+  now:'Built in step 2 without the “No door yet” state.'},
+ {id:'scan-prepare',g:'Staff: scan and door',t:'Before you scan',
   why:'Three things that decide whether the scan succeeds, and an honest time estimate.',
   rules:['Shown every time before a scan; it is short.','Times come from real measurements and must be updated when they change.'],
-  now:'Today scanning starts from a panel without preparation advice.'},
- {id:'scan',g:'Scan a room',t:'Scanning',vars:[['walls','1 Walls'],['doorway','2 Doorway'],['finish','3 Can finish']],
-  why:'The phone tells the user what to do next. Teal paint on walls and floor shows what is already captured.',
-  rules:['One instruction at a time, at the top. Warnings (“Slow down”, “Too dark”) replace it while they apply.','The button is locked until the minimum is met (time, distance, floor and walls found).','The doorway step is confirmed by the user: the phone cannot detect a doorway by itself, the server does that later.','Counters show only what the phone really knows: time, floor, walls, distance walked.'],
-  now:'Today: a scan panel with raw counters. The teal mesh and plane highlights already exist.'},
- {id:'build',g:'Scan a room',t:'Building the map',vars:[['running','Running'],['done','Done']],
+  now:'Not built. The old scan panel in Tools is used meanwhile.'},
+ {id:'scan',g:'Staff: scan and door',t:'Scanning',vars:[['walls','1 Walls'],['doorway','2 Door place'],['finish','3 Can finish']],
+  why:'The phone tells staff what to do next. Teal paint on walls and floor shows what is already captured.',
+  rules:['One instruction at a time. Warnings (“Slow down”, “Too dark”) replace it while they apply.','The button is locked until the minimum is met (time, distance, floor found).','Step 2 covers the place where visitors will later point their phones.'],
+  now:'Not built. Teal mesh and plane highlights exist.'},
+ {id:'build',g:'Staff: scan and door',t:'Building the map',vars:[['running','Running'],['done','Done']],
   why:'A wait of several minutes needs a visible end: one percentage, named steps, time left.',
-  rules:['Five plain steps cover the upload and the seven server stages.','“Time left” is shown only when the server gives an estimate; otherwise “step 3 of 5”.','The user may leave. A system notification says when the room is ready.','If it fails, the scan stays on the phone and can be sent again.'],
-  now:'Today: upload progress and raw job stage names.'},
- {id:'room-ready',g:'Scan a room',t:'Room and doorway',vars:[['found','Doorways found'],['nodoor','No doorway']],
-  why:'Shows what the server understood, and lets the user confirm or pick the doorway.',
-  rules:['The plan is drawn from server data: walls, corners, openings, sizes in metres.','With one doorway there is nothing to choose, only “Use this doorway”.','A wrong doorway can always be rejected.'],
-  now:'Today the doorway is taken automatically with no confirmation.'},
- {id:'locate',g:'The door',t:'Finding the room',vars:[['searching','First try'],['slow','Second try'],['stuck','After 10 s']],
+  rules:['Five plain steps cover the upload and the seven server stages.','“Time left” is shown only when the server gives an estimate.','If it fails, the scan stays on the phone and can be sent again.'],
+  now:'Not built: upload progress and raw stage names in Tools.'},
+ {id:'room-ready',g:'Staff: scan and door',t:'Room result',vars:[['found','Doorways found'],['none','No doorway']],
+  why:'Shows what the server understood, then sends staff on to place the door.',
+  rules:['A found doorway is a suggestion. Nothing is saved here.','One button in every case: “Place the door”.'],
+  now:'Not built.'},
+ {id:'place-door',g:'Staff: scan and door',t:'Place the door',vars:[['found','Placing'],['adjust','Adjust'],['saved','Saved']],
+  why:'The main way a door gets its place. Staff put it where it should stand and save it to the server, once per room.',
+  rules:['“Put it here” moves the door to the spot on the floor the phone is aimed at.','“Adjust” opens moves of 5 cm, turns of 5°, width and height. Three controls until then.','“Save door” needs the room to be found first in this session.','The same screen moves a saved door.'],
+  now:'Does not exist. The server already accepts a door saved this way; it does not store its size yet.'},
+ {id:'locate',g:'Staff: the door',t:'Finding the room',vars:[['searching','First try'],['slow','Second try'],['stuck','After 10 s']],
   why:'The few seconds between opening the camera and seeing the door.',
-  rules:['Each try takes about 3 seconds with the phone held still. Advice gets more specific with every failed try.','A faint amber outline may appear where the door is expected before the fix is confirmed.','After about 20 seconds the app offers “This is a different room”.'],
-  now:'Today: a status banner with technical states.'},
- {id:'door',g:'The door',t:'Door in the room',vars:[['placed','Door placed'],['menu','Menu'],['dev','Developer overlay']],
+  rules:['Each try takes about 3 seconds with the phone held still. Advice gets more specific with every failed try.','The door stays hidden until its place is known.'],
+  now:'Built in step 1.'},
+ {id:'door',g:'Staff: the door',t:'Door in the room',vars:[['placed','Door placed'],['menu','Menu'],['dev','Developer line']],
   why:'The picture is the product. Almost nothing on top of it.',
-  rules:['Three controls: close, the space name, the “more” menu. One shutter button.','The hint “Walk through the door” fades after a few seconds.','Rare actions live in the menu. Technical readouts appear only with developer options on.'],
-  now:'Today: Provider and World buttons, a tracking line, a server chip and an event log are all on this screen.'},
- {id:'inside',g:'The door',t:'Inside the space',vars:[['walk','Walking'],['wall','Near a real wall'],['info','About this place']],
-  why:'Inside, the user must always know the way back and where the real walls are.',
-  rules:['“Door is behind you” points to the exit when the door is out of view.','A teal grid shows a real wall when the user comes within about half a metre of it.','Amber rings are places to move to when the real room is too small (later version).'],
-  now:'Today there is no boundary warning and no way to move beyond the real room.'},
- {id:'spaces',g:'Library',t:'Spaces',vars:[['list','List'],['detail','Details']],
+  rules:['Three controls: close, the space name, the menu. One shutter button.','Menu: find the door again, move it, remove it, change the space.','Technical readouts and Tools appear only with developer options on.'],
+  now:'Built in step 1. Move and Remove are new.'},
+ {id:'inside',g:'Staff: the door',t:'Inside the space',vars:[['walk','Walking'],['wall','Near a real wall'],['info','About this place']],
+  why:'Inside, the user must always know the way back and where the real walls are. The same for visitors.',
+  rules:['“Door is behind you” points to the exit when the door is out of view.','A teal grid shows a real wall when the user comes within about half a metre of it.','Amber rings are places to move to when the real room is too small (later).'],
+  now:'Not built.'},
+ {id:'spaces',g:'Staff: library',t:'Spaces',vars:[['list','List'],['detail','Details']],
   why:'A short shelf of places to put behind the door.',
-  rules:['Each card: name, place, type (walk-in 3D or 360° view), download size.','Credits and licence are part of every space; many models require attribution.','Only the Sponza atrium exists today. The other two cards are examples of entries.'],
-  now:'Today: a “World: …” debug button cycles test worlds.'},
- {id:'rooms',g:'Library',t:'Rooms',
+  rules:['Each card: name, place, type (walk-in 3D or 360° view), download size.','Credits and licence are part of every space.','Only the Sponza atrium exists today. The other two cards are examples.'],
+  now:'A debug switch between two worlds.'},
+ {id:'rooms',g:'Staff: library',t:'Rooms',
   why:'Several rooms on one server: a venue with more than one door.',
-  rules:['The app picks the room by recognising it; the list is for managing, not for daily use.','Each room has a state: Ready, Building, Scan again.','Rename and delete need new server functions.'],
-  now:'Today the app works with one room id.'},
- {id:'errors',g:'Problems',t:'Problem screens',vars:[['server','No server'],['scan','Scan failed'],['camera','Camera off'],['device','Unsupported phone'],['unknown','Room not recognised'],['tracking','Tracking lost']],
-  why:'Every problem says what happened, in plain words, and offers one way forward.',
-  rules:['No error codes on screen. Codes go to the log for support.','The amber button is the fix; a quieter second action lets the user leave.','Problems during AR appear as a banner or a sheet, and the camera stays on.'],
-  now:'Today errors show as raw text in a banner or only in the log.'},
- {id:'app-settings',g:'Settings',t:'Settings',vars:[['user','Normal'],['dev','Developer options']],
-  why:'Few settings. Everything technical is behind developer options.',
-  rules:['Developer options appear after seven taps on the version line.','Provider choice, diagnostics overlay and the event log live only there.'],
-  now:'Today the debug controls are on the main screen.'},
- {id:'visitor',g:'Settings',t:'Visitor mode',
-  why:'For a venue: a visitor gets one screen and one button. Setup is behind a staff PIN.',
-  rules:['The venue name comes from the server name.','No scanning, no rooms, no settings. Only language and Start.','The lock icon asks for the PIN and returns to the full app.'],
-  now:'Does not exist today.'}
+  rules:['Each room has a state: Ready, No door yet, Building, Scan again.','The row menu moves or removes the door.','Rename and delete need new server functions.'],
+  now:'The app works with one room id.'},
+ {id:'errors',g:'Staff: problems',t:'Problem screens',vars:[['server','No server'],['scan','Scan failed'],['camera','Camera off'],['device','Unsupported phone'],['unknown','Room not recognised'],['tracking','Tracking lost']],camVars:['unknown','tracking'],
+  why:'Every problem says what happened, in plain words, and offers one way forward. These are the staff versions; visitors get “ask a member of staff”.',
+  rules:['No error codes on screen. Codes go to the log.','The amber button is the fix.','Problems during AR appear as a banner or a sheet, and the camera stays on.'],
+  now:'Built in steps 1 and 2.'},
+ {id:'app-settings',g:'Staff: settings',t:'Settings',vars:[['user','Normal'],['method','Connection'],['dev','Developer options']],
+  why:'Few settings. The connection method is the one real choice: the venue’s own server, or ReactVision’s cloud as a second way.',
+  rules:['Own server is the default and the main way.','ReactVision needs a paid plan and keys in the build; without them the option is disabled.','Developer options appear after seven taps on the version line.'],
+  now:'Built in step 2 without the connection choice and the mode switch.'}
 ];
-var CAM={scan:1,locate:1,door:1,inside:1};
-var CAMVAR={unknown:1,tracking:1};
 var $=function(q){return document.querySelector(q)},dev=$('#device'),nav=$('#nav'),cur=0,curVar='',wi=0,timers=[];
 function el(tag,txt,cls){var e=document.createElement(tag);if(txt!=null)e.textContent=txt;if(cls)e.className=cls;return e}
 var lastG='';
@@ -743,7 +820,7 @@ S.forEach(function(s,i){
   var b=el('button');b.appendChild(el('span',String(i+1)));b.appendChild(document.createTextNode(s.t));
   b.addEventListener('click',function(){go(s.id);closeSide()});nav.appendChild(b);s.btn=b;
 });
-function screenEl(s,v){ if(s.id==='errors'&&CAMVAR[v])return $('#s-errors-cam'); return $('#s-'+s.id) }
+function screenEl(s,v){ if(s.camVars&&s.camVars.indexOf(v)>=0)return $('#s-'+s.id+'-cam'); return $('#s-'+s.id) }
 function applyVar(){
   var s=S[cur],root=screenEl(s,curVar);
   document.querySelectorAll('.screen').forEach(function(x){x.classList.toggle('on',x===root)});
@@ -783,7 +860,7 @@ document.addEventListener('click',function(e){
   var t=e.target.closest('[data-go],[data-var]');if(!t||!dev.contains(t))return;
   if(t.hasAttribute('data-go'))go(t.getAttribute('data-go'),t.getAttribute('data-var')||undefined);else setVar(t.getAttribute('data-var'));
 });
-$('#wNext').addEventListener('click',function(){if(wi<2)setVar(['w1','w2','w3'][wi+1]);else go('permission')});
+$('#wNext').addEventListener('click',function(){if(wi<2)setVar(['w1','w2','w3'][wi+1]);else go('connect')});
 $('#prev').addEventListener('click',function(){go(S[(cur+S.length-1)%S.length].id)});
 $('#next').addEventListener('click',function(){go(S[(cur+1)%S.length].id)});
 function pageDark(){var a=document.documentElement.getAttribute('data-theme');return a?a==='dark':matchMedia('(prefers-color-scheme: dark)').matches}
@@ -800,7 +877,11 @@ function fit(){
 }
 window.addEventListener('resize',fit);fit();
 window.addEventListener('hashchange',function(){var h=location.hash.slice(1);if(h&&h!==S[cur].id)go(h)});
-go(location.hash.slice(1)||'welcome');
+var dw=90,dh=200;
+document.addEventListener('click',function(e){var k=e.target.closest('[data-adj]');if(!k)return;var a=k.getAttribute('data-adj');
+  if(a==='w+')dw=Math.min(140,dw+5);if(a==='w-')dw=Math.max(60,dw-5);if(a==='h+')dh=Math.min(240,dh+5);if(a==='h-')dh=Math.max(180,dh-5);
+  $('#adjW').textContent=(dw/100).toFixed(2)+' m';$('#adjH').textContent=(dh/100).toFixed(2)+' m'});
+go(location.hash.slice(1)||'visitor');
 })();
 </script>
 </body>
