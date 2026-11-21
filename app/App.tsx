@@ -73,6 +73,9 @@ function useCameraPermission() {
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const update = useCallback((next: CameraPermission) => {
+    if (next !== permissionRef.current) {
+      appActions.log(`camera permission: ${next}`);
+    }
     permissionRef.current = next;
     setPermission(next);
   }, []);
@@ -193,7 +196,13 @@ export default function App() {
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
     // The first screen follows the mode: the visitor screen (also on a fresh install), or Home.
-    void prefsActions.load((prefs) => appActions.resetTo(startScreen(prefs)));
+    void prefsActions.load((prefs) => {
+      appActions.log(
+        `start: ${prefs.visitorMode ? 'visitor' : 'staff'} mode, room used last ${prefs.lastRoomId ? `"${prefs.lastRoomId}"` : 'none'}` +
+          `${prefs.developerOptions ? ', developer options on' : ''}${prefs.keepArView ? ', AR view kept running' : ''}`,
+      );
+      appActions.resetTo(startScreen(prefs));
+    });
     // Whether this phone can run AR at all. A failed query is no answer.
     isARSupportedOnDevice().then(
       (answer) => {

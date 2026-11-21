@@ -66,6 +66,8 @@ export function ArScreen() {
   useEffect(() => {
     if (view.sheet === null) {
       setClosedSheet(null);
+    } else {
+      appActions.log(`AR screen: sheet "${view.sheet}"`);
     }
   }, [view.sheet]);
   const sheet = view.sheet !== null && view.sheet !== closedSheet ? view.sheet : null;

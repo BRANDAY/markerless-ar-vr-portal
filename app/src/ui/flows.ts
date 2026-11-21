@@ -177,6 +177,7 @@ export function beginBuild(capture: CaptureSummary | null): void {
     void sendCapture(target, capture.dir);
   } else {
     // The recording could not be saved: there is nothing to send.
+    appActions.log('scan: the recording could not be saved - nothing to send, the build screen says "This scan can\'t be read"');
     roomActions.resetBuild();
     roomActions.setBuild({ phase: 'failed', failure: 'bad_recording', target });
   }

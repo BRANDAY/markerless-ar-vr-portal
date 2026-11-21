@@ -5,6 +5,7 @@ import appConfig from '../../app.json';
 import { availableLanguages, getLanguage, t } from '../i18n';
 import { LANGUAGE_NAMES } from '../i18n/languages';
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
+import { useReactVisionKeys } from '../localization/vpsBridge';
 import { roomActions, useRoomScan } from '../room/roomStore';
 import { putTestRoom } from '../spaces/spaceChoice';
 import { appActions, useAppState } from '../state/appStore';
@@ -24,6 +25,8 @@ export function SettingsScreen() {
   const auto = usePrefs((s) => s.findAutomatically);
   const developer = usePrefs((s) => s.developerOptions);
   const cloud = usePrefs((s) => s.connection === 'reactvision');
+  // The choice of the method is offered only by a build that has the service's keys.
+  const cloudKeys = useReactVisionKeys();
   const [sheet, setSheet] = useState<'switch' | 'pin' | 'language' | null>(null);
 
   const chip = chipState(connection.state);
@@ -46,13 +49,15 @@ export function SettingsScreen() {
   return (
     <>
     <ScreenFrame title={t('settings.title')} onBack={() => appActions.back()}>
-      <Row
-        icon="search"
-        title={t('connection.title')}
-        value={cloud ? t('connection.cloud.title') : t('connection.server.short')}
-        arrow
-        onPress={() => appActions.go('connection')}
-      />
+      {cloudKeys ? (
+        <Row
+          icon="search"
+          title={t('connection.title')}
+          value={cloud ? t('connection.cloud.title') : t('connection.server.short')}
+          arrow
+          onPress={() => appActions.go('connection')}
+        />
+      ) : null}
       <Row icon="wifi" tone={chip === 'connected' ? 'teal' : 'neutral'} title={t('settings.server')} value={serverValue} arrow onPress={() => appActions.go('connect')} />
       <Row icon="search" title={t('settings.auto')} toggle={{ value: auto, onChange: (value) => prefsActions.set({ findAutomatically: value }) }} />
       <Row icon="door" title={t('settings.switch')} arrow onPress={() => setSheet('switch')} />

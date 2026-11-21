@@ -57,6 +57,12 @@ Android emulator — **a real ARCore-capable phone is required**.
 
 ## Setup on Windows
 
+This folder is one part of the repository; the localization server it talks to is a
+separate repository ([BRANDAY/arportal-localization-server](https://github.com/BRANDAY/arportal-localization-server)), linked into this
+one as the git submodule `localization-server/`. Clone both with `--recurse-submodules`,
+as the [README of the repository](../README.md) shows. The app builds without the
+server's folder; it needs a running server only when it is used.
+
 ### 1. Tools
 
 - Node.js 24 (npm 11), Git.
@@ -163,6 +169,25 @@ The APK is written to `android\app\build\outputs\apk\debug\app-debug.apk`.
    ```powershell
    adb logcat --pid=$(adb shell pidof hr.fesb.arportal)
    ```
+
+   The log names every screen the user opens (`screen: scan (after scanPrepare)`), the
+   mode the app started in, the camera permission, how a scan ended, the upload by
+   quarters and the sheets shown over the camera, besides what the server connection,
+   the search for the room and the door report. While the phone is connected to a
+   server, the same lines go to it (`work/device-logs/<device id>.jsonl` on the server
+   PC and its panel at `/ui`), so a session can be read without a cable.
+7. After a test, everything the app keeps on the phone is copied to the PC with one
+   command, in Git Bash (PowerShell damages binary output of `adb`):
+
+   ```
+   bash scripts/pull-device-data.sh <output folder> [--captures]
+   ```
+
+   It saves the app's lines from logcat, a list of the app's files, its settings and
+   the measurement records (`files/measurements`), and with `--captures` the room
+   scans themselves (`files/captures`, 100-300 MB each; the app never deletes a
+   finished scan). It changes nothing on the phone. Written on 2026-11-21, **not yet
+   run against a phone**.
 
 ### Development loop (optional)
 
@@ -459,8 +484,12 @@ is outside the repository, which is public.
   never asks for them: a room is always looked for by its location id, never with the
   library's `"auto"`, which starts from GPS.
 
-**In the app.** Settings has a **Connection** page (`ui-spec.md`, 5.15) with the two
-methods. In a build without keys the second one is disabled: "Not set up in this build."
+**In the app.** A build **with** keys has a **Connection** row in Settings and behind it
+the page of `ui-spec.md`, 5.15 with the two methods. A build **without** keys - the
+normal one - shows neither the row nor the second method: the venue's own server is the
+only way and nothing on screen mentions the service (decision of 2026-11-21: the service
+costs money, the own server is the alternative to it; this code stays, optional and
+never run).
 The page also has the switch "Recognise in the cloud" (matching on the vendor's servers,
 which the vendor charges for by the minute; off by default), a field for the room's
 **ReactVision location ID**, and below it the room's **link** to that place with the
@@ -708,8 +737,9 @@ made on **Find the server**, a room is scanned with the guided scan (Home, **Sca
 room**) and the door is opened from Home; the scan panel described here is still in the
 tools and sends its recording as the room `room`.
 
-1. **Start the server** on a computer in the same network (project `localization-server`,
-   its README: `uv run locserver-serve`). It prints its address.
+1. **Start the server** on a computer in the same network (project
+   [`localization-server`](https://github.com/BRANDAY/arportal-localization-server), its README: `uv run locserver-serve`). It prints
+   its address.
 2. **Connect.** Start the app; tap the server chip, then **Find automatically** (takes up
    to 52 s) or type the address and **Test connection**. The chip turns green. The
    address is remembered. Details and troubleshooting:
@@ -746,7 +776,8 @@ The map is always called `room`, and a new upload replaces it.
 
 ## Connect to the localization server
 
-The localization server is a separate project (`localization-server`, Python). It runs
+The localization server is a separate project ([`localization-server`](https://github.com/BRANDAY/arportal-localization-server),
+Python; a git submodule of this repository). It runs
 on a computer; the phone talks to it over the local network with plain HTTP. **No address
 is built into the app** — it is found automatically or typed in, on whatever network you
 are on. This section is about establishing and watching the connection; what travels
@@ -780,7 +811,11 @@ over it is in [Scan a room](#scan-a-room-and-put-the-door-into-the-real-doorway)
    `Remove-NetFirewallRule -DisplayName "locserver 8077"`.
 4. In the app tap the server chip, then **Find automatically**. The app takes the phone's
    own Wi-Fi address and asks the other 253 addresses of that /24 network for
-   `GET /health` on the port, nearest addresses first, a new one every 0.2 s. It accepts
+   `GET /health` on the port - first the address ending in `.1`, then nearest addresses
+   first -, a new one every 0.2 s. (`.1` first is for a network that the server's own
+   computer shares, for example Windows' "Mobile hotspot": the computer is then
+   `192.168.137.1` and the phone gets an address far from it. Not tried on such a
+   network; the computer's firewall must let port 8077 in on that network too.) It accepts
    only an answer that identifies itself as this project's server, connects to the first
    one that does and stops. This takes **up to about a minute** (52 s for the whole
    network) and is slow on purpose — see [Why the search is slow](#why-the-search-is-slow).
@@ -939,7 +974,7 @@ the engine's recorder and mesh.
 **To the server.** `src/room/roomServer.ts` sends video, poses and the PLY mesh to
 `POST /maps/room/recording`, follows the build job every 1.5 s and fetches the room plan
 and the doorway (`GET /maps/room/room`, `/portal`). The contract is
-`localization-server/docs/api-v2.md`. All HTTP is in `src/server/core/client.ts`, the
+[`localization-server/docs/api-v2.md`](https://github.com/BRANDAY/arportal-localization-server/blob/main/docs/api-v2.md). All HTTP is in `src/server/core/client.ts`, the
 parsing of the answers in `src/server/core/roomPlan.ts` (both unit-tested).
 `src/ar/ServerRoomLayer.tsx` draws the server's plan.
 
@@ -958,7 +993,7 @@ a position of its own.
 
 The owner's decision of 2026-11-21: one approach to the door for every way of recognising
 the room, so that switching between the venue's server and ReactVision Advanced VPS is
-seamless (`localization-server/docs/api-v2.md`, section 5).
+seamless ([`localization-server/docs/api-v2.md`](https://github.com/BRANDAY/arportal-localization-server/blob/main/docs/api-v2.md), section 5).
 
 - **One door record per room**: its pose in the room's frame, width, height. It is kept
   by the venue's server and does not depend on how a phone finds the room.
@@ -1134,6 +1169,7 @@ modules/
   wifi-route/                 native Android module: bind the app to Wi-Fi, phone's Wi-Fi address
 scripts/
   env.ps1                     optional: caches in another folder for the current shell
+  pull-device-data.sh         after a test on a phone: logcat lines, settings, measurement records, scans -> a folder on the PC
   generate-assets.mjs         generates all textures and the door-frame OBJ
   mock-server.mjs             stand-in server answering GET /health (connection tests)
 assets/

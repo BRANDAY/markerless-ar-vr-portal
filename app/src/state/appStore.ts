@@ -200,6 +200,16 @@ export function useAppState<T>(selector: (s: AppState) => T): T {
   );
 }
 
+/**
+ * Which screen the user is on, in the log: without it a log of a session on a phone does
+ * not say what the user was looking at when something went wrong.
+ */
+function logScreen(from: Screen, to: Screen): void {
+  if (from !== to) {
+    appActions.log(`screen: ${to} (after ${from})`);
+  }
+}
+
 export const appActions = {
   log(text: string): void {
     const now = Date.now();
@@ -248,6 +258,7 @@ export const appActions = {
   /** Opens a screen; "back" returns to the current one. */
   go(screen: Screen): void {
     if (screen !== state.screen) {
+      logScreen(state.screen, screen);
       setState({ screen, history: [...state.history, state.screen] });
     }
   },
@@ -255,12 +266,14 @@ export const appActions = {
   /** Opens a screen in place of the current one: "back" skips the current one. */
   replace(screen: Screen): void {
     if (screen !== state.screen) {
+      logScreen(state.screen, screen);
       setState({ screen });
     }
   },
 
   /** Opens a screen as the start of a new path: there is nothing to go back to. */
   resetTo(screen: Screen): void {
+    logScreen(state.screen, screen);
     setState({ screen, history: [] });
   },
 
@@ -270,6 +283,7 @@ export const appActions = {
     if (previous === undefined) {
       return false;
     }
+    logScreen(state.screen, previous);
     setState({ screen: previous, history: state.history.slice(0, -1) });
     return true;
   },
@@ -285,6 +299,7 @@ export const appActions = {
   },
 
   showProblem(problem: ProblemKind): void {
+    appActions.log(`problem screen: ${problem}`);
     setState({ problem });
     appActions.go('problem');
   },

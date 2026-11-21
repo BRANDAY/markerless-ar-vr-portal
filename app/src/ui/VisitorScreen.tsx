@@ -188,6 +188,8 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
   useEffect(() => {
     if (view.sheet === null) {
       setClosedSheet(null);
+    } else {
+      appActions.log(`visitor screen: sheet "${view.sheet}"`);
     }
   }, [view.sheet]);
   const sheet = view.sheet !== null && view.sheet !== closedSheet ? view.sheet : null;

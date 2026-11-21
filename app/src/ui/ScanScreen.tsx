@@ -89,6 +89,9 @@ export function ScanScreen() {
   }, [cameraPosition, recording]);
 
   const seconds = recordingSince !== null ? Math.max(0, (now - recordingSince) / 1000) : 0;
+  // For the log line of `finish`, which is made once and must see the latest numbers.
+  const scanAtRef = useRef({ seconds: 0, metres: 0, walls: 0, floorFound: false, doorwayShown: false });
+  scanAtRef.current = { seconds, metres, walls, floorFound, doorwayShown };
   const view = scanView({
     recording: recording === 'recording',
     seconds,
@@ -105,6 +108,11 @@ export function ScanScreen() {
       return;
     }
     leavingRef.current = true;
+    const at = scanAtRef.current;
+    appActions.log(
+      `scan: finishing after ${at.seconds.toFixed(0)} s, ${at.metres.toFixed(1)} m walked, ${at.walls} wall(s), ` +
+        `floor ${at.floorFound ? 'found' : 'NOT found'}, the place of the door ${at.doorwayShown ? 'shown' : 'not confirmed as shown'}`,
+    );
     setSaving(true);
     void scanController.stopRecording().then(beginBuild);
   }, []);

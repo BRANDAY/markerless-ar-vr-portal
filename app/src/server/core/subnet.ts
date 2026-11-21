@@ -7,7 +7,8 @@ export type SubnetResult = { ok: true; hosts: string[]; prefix: string } | { ok:
 
 /**
  * All other hosts of the /24 network the given address belongs to (x.y.z.1 ... x.y.z.254
- * without the address itself): 253 candidates, nearest to the given address first.
+ * without the address itself): 253 candidates - first x.y.z.1, then nearest to the given
+ * address first.
  *
  * A /24 is an assumption, not read from the network: it is what home routers, phone
  * hotspots and most small networks use. On a bigger network the server may be outside
@@ -32,10 +33,15 @@ export function enumerateSubnet24(ownAddress: string): SubnetResult {
   // Nearest addresses first (d+1, d-1, d+2, d-2, ...): routers hand out addresses from one
   // pool, so the computer's address is usually close to the phone's, and the search is
   // slow (see `discovery.ts`) and stops at the first server it finds.
-  const hosts: string[] = [];
+  //
+  // Before them x.y.z.1: when a laptop shares its own Wi-Fi (a hotspot), the laptop is
+  // that address - 192.168.137.1 with Windows' "Mobile hotspot" - while the phone gets
+  // one far from it, and the server runs on the laptop. One probe, 0.2 s, when it is not.
+  const first = d === 1 ? [] : [1];
+  const hosts: string[] = first.map((last) => `${prefix}.${last}`);
   for (let distance = 1; distance <= 253; distance++) {
     for (const last of [d + distance, d - distance]) {
-      if (last >= 1 && last <= 254) {
+      if (last >= 1 && last <= 254 && !first.includes(last)) {
         hosts.push(`${prefix}.${last}`);
       }
     }

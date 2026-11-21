@@ -100,14 +100,23 @@ describe('enumerateSubnet24', () => {
     if (!result.ok) return;
     assert.equal(result.prefix, '192.0.2');
     assert.equal(result.hosts.length, 253);
-    // Nearest to the phone's own address first.
-    assert.deepEqual(result.hosts.slice(0, 5), ['192.0.2.24', '192.0.2.22', '192.0.2.25', '192.0.2.21', '192.0.2.26']);
+    // The address of whoever shares the network (a laptop's hotspot) first, then nearest
+    // to the phone's own address.
+    assert.deepEqual(result.hosts.slice(0, 6), ['192.0.2.1', '192.0.2.24', '192.0.2.22', '192.0.2.25', '192.0.2.21', '192.0.2.26']);
     assert.equal(result.hosts[result.hosts.length - 1], '192.0.2.254');
     assert.equal(result.hosts.includes('192.0.2.1'), true);
     assert.equal(result.hosts.includes('192.0.2.23'), false);
     assert.equal(result.hosts.includes('192.0.2.0'), false);
     assert.equal(result.hosts.includes('192.0.2.255'), false);
     assert.equal(new Set(result.hosts).size, 253);
+    // Windows' "Mobile hotspot": the laptop is .1, a phone somewhere in the range.
+    const hotspot = enumerateSubnet24('192.168.137.164');
+    assert.equal(hotspot.ok && hotspot.hosts[0], '192.168.137.1');
+    assert.equal(hotspot.ok && hotspot.hosts.length, 253);
+    // The phone itself at .1 (it shares the network): nothing is put in front.
+    const own = enumerateSubnet24('192.0.2.1');
+    assert.deepEqual(own.ok && own.hosts.slice(0, 2), ['192.0.2.2', '192.0.2.3']);
+    assert.equal(own.ok && own.hosts.length, 253);
   });
   test('rejects addresses that are not on a local network', () => {
     for (const input of ['0.0.0.0', '127.0.0.1', '169.254.3.4', 'not-an-ip', '']) {

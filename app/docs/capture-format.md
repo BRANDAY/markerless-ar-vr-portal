@@ -2,7 +2,7 @@
 
 Version 1, checked against captures from a phone on 2026-11-20 (two short ones, 15 and
 18 frames; a full room scan has not been examined yet). Written for the localization server (`POST /maps/{map_id}/recording`
-in `localization-server/docs/api-v2.md`): the server's upload handler follows this
+in [`localization-server/docs/api-v2.md`](https://github.com/BRANDAY/arportal-localization-server/blob/main/docs/api-v2.md)): the server's upload handler follows this
 document.
 
 Every statement below carries its source:

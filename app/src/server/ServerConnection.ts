@@ -294,7 +294,7 @@ class ServerConnection {
       DEFAULT_SCAN_TIMEOUT_MS,
     );
     this.log(
-      `server search: probing ${subnet.prefix}.1-254 on port ${port}, nearest to the phone ` +
+      `server search: probing ${subnet.prefix}.1-254 on port ${port}, ${subnet.prefix}.1 and then nearest to the phone ` +
         `(${ownAddress}) first, up to ${worstCase} s` +
         (phone.defaultNetwork === 'wifi' ? '' : ` (default network: ${phone.defaultNetwork}, bound to Wi-Fi: ${phone.boundToWifi})`),
     );

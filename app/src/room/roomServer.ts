@@ -215,6 +215,8 @@ export async function sendCapture(target: ScanTarget, dir: Directory | null): Pr
   const abort = new AbortController();
   uploadAbort = abort;
   let lastPercent = -1;
+  let lastQuarter = 0;
+  const uploadStarted = Date.now();
   const accepted = await uploadRecording(baseUrl, target.mapId, form, {
     signal: abort.signal,
     onProgress: (sent, all) => {
@@ -224,6 +226,12 @@ export async function sendCapture(target: ScanTarget, dir: Directory | null): Pr
         lastPercent = percent;
         roomActions.setBuild({ uploadFraction: fraction });
         roomActions.setUpload({ phase: 'uploading', text: `sending ${percent} % of ${megabytes(all)}`, progress: fraction });
+      }
+      // In the log a line per quarter: a transfer that stalls shows as a missing one.
+      const quarter = Math.floor(percent / 25);
+      if (quarter > lastQuarter) {
+        lastQuarter = quarter;
+        log(`upload ${quarter * 25} % of ${megabytes(all)} after ${((Date.now() - uploadStarted) / 1000).toFixed(0)} s`);
       }
     },
   });

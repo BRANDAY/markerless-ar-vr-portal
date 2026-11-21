@@ -16,8 +16,9 @@ import { RADIUS, TYPE, useTheme } from './theme';
 
 /**
  * Connection method (`docs/product/ui-spec.md`, 5.15): the venue's own server, or
- * ReactVision Advanced VPS. Staff choose; visitors never see this page. In a build
- * without ReactVision keys the second option cannot be chosen.
+ * ReactVision Advanced VPS. Staff choose; visitors never see this page. A build without
+ * ReactVision keys has no way to this page from Settings, and if the page is opened all
+ * the same, the second option is not on it.
  *
  * What the spec does not have and this page adds: the field for the room's ReactVision
  * location id, and the room's link to that place (the bridge, `BridgeScreen`). Sending a
@@ -27,7 +28,7 @@ import { RADIUS, TYPE, useTheme } from './theme';
  */
 export function ConnectionScreen() {
   const theme = useTheme();
-  const cloud = usePrefs((s) => s.connection === 'reactvision');
+  const preferCloud = usePrefs((s) => s.connection === 'reactvision');
   const serverMode = usePrefs((s) => s.vpsServerMode);
   const connection = useServerView().connection;
   const currentId = useRooms((s) => s.currentId);
@@ -75,6 +76,8 @@ export function ConnectionScreen() {
           ? t('settings.server.offline')
           : t('settings.server.none');
   const cloudAvailable = configured === true;
+  // Without keys the service is not offered, whatever was chosen in another build.
+  const cloud = preferCloud && configured !== false;
 
   return (
     <ScreenFrame title={t('connection.title')} onBack={() => appActions.back()}>
@@ -86,13 +89,15 @@ export function ConnectionScreen() {
       />
       {!cloud ? <Row icon="wifi" tone={chip === 'connected' ? 'teal' : 'neutral'} title={t('settings.server')} value={serverValue} arrow onPress={() => appActions.go('connect')} /> : null}
 
-      <Option
-        chosen={cloud}
-        disabled={!cloudAvailable}
-        title={t('connection.cloud.title')}
-        line={configured === false ? t('connection.cloud.notSetUp') : t('connection.cloud.line')}
-        onPress={() => choose('reactvision')}
-      />
+      {configured === false ? null : (
+        <Option
+          chosen={cloud}
+          disabled={!cloudAvailable}
+          title={t('connection.cloud.title')}
+          line={t('connection.cloud.line')}
+          onPress={() => choose('reactvision')}
+        />
+      )}
       {cloud ? (
         <>
           <Row

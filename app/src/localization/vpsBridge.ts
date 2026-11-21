@@ -6,6 +6,7 @@
  *
  * Also the one place that asks whether this build has ReactVision keys at all.
  */
+import { useEffect, useState } from 'react';
 import { NativeModules } from 'react-native';
 
 /** What the provider asks for; null = track nothing. */
@@ -108,4 +109,26 @@ export function reactVisionConfigured(): Promise<boolean> {
     configuredNow = answer;
   });
   return configured;
+}
+
+/**
+ * For the screens: true only once it is known that this build has ReactVision keys. A
+ * build without them does not offer the service anywhere - no choice of the connection
+ * method, no page for it (decision of 21.11.2026: the venue's own server is the way; the
+ * service stays in the code, optional and never run).
+ */
+export function useReactVisionKeys(): boolean {
+  const [keys, setKeys] = useState(configuredNow === true);
+  useEffect(() => {
+    let live = true;
+    void reactVisionConfigured().then((answer) => {
+      if (live) {
+        setKeys(answer);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return keys;
 }
