@@ -16,6 +16,8 @@ from a real room recording, the doorway in the real opening, finding the room ag
 after a restart, the atrium and the wooden door casing by eye, and everything about
 tracking loss. The details are in [Verified on a device](#verified-on-a-device) and
 [Not verified yet](#not-verified-yet); read them before relying on anything.
+The product screens added on 2026-11-21 ([The interface](#the-interface)) have not been
+on a phone at all.
 
 New here? Go through [Setup on Windows](#setup-on-windows), then
 [The scenario, step by step](#the-scenario-step-by-step).
@@ -176,14 +178,93 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (101 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (125 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
 [door measurements](#measuring-where-the-door-stands)), `npm run assets` (regenerate
 textures and the simple door model).
 
-## Using the app
+## The interface
+
+Since 21 November 2026 the app has product screens, built step by step from
+[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 3 of its section 10 so
+far). **None of these screens has been seen on a phone**; the build on the phone is still
+`546697d`. "Vrata" and the amber and teal colours are working choices, kept in one file
+(`src/brand.ts`).
+
+What a user meets, in order:
+
+1. **First launch only:** three welcome cards, then the camera permission screen (why the
+   camera is needed and where the video goes, before Android's own dialog), then **Find
+   the server**, which searches the Wi-Fi at once.
+2. **Home.** The app name, a server chip (green dot and the server's name when
+   connected), the settings button, and one card with one amber button:
+   - a room on the server: its plan drawing, name and doorway size, and **Open the door**;
+   - connected, no room yet: **Scan this room** (for now this opens the scan panel of the
+     developer tools, see below; the guided scan is step 4 of the spec);
+   - server offline or never set up: **Search again** or **Find the server**;
+   - always available: **Try a door without a server**, which puts the door two metres in
+     front of the user.
+3. **The AR screen.** Over the camera there is a close button, the name of the room or of
+   the space, and one instruction at a time: "Point at the room and hold still", "Try
+   another view", "Take a step sideways", "Slow down"... When the door stands, the
+   instruction goes and "Walk through the door" shows for five seconds. A menu holds
+   **Find the door again**. Small states are a pill under the top row ("The door may be
+   slightly off · Find again", "Server offline · the door stays where it is") or a red
+   banner ("Lost track of the room"). A first door position that the server is not sure of
+   is drawn as an amber dashed outline until a second look confirms it.
+4. **Settings:** server, automatic search, privacy, "How it works", the version line.
+
+### Developer options and the developer tools
+
+Everything technical is off by default. **Seven taps on the version line of Settings**
+switch the developer options on (and off again). They add:
+
+- on the AR screen, one line of diagnostics (tracking, provider, match quality and
+  inliers, search time, door size, confidence) and the button **Tools**;
+- **Tools** opens the developer tools over the camera: what used to be the whole
+  interface - AR / VR badge, server chip and its settings window, status banner, status
+  panel, event log, the scan panel (**Scan room**, **Record**, **Upload**, **Plan**, mesh
+  buttons), the measurement panel and the switches. [Using the developer tools](#using-the-developer-tools)
+  and [The scenario, step by step](#the-scenario-step-by-step) describe them; the checks of
+  assignment task 5 ([`docs/test-protocol.md`](docs/test-protocol.md)) are done there;
+- in Settings: provider, door frame, attach mode, room plan in AR, test room, the box and
+  sphere of task 1 ("Test objects"), a diagnostics screen with the status and the log, and
+  **Keep the AR view running**.
+
+The AR view (and with it the AR session) is started when the AR screen opens and ended
+when it closes, so every visit of the AR screen finds the room anew. If starting it
+repeatedly proves unstable on a phone, **Keep the AR view running** keeps one session
+alive behind the other screens.
+
+A restart of the app now ends on Home, not in AR: for the restart checks of the test
+protocol, tap **Open the door** at once; the record's "search time" starts when the AR
+screen opens, its "app start to door" includes the time spent on Home.
+
+### Where the spec is not followed yet
+
+Kept as a list for the product side; nothing here was decided silently.
+
+| Spec | What the app does | Why |
+| --- | --- | --- |
+| Bricolage Grotesque and Inter | system font, same sizes | bundling fonts postponed (the spec allows it) |
+| Outline icon set, 1.8 stroke | icons drawn with plain views | no vector-drawing module in the build |
+| Real safe-area insets | top from the status bar height, bottom a fixed 28 | needs a native module |
+| Blur behind elements over the camera | translucent fill only | the spec allows it |
+| Status panel and event log only on a Diagnostics screen | also the former overlay as **Tools** over the camera | the measurement mode needs crosshair, marks and log over the live view |
+| Door fades in over 300 ms; door dimmed while tracking is lost | the door appears at once and is not dimmed | not tried inside ViroReact's portal |
+| "This is a different room", "Choose another room", "Scan this room" in the AR problem sheet | only "Keep looking" | the rooms list and the guided scan are later steps |
+| "Place the door by hand" | not offered | the spec itself postpones it |
+| AR menu: only "Find the door again" for a door without a room | "Put the door in front of me" instead | the door placed without a server has nothing to be found by |
+| A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
+| "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
+| Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
+| Language, visitor mode, credits rows in Settings | not shown | later steps |
+
+## Using the developer tools
+
+This section and the next describe the developer tools (see above for how to open them).
 
 What is on the screen:
 
@@ -198,8 +279,7 @@ What is on the screen:
   "Cannot place the doorway") and then carries the button **Re-localize** (or
   **Re-place door** with the manual provider). It disappears once the doorway is placed
   and trusted.
-- *Debug / Hide debug*: toggles the debug overlay (status panel, event log, scan panel,
-  buttons). Hide it to see the scene.
+- *Hide tools*: closes the developer tools and returns to the product's AR screen.
 - Status panel: tracking state and reason, camera position and forward vector in
   AR-world coordinates, detected floor height, provider status, door pose, attach mode.
 - Event log: tracking changes, provider status, door poses, portal enter/exit, everything
@@ -220,18 +300,20 @@ Buttons of the debug overlay:
 | **Measuring** / **Measuring: on** | measurement mode: the scan panel is replaced by the measurement panel, a crosshair marks the middle of the screen. See [Measuring where the door stands](#measuring-where-the-door-stands) |
 | **Hide log**, **Clear log** | the event log |
 
-The shortest way to see the virtual world, without a server: start the app, move the
-phone slowly until tracking is NORMAL. A box and a sphere appear about 1.2 m in front of
-the starting position; the door casing appears 2 m ahead, standing on the floor and
-facing you. Press **Hide debug**, look through the door at the atrium, walk through it:
-the badge switches to VR and the hall surrounds you. Turn around and walk back through
-the door to return to AR. If the door stands badly, look at a free piece of floor and
-press **Re-place door** (in the debug overlay).
+The shortest way to see the virtual world, without a server: on Home (or on **Find the
+server**) tap **Try a door without a server**, and move the phone slowly until the door
+casing appears 2 m ahead, standing on the floor and facing you. Look through the door at
+the atrium, walk through it: the hall surrounds you. Turn around and walk back through
+the door. If the door stands badly, look at a free piece of floor and choose **Put the
+door in front of me** from the menu (top right).
 
 ## The scenario, step by step
 
-Connection, scanning, portal. Steps 1 to 4 have been seen on a phone (step 4 only with a
-recording too short to build a map from); steps 5 to 7 have not.
+Connection, scanning, portal, with the developer tools. Steps 1 to 4 have been seen on a
+phone with the build before the product screens (step 4 only with a recording too short
+to build a map from); steps 5 to 7 have not. With the product screens the connection is
+made on **Find the server** and the door is opened from Home; scanning still uses the
+tools (Home, **Scan this room**) until the guided scan exists.
 
 1. **Start the server** on a computer in the same network (project `localization-server`,
    its README: `uv run locserver-serve`). It prints its address.
@@ -408,7 +490,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 101 tests in all with those of `src/room/`, `src/localization/core/` and `src/measure/core/`, including a local mock of the server contract):
+  in Node (`npm test`; 125 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -642,7 +724,16 @@ src/
     wifiRoute.ts              JavaScript side of modules/wifi-route
     storage.ts                last working address on the phone
   state/appStore.ts           store shared by the AR scene and the overlay; holds THE door pose
-  ui/Overlay.tsx              mode badge, status banner, status panel, event log, buttons
+  brand.ts                    product name and palette (placeholders), the one place to change them
+  i18n/                       every user-facing text (en.ts), lookup t(key, params)
+  state/prefs.ts              what is remembered between launches (onboarding, developer options...)
+  room/roomsStore.ts          rooms of the server, plan and doorway of the current one (map frame)
+  ui/theme.ts, kit.tsx, icons.tsx   sizes and type, shared pieces, icons
+  ui/core/                    pure, unit-tested: what the AR screen shows (arView), Home situations, plan layout
+  ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
+  ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
+  ui/ProblemScreen.tsx, MoreScreens.tsx, PlanDrawing.tsx, flows.ts   the other screens and the paths between them
+  ui/Overlay.tsx              DEVELOPER TOOLS: mode badge, status banner, status panel, event log, buttons
   ui/ServerPanel.tsx          server status chip and server settings
   ui/ScanPanel.tsx            room-scan buttons, numbers, upload and build progress
   ui/MeasurePanel.tsx         measurement mode: test, marks, result, crosshair
@@ -918,6 +1009,11 @@ has never been installed.
 - **tracking loss**: that a loss longer than 1.5 s is noticed, that the door stays, that
   the room is looked for again and the door confirmed or corrected; that switching the
   scan mode does not count as a loss;
+- **every product screen** (welcome, permission, Find the server, Home, the AR screen
+  with its coach card, pills, banner, menu and sheets, Settings, problem screens), in
+  light and dark, with the largest system font; that leaving and re-entering the AR
+  screen starts a new AR session cleanly; the plan drawing against the real room; the
+  amber outline of an unconfirmed doorway; the AR-support query;
 - **the measurement mode**: whether the crosshair is the middle of the camera image,
   how repeatable a mark is (the protocol starts with that check), the posts staying on
   the marked corners, the records and their file, the lines reaching the server; and

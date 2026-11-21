@@ -10,6 +10,13 @@ mode**: what to do, what to press, what gets recorded and what counts as success
 > marking of corners, not a single trial. The first session on a device should start with
 > [Check the ruler first](#check-the-ruler-first).
 
+> **The interface has changed since this was written** (product screens, 21 November
+> 2026). The measurement mode is part of the developer tools: switch the developer
+> options on (Settings, seven taps on the version line), open the AR screen, press
+> **Tools**. A restart of the app ends on Home: tap **Open the door** to start the
+> search. "Search time" counts from the moment the AR screen opens; "app start to door"
+> now includes the time spent on Home, so use the search time for the restart test.
+
 ## The idea
 
 Every app session has its own AR coordinate frame, so the door pose of one session cannot
