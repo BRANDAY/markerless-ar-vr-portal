@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Standalone copy of the published mockups. Open this file in a browser. -->
+<style>body{margin:0}img{max-width:100%}</style>
+<title>Vrata App Mockups</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: a phone-sized app prototype in the middle, screen list on the left, design notes on the right;
+   on a phone the prototype fills the width and the list becomes a sheet.
+   Colour rule of the app: teal = the real room as the app understands it; amber = the door and the main action. */
+:root{
+  --bg:#E7EAF0; --fg:#141B27; --muted:#5A6477; --panel:#F7F8FA; --line:#CFD5DF; --accent:#FFB23E; --accent-ink:#2A1A00;
+  --a-bg:#F4F6F9; --a-surface:#FFFFFF; --a-surface2:#E9EDF2; --a-ink:#131A26; --a-ink2:#566074; --a-line:#D7DCE5;
+  --a-amber:#FFB23E; --a-amber-ink:#2A1A00; --a-amber-text:#8F5400; --a-amber-soft:#FFF0D6;
+  --a-teal:#0B8580; --a-teal-soft:#D8F0EE; --a-danger:#C2352B; --a-danger-soft:#FBE4E1; --a-ok:#1B7F45;
+  --hud-bg:rgba(9,13,21,.66); --hud-fg:#FFFFFF; --hud-line:rgba(255,255,255,.16); --hud-dim:rgba(255,255,255,.72);
+  --scan:#3FE0D4; --door:#FFB84D;
+  --display:"Bricolage Grotesque","Inter",system-ui,sans-serif; --text:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#070A10; --fg:#EDF1F7; --muted:#98A4B8; --panel:#10151F; --line:#252E3D; --accent:#FFB84D; --accent-ink:#2A1A00;
+  --a-bg:#0C111A; --a-surface:#151C28; --a-surface2:#1E2736; --a-ink:#EEF2F8; --a-ink2:#9AA6BA; --a-line:#2A3445;
+  --a-amber:#FFB84D; --a-amber-ink:#2A1A00; --a-amber-text:#FFC873; --a-amber-soft:#3A2A10;
+  --a-teal:#3FD0C6; --a-teal-soft:#12363A; --a-danger:#FF7A6E; --a-danger-soft:#3B1A18; --a-ok:#5AD08A;
+  color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#070A10; --fg:#EDF1F7; --muted:#98A4B8; --panel:#10151F; --line:#252E3D; --accent:#FFB84D; --accent-ink:#2A1A00;
+  --a-bg:#0C111A; --a-surface:#151C28; --a-surface2:#1E2736; --a-ink:#EEF2F8; --a-ink2:#9AA6BA; --a-line:#2A3445;
+  --a-amber:#FFB84D; --a-amber-ink:#2A1A00; --a-amber-text:#FFC873; --a-amber-soft:#3A2A10;
+  --a-teal:#3FD0C6; --a-teal-soft:#12363A; --a-danger:#FF7A6E; --a-danger-soft:#3B1A18; --a-ok:#5AD08A;
+  color-scheme:dark }
+/* The app has its own light/dark switch, independent of the page. */
+.device[data-app="light"]{
+  --a-bg:#F4F6F9; --a-surface:#FFFFFF; --a-surface2:#E9EDF2; --a-ink:#131A26; --a-ink2:#566074; --a-line:#D7DCE5;
+  --a-amber:#FFB23E; --a-amber-ink:#2A1A00; --a-amber-text:#8F5400; --a-amber-soft:#FFF0D6;
+  --a-teal:#0B8580; --a-teal-soft:#D8F0EE; --a-danger:#C2352B; --a-danger-soft:#FBE4E1; --a-ok:#1B7F45 }
+.device[data-app="dark"]{
+  --a-bg:#0C111A; --a-surface:#151C28; --a-surface2:#1E2736; --a-ink:#EEF2F8; --a-ink2:#9AA6BA; --a-line:#2A3445;
+  --a-amber:#FFB84D; --a-amber-ink:#2A1A00; --a-amber-text:#FFC873; --a-amber-soft:#3A2A10;
+  --a-teal:#3FD0C6; --a-teal-soft:#12363A; --a-danger:#FF7A6E; --a-danger-soft:#3B1A18; --a-ok:#5AD08A }
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:400 14px/1.5 var(--text)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ic{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ic.s{width:18px;height:18px}.ic.l{width:28px;height:28px}
+
+/* ---------- page shell ---------- */
+.shell{display:grid;grid-template-columns:230px minmax(0,1fr) 320px;gap:28px;max-width:1240px;margin:0 auto;
+  padding-block:22px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.brand{font:700 20px/1.1 var(--display);letter-spacing:-.01em;margin:0 0 2px}
+.brand small{font:500 11px var(--text);color:var(--muted);letter-spacing:.06em;text-transform:uppercase;display:block;margin-top:6px}
+.navlist{display:flex;flex-direction:column;gap:2px;margin-top:18px}
+.navlist h4{font:600 11px var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 4px}
+.navlist button{all:unset;cursor:pointer;padding:7px 10px;border-radius:9px;font:500 14px var(--text);color:var(--fg);display:flex;gap:10px}
+.navlist button span{color:var(--muted);font-variant-numeric:tabular-nums;min-width:18px}
+.navlist button:hover{background:var(--panel)}
+.navlist button[aria-current="true"]{background:var(--fg);color:var(--bg)}
+.navlist button[aria-current="true"] span{color:inherit;opacity:.6}
+.center{min-width:0;display:flex;flex-direction:column;align-items:center;gap:12px}
+.bar{display:flex;align-items:center;gap:8px;width:100%;max-width:420px}
+.bar .ttl{flex:1;min-width:0;text-align:center;font:600 14px var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .ttl b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums;margin-right:6px}
+.tool{all:unset;cursor:pointer;height:36px;min-width:36px;padding:0 8px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;font:500 13px var(--text);box-sizing:border-box}
+.tool:hover{border-color:var(--muted)}
+#listBtn{display:none}
+.vars{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:30px;max-width:420px}
+.vars button{all:unset;cursor:pointer;padding:4px 11px;border-radius:99px;border:1px solid var(--line);font:500 12.5px var(--text);color:var(--muted)}
+.vars button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.devbox{position:relative}
+.legend{font-size:12.5px;color:var(--muted);text-align:center;max-width:380px}
+.notes{min-width:0}
+.notes h2{font:700 22px/1.15 var(--display);letter-spacing:-.01em;margin:44px 0 6px;text-wrap:balance}
+.notes .why{color:var(--muted);margin:0 0 14px;max-width:60ch}
+.notes h3{font:600 11px var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 6px}
+.notes ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:60ch}
+.notes .now{border-left:2px solid var(--line);padding-left:12px;color:var(--muted);max-width:60ch}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20}
+@media (max-width:1100px){
+  .shell{grid-template-columns:minmax(0,1fr);gap:8px;padding-block:12px 32px}
+  .side{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-radius:20px 20px 0 0;border-top:1px solid var(--line);
+    max-height:78%;overflow:auto;padding:18px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+    transform:translateY(105%);transition:transform .22s ease}
+  .side.open{transform:none}
+  #listBtn{display:inline-flex}
+  .notes h2{margin-top:18px}
+}
+@media (max-width:480px){#listBtn span{display:none}}
+
+/* ---------- device ---------- */
+.device{width:360px;height:780px;position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden;border-radius:30px;
+  background:var(--a-bg);color:var(--a-ink);font:400 15px/1.42 var(--text);box-shadow:0 0 0 1px var(--line),0 24px 60px -28px rgba(0,0,0,.55)}
+.sb{position:absolute;inset:0 0 auto 0;height:34px;padding:0 22px;display:flex;align-items:center;justify-content:space-between;z-index:6;
+  font:600 12.5px var(--text);font-variant-numeric:tabular-nums;pointer-events:none}
+.sb i{display:inline-block;width:16px;height:9px;border:1.5px solid currentColor;border-radius:3px;position:relative;opacity:.9}
+.sb i::after{content:"";position:absolute;inset:1px 4px 1px 1px;background:currentColor;border-radius:1px}
+.device.is-cam .sb{color:var(--hud-fg)}
+.gest{position:absolute;left:50%;bottom:7px;width:112px;height:4px;margin-left:-56px;border-radius:4px;background:currentColor;opacity:.35;z-index:6;pointer-events:none}
+.device.is-cam .gest{color:var(--hud-fg)}
+.screen{position:absolute;inset:0;padding:46px 20px 30px;display:none;flex-direction:column;gap:14px}
+.screen.on{display:flex}
+.screen.cam{padding:0;color:var(--hud-fg);background:#30343a}
+.scene{position:absolute;inset:0;width:100%;height:100%}
+h1.t{font:700 28px/1.1 var(--display);letter-spacing:-.015em;margin:0;text-wrap:balance}
+h2.t{font:700 21px/1.15 var(--display);letter-spacing:-.01em;margin:0;text-wrap:balance}
+p.b{margin:0;color:var(--a-ink2)}
+.grow{flex:1;min-height:0}
+.stack{display:flex;flex-direction:column;gap:10px}
+.top{display:flex;align-items:center;gap:8px;min-height:40px}
+.top .h{flex:1;font:600 17px var(--text)}
+.iconbtn{all:unset;cursor:pointer;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;box-sizing:border-box}
+.iconbtn:hover{background:var(--a-surface2)}
+.btn{all:unset;cursor:pointer;box-sizing:border-box;height:54px;border-radius:16px;font:600 16px var(--text);display:flex;align-items:center;justify-content:center;gap:9px;text-align:center}
+.btn.primary{background:var(--a-amber);color:var(--a-amber-ink)}
+.btn.primary:active{filter:brightness(.94)}
+.btn.ghost{border:1px solid var(--a-line);color:var(--a-ink)}
+.btn.text{height:44px;color:var(--a-ink2);font-weight:500}
+.btn.danger{color:var(--a-danger);border:1px solid var(--a-line)}
+.btn[aria-disabled="true"]{opacity:.45}
+.card{background:var(--a-surface);border:1px solid var(--a-line);border-radius:20px;padding:16px}
+.row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--a-line);min-height:56px}
+.row:last-child{border-bottom:0}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font-weight:600}
+.row .tx small{color:var(--a-ink2);font-size:13px}
+.row .val{color:var(--a-ink2);font-size:14px}
+.tile{width:40px;height:40px;border-radius:12px;background:var(--a-surface2);display:grid;place-items:center;flex:none}
+.tile.teal{background:var(--a-teal-soft);color:var(--a-teal)}
+.tile.amber{background:var(--a-amber-soft);color:var(--a-amber-text)}
+.tile.red{background:var(--a-danger-soft);color:var(--a-danger)}
+.eyebrow{font:600 11.5px var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--a-ink2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--a-ok);flex:none}
+.dot.off{background:var(--a-danger)}.dot.busy{background:var(--a-amber)}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:99px;border:1px solid var(--a-line);font:500 13px var(--text);color:var(--a-ink2);background:var(--a-surface)}
+.chip.sel{background:var(--a-ink);color:var(--a-bg);border-color:var(--a-ink)}
+.switch{width:46px;height:28px;border-radius:99px;background:var(--a-surface2);border:1px solid var(--a-line);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--a-ink2)}
+.switch.on{background:var(--a-teal);border-color:var(--a-teal)}
+.switch.on::after{left:21px;background:var(--a-surface)}
+.pager{display:flex;gap:6px;justify-content:center}
+.pager i{width:7px;height:7px;border-radius:50%;background:var(--a-line)}
+.pager i.on{width:22px;border-radius:4px;background:var(--a-amber)}
+.pl-wall{fill:none;stroke:var(--a-teal);stroke-width:3;stroke-linejoin:round}
+.pl-fill{fill:var(--a-teal-soft)}
+.pl-corner{fill:var(--a-surface);stroke:var(--a-teal);stroke-width:2}
+.pl-door{stroke:var(--a-amber);stroke-width:6;stroke-linecap:round}
+.pl-door2{stroke:var(--a-ink2);stroke-width:5;stroke-linecap:round;opacity:.55}
+.plan text{font:500 10px var(--text);fill:var(--a-ink2);font-variant-numeric:tabular-nums}
+.thumb{border-radius:14px;overflow:hidden;flex:none;display:block}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.steps li{display:flex;align-items:center;gap:12px;padding:9px 0;color:var(--a-ink2)}
+.steps li .m{width:22px;height:22px;border-radius:50%;border:2px solid var(--a-line);flex:none;display:grid;place-items:center}
+.steps li.done{color:var(--a-ink)}
+.steps li.done .m{background:var(--a-teal);border-color:var(--a-teal);color:var(--a-surface)}
+.steps li.cur{color:var(--a-ink);font-weight:600}
+.steps li.cur .m{border-color:var(--a-amber);border-top-color:transparent;animation:spin 1s linear infinite}
+.steps li .m .ic{width:13px;height:13px;stroke-width:3;display:none}
+.steps li.done .m .ic{display:block}
+.steps li small{margin-left:auto;font-weight:400;color:var(--a-ink2);font-variant-numeric:tabular-nums}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ring{position:relative;width:148px;height:148px;margin:0 auto}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .tr{fill:none;stroke:var(--a-surface2);stroke-width:10}
+.ring .pr{fill:none;stroke:var(--a-amber);stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset .5s}
+.ring b{position:absolute;inset:0;display:grid;place-items:center;font:700 34px var(--display);font-variant-numeric:tabular-nums}
+.notice{display:flex;gap:10px;padding:12px 14px;border-radius:14px;background:var(--a-surface2);font-size:13.5px;color:var(--a-ink2)}
+.field{border:1px solid var(--a-line);background:var(--a-surface);border-radius:14px;padding:9px 14px}
+.field label{display:block;font-size:12px;color:var(--a-ink2)}
+.field div{font-weight:500}
+.opt{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid var(--a-line);border-radius:16px;background:var(--a-surface)}
+.opt.sel{border-color:var(--a-amber);background:var(--a-amber-soft)}
+.radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--a-ink2);flex:none}
+.opt.sel .radio{border:6px solid var(--a-amber-text)}
+.tag{font:600 11px var(--text);padding:2px 8px;border-radius:99px;background:var(--a-teal-soft);color:var(--a-teal)}
+.tag.amber{background:var(--a-amber-soft);color:var(--a-amber-text)}
+.tag.red{background:var(--a-danger-soft);color:var(--a-danger)}
+.spacecard{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--a-line);border-radius:18px;background:var(--a-surface)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--a-surface);color:var(--a-ink);border-radius:26px 26px 0 0;padding:10px 20px 30px;display:flex;flex-direction:column;gap:12px;z-index:4;box-shadow:0 -12px 40px -18px rgba(0,0,0,.5)}
+.sheet::before{content:"";width:40px;height:4px;border-radius:4px;background:var(--a-line);align-self:center}
+.hero{flex:1;min-height:0;display:grid;place-items:center}
+
+/* ---------- camera HUD: one look in both themes, it sits on live video ---------- */
+.glass{background:var(--hud-bg);color:var(--hud-fg);border:1px solid var(--hud-line);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.hud-top{position:absolute;top:42px;left:14px;right:14px;display:flex;align-items:center;gap:8px;z-index:3}
+.hud-btn{all:unset;cursor:pointer;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;box-sizing:border-box}
+.hud-pill{border-radius:99px;padding:9px 15px;font:500 13.5px var(--text);display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.hud-sp{flex:1}
+.coach{position:absolute;left:20px;right:20px;top:112px;z-index:3;border-radius:20px;padding:14px 16px;display:flex;gap:12px;align-items:center}
+.coach b{display:block;font:600 16px var(--text)}
+.coach small{color:var(--hud-dim);font-size:13.5px}
+.hud-bottom{position:absolute;left:16px;right:16px;bottom:30px;z-index:3;display:flex;flex-direction:column;gap:12px}
+.cam .btn.ghost{border-color:var(--hud-line);color:var(--hud-fg);background:var(--hud-bg)}
+.cam .btn.text{color:var(--hud-dim)}
+.meter{display:flex;gap:8px}
+.meter div{flex:1;border-radius:14px;padding:8px 10px;font-size:12px;color:var(--hud-dim)}
+.meter b{display:block;font:600 15px var(--text);color:var(--hud-fg);font-variant-numeric:tabular-nums}
+.meter .ok b{color:var(--scan)}
+.shutter{all:unset;cursor:pointer;width:68px;height:68px;border-radius:50%;border:4px solid var(--hud-fg);display:grid;place-items:center;box-sizing:border-box;margin:0 auto}
+.shutter::after{content:"";width:52px;height:52px;border-radius:50%;background:var(--hud-fg)}
+.hint{align-self:center}
+.sweep{animation:sweep 2.4s ease-in-out infinite}
+@keyframes sweep{0%,100%{transform:rotate(-14deg)}50%{transform:rotate(14deg)}}
+.pulse{animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.dash{stroke-dasharray:7 6;animation:dash 1.2s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-26}}
+.banner{position:absolute;left:14px;right:14px;top:98px;z-index:3;border-radius:18px;padding:12px 14px;display:flex;gap:10px;align-items:center;background:rgba(120,30,22,.82);border:1px solid rgba(255,255,255,.2);color:var(--hud-fg)}
+.devstrip{position:absolute;left:14px;right:14px;bottom:118px;z-index:3;border-radius:12px;padding:8px 10px;font:500 11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--hud-dim)}
+@media (prefers-reduced-motion:reduce){.sweep,.pulse,.dash,.steps li.cur .m{animation:none}.side{transition:none}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.6"/><circle cx="8" cy="17" r="2.6"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M7 21V4h10v17M4 21h16M14.2 12.5h.1"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3.5 9.5a12.5 12.5 0 0117 0M7 13.2a7.5 7.5 0 0110 0M12 17.6h.1"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3.2l1.4-2h6.8l1.4 2H20v11H4z"/><circle cx="12" cy="13.2" r="3.2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4"/></symbol>
+    <symbol id="i-plan" viewBox="0 0 24 24"><path d="M4 5h10v5h6v9H4z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12v9H6zM9 11V8a3 3 0 016 0v3"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.8h.1"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3zM12 10v4.5M12 17.4h.1"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.5 18h5M10.5 21h3M8.6 14.6a5.5 5.5 0 116.8 0c-.6.6-.9 1.2-.9 2h-5c0-.8-.3-1.4-.9-2z"/></symbol>
+    <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13" cy="4.8" r="1.7"/><path d="M12.5 8.5l-3 4 3.2 2.2V21M9.5 12.5l-3 1M13 10.5l2.6 2.2h2.6M10.4 15.6L8 21"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path stroke-width="2.8" d="M6 12h.1M12 12h.1M18 12h.1"/></symbol>
+    <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4M8 7.5L12 4l4 3.5M6 12v8h12v-8"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.5 9A8 8 0 104.6 15M19.5 4.5V9H15"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4.2 9c-1 2-1 4 0 6M19.8 9c1 2 1 4 0 6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M7.6 7.5h.1M7.6 16.5h.1"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-turn" viewBox="0 0 24 24"><path d="M9 14L4.5 9.5 9 5M5 9.5h9a5.5 5.5 0 010 11h-3"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s6-5.6 6-10a6 6 0 10-12 0c0 4.4 6 10 6 10z"/><circle cx="12" cy="11" r="2.1"/></symbol>
+
+    <!-- Stand-in for the live camera image: a plain grey room with one doorway. Own drawing. -->
+    <symbol id="cam-room" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice">
+      <rect width="360" height="780" fill="#7d838c"/>
+      <polygon points="0,0 360,0 360,70 318,150 42,150 0,70" fill="#b3b8bf"/>
+      <polygon points="0,70 42,150 42,540 0,680" fill="#8b9199"/>
+      <polygon points="360,70 318,150 318,540 360,680" fill="#989ea6"/>
+      <rect x="42" y="150" width="276" height="390" fill="#a4aab2"/>
+      <polygon points="0,680 42,540 318,540 360,680 360,780 0,780" fill="#6b6e73"/>
+      <polygon points="8,190 30,222 30,400 8,424" fill="#c9d3dc"/>
+      <path d="M42 540L0 680M318 540l42 140M120 540L78 780M240 540l42 240" stroke="#5e6166" stroke-width="1" fill="none"/>
+      <rect x="252" y="430" width="52" height="110" fill="#8e949c"/><rect x="252" y="430" width="52" height="8" fill="#7f858d"/>
+    </symbol>
+    <!-- The doorway in the back wall: x 140..228, y 318..540 (0.82 x 2.02 m in the story). -->
+    <symbol id="cam-doorway" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice">
+      <rect x="134" y="312" width="100" height="228" fill="#c8ccd2"/>
+      <rect x="140" y="318" width="88" height="222" fill="#3a3e45"/>
+      <polygon points="140,540 228,540 214,500 154,500" fill="#4a4e55"/>
+    </symbol>
+    <!-- Stand-in for the virtual space: an abstract sunlit stone court with arcades. Own drawing. -->
+    <symbol id="vr-court" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice">
+      <rect width="360" height="780" fill="#cfe1ef"/>
+      <rect width="360" height="260" fill="#b7d3ea"/>
+      <rect x="110" y="250" width="140" height="220" fill="#dcc294"/>
+      <path d="M118 470V385q17-50 34 0v85zM163 470V385q17-50 34 0v85zM208 470V385q17-50 34 0v85z" fill="#8c6f47"/>
+      <path d="M124 322v-34q11-16 22 0v34zM169 322v-34q11-16 22 0v34zM214 322v-34q11-16 22 0v34z" fill="#a98a5c"/>
+      <polygon points="0,120 110,250 110,470 0,640" fill="#c7a876"/>
+      <path d="M8 628V339Q23 210 38 340V581zM48 566V340Q60 241 72 341V529zM80 516V341Q89 264 98 342V489z" fill="#8a6c45"/>
+      <polygon points="360,120 250,250 250,470 360,640" fill="#ead2a4"/>
+      <path d="M352 628V339Q337 210 322 340V581zM312 566V340Q300 241 288 341V529zM280 516V341Q271 264 262 342V489z" fill="#a98a5c"/>
+      <polygon points="0,640 110,470 250,470 360,640 360,780 0,780" fill="#bfa173"/>
+      <path d="M110 470L0 640M250 470l110 170M157 470L80 780M203 470l77 310M60 547h240M22 606h316M0 690h360" stroke="#a88b5f" stroke-width="1.2" fill="none"/>
+      <polygon points="250,470 360,640 360,780 300,780 215,470" fill="#d2b584" opacity=".6"/>
+    </symbol>
+    <symbol id="door-world" viewBox="0 0 88 222">
+      <rect width="88" height="222" fill="#cfe1ef"/><rect x="18" y="62" width="52" height="96" fill="#dcc294"/>
+      <path d="M22 158v-30q8-20 16 0v30zM50 158v-30q8-20 16 0v30z" fill="#8c6f47"/>
+      <polygon points="0,20 18,62 18,158 0,200" fill="#c7a876"/><polygon points="88,20 70,62 70,158 88,200" fill="#ead2a4"/>
+      <path d="M3 196V104q5-34 10 0v72z" fill="#8a6c45"/><path d="M85 196V104q-5-34-10 0v72z" fill="#a98a5c"/>
+      <polygon points="0,200 18,158 70,158 88,200 88,222 0,222" fill="#bfa173"/>
+    </symbol>
+    <symbol id="plan-room" viewBox="0 0 280 200">
+      <path class="pl-fill" d="M30 30h220v110h-70v40H30z"/>
+      <path class="pl-wall" d="M30 30h76M148 30h102v110h-70v40H30V112M30 74V30"/>
+      <path class="pl-door2" d="M30 78v30"/>
+      <path class="pl-door" d="M110 30h34"/>
+      <circle class="pl-corner" cx="30" cy="30" r="4"/><circle class="pl-corner" cx="250" cy="30" r="4"/><circle class="pl-corner" cx="250" cy="140" r="4"/>
+      <circle class="pl-corner" cx="180" cy="140" r="4"/><circle class="pl-corner" cx="180" cy="180" r="4"/><circle class="pl-corner" cx="30" cy="180" r="4"/>
+    </symbol>
+    <symbol id="th-court" viewBox="0 0 64 64"><rect width="64" height="64" fill="#b7d3ea"/><rect y="26" width="64" height="38" fill="#dcc294"/><path d="M6 64V44q7-14 14 0v20zM25 64V44q7-14 14 0v20zM44 64V44q7-14 14 0v20z" fill="#8c6f47"/></symbol>
+    <symbol id="th-hall" viewBox="0 0 64 64"><rect width="64" height="64" fill="#4b4038"/><path d="M0 64V30L32 8l32 22v34z" fill="#6d5c4d"/><path d="M26 64V40q6-12 12 0v24z" fill="#e8d7a8"/><path d="M8 64V46h8v18zM48 64V46h8v18z" fill="#3a302a"/></symbol>
+    <symbol id="th-cloister" viewBox="0 0 64 64"><rect width="64" height="64" fill="#a9b8a2"/><rect y="40" width="64" height="24" fill="#8a8f7a"/><path d="M4 44V24q9-16 18 0v20zM24 44V24q9-16 18 0v20zM44 44V24q9-16 18 0v20z" fill="#e9ecdf"/></symbol>
+  </defs>
+</svg>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <p class="brand">Vrata<small>App mockups · working name</small></p>
+    <nav class="navlist" id="nav" aria-label="Screens"></nav>
+  </aside>
+
+  <main class="center">
+    <div class="bar">
+      <button class="tool" id="listBtn" aria-label="All screens"><svg class="ic s"><use href="#i-layers"/></svg><span>Screens</span></button>
+      <button class="tool" id="prev" aria-label="Previous screen"><svg class="ic s"><use href="#i-back"/></svg></button>
+      <div class="ttl" id="ttl"></div>
+      <button class="tool" id="next" aria-label="Next screen"><svg class="ic s"><use href="#i-chev"/></svg></button>
+      <button class="tool" id="themeBtn" aria-label="Switch app theme">Dark</button>
+    </div>
+    <div class="vars" id="vars" aria-label="States of this screen"></div>
+
+    <div class="devbox" id="devbox">
+    <div class="device" id="device" data-app="light">
+      <div class="sb"><span>9:41</span><span style="display:flex;gap:7px;align-items:center"><svg class="ic" style="width:15px;height:15px;stroke-width:2.2"><use href="#i-wifi"/></svg><i></i></span></div>
+      <div class="gest"></div>
+
+      <!-- 1 Welcome -->
+      <section class="screen" id="s-welcome">
+        <div class="hero">
+          <svg width="230" height="290" viewBox="0 0 230 290" aria-hidden="true">
+            <path d="M20 268h190" stroke="var(--a-line)" stroke-width="3" stroke-linecap="round"/>
+            <g data-only="w1"><polygon points="74,266 156,266 196,286 34,286" fill="var(--a-amber)" opacity=".28"/><rect x="74" y="56" width="82" height="210" rx="3" fill="var(--a-amber)"/><rect x="74" y="56" width="82" height="210" rx="3" fill="none" stroke="var(--a-ink)" stroke-width="5"/><path d="M92 266V150q23-58 46 0v116z" fill="var(--a-amber-ink)" opacity=".25"/></g>
+            <g data-only="w2"><path d="M34 266V96l40-40h82l40 40v170" fill="var(--a-teal-soft)" stroke="var(--a-teal)" stroke-width="4" stroke-linejoin="round"/><path d="M74 56v210M156 56v210" stroke="var(--a-teal)" stroke-width="2" stroke-dasharray="6 6"/><rect x="92" y="150" width="46" height="116" fill="var(--a-bg)" stroke="var(--a-amber)" stroke-width="4" stroke-dasharray="8 6"/><circle cx="34" cy="96" r="5" fill="var(--a-surface)" stroke="var(--a-teal)" stroke-width="3"/><circle cx="196" cy="96" r="5" fill="var(--a-surface)" stroke="var(--a-teal)" stroke-width="3"/></g>
+            <g data-only="w3"><rect x="74" y="56" width="82" height="210" rx="3" fill="var(--a-amber-soft)" stroke="var(--a-ink)" stroke-width="5"/><path d="M96 168l14 14 26-30" fill="none" stroke="var(--a-amber-text)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 60q-14 40 0 80M200 60q14 40 0 80" fill="none" stroke="var(--a-line)" stroke-width="3" stroke-linecap="round"/></g>
+          </svg>
+        </div>
+        <div class="stack" style="gap:8px">
+          <h1 class="t" data-only="w1">A door to somewhere else</h1>
+          <p class="b" data-only="w1">Vrata puts a virtual door into a real doorway. Walk through it and you are standing in another place.</p>
+          <h1 class="t" data-only="w2">Scan the room once</h1>
+          <p class="b" data-only="w2">Walk around the room for about two minutes. Vrata learns the walls and finds the doorway by itself.</p>
+          <h1 class="t" data-only="w3">The door stays put</h1>
+          <p class="b" data-only="w3">Next time, point the phone at the room. The door comes back to the same doorway. No markers, nothing to place by hand.</p>
+        </div>
+        <div class="pager" id="wPager"><i class="on"></i><i></i><i></i></div>
+        <div class="stack" style="gap:2px">
+          <button class="btn primary" id="wNext">Continue</button>
+          <button class="btn text" data-go="permission">Skip</button>
+        </div>
+      </section>
+
+      <!-- 2 Camera permission -->
+      <section class="screen" id="s-permission">
+        <div class="hero"><div class="tile amber" style="width:96px;height:96px;border-radius:30px"><svg class="ic" style="width:46px;height:46px"><use href="#i-camera"/></svg></div></div>
+        <h1 class="t">Vrata needs your camera</h1>
+        <p class="b">The camera shows the room and keeps the door in its place.</p>
+        <div class="card stack" style="gap:0;padding:4px 16px">
+          <div class="row"><svg class="ic" style="color:var(--a-teal)"><use href="#i-scan"/></svg><div class="tx"><small>When you scan a room, a short video of it goes to the Vrata server on this Wi‑Fi. It is used only to build the room map.</small></div></div>
+          <div class="row"><svg class="ic" style="color:var(--a-teal)"><use href="#i-shield"/></svg><div class="tx"><small>Nothing leaves this network. No account, no ads.</small></div></div>
+          <div class="row"><svg class="ic" style="color:var(--a-teal)"><use href="#i-trash"/></svg><div class="tx"><small>You can delete a room and its video at any time.</small></div></div>
+        </div>
+        <div class="stack" style="gap:2px">
+          <button class="btn primary" data-go="connect">Allow camera</button>
+          <button class="btn text" data-go="errors" data-var="camera">Not now</button>
+        </div>
+      </section>
+
+      <!-- 3 Connect -->
+      <section class="screen" id="s-connect">
+        <div class="hero">
+          <div style="position:relative;width:170px;height:170px;display:grid;place-items:center">
+            <svg width="170" height="170" viewBox="0 0 170 170" style="position:absolute" aria-hidden="true"><circle cx="85" cy="85" r="80" fill="none" stroke="var(--a-line)" stroke-width="2"/><circle cx="85" cy="85" r="56" fill="none" stroke="var(--a-line)" stroke-width="2"/><circle class="pulse" data-only="searching" cx="85" cy="85" r="80" fill="none" stroke="var(--a-teal)" stroke-width="3" stroke-dasharray="60 443"/></svg>
+            <div class="tile teal" data-only="searching found" style="width:72px;height:72px;border-radius:24px"><svg class="ic l"><use href="#i-server"/></svg></div>
+            <div class="tile red" data-only="none" style="width:72px;height:72px;border-radius:24px"><svg class="ic l"><use href="#i-wifi"/></svg></div>
+          </div>
+        </div>
+        <div class="stack" data-only="searching" style="gap:8px"><h1 class="t">Looking for a Vrata server</h1><p class="b">Checking this Wi‑Fi. This can take up to a minute.</p></div>
+        <div class="stack" data-only="found" style="gap:8px"><h1 class="t">Found “Front desk PC”</h1><p class="b">A Vrata server on this Wi‑Fi with 2 scanned rooms.</p></div>
+        <div class="stack" data-only="none" style="gap:8px"><h1 class="t">No server on this Wi‑Fi</h1><p class="b">Vrata keeps a door in place with the help of a server on the same network.</p>
+          <div class="card stack" style="gap:0;padding:2px 16px">
+            <div class="row"><svg class="ic s"><use href="#i-check"/></svg><div class="tx"><small>Is the server PC switched on and Vrata Server running?</small></div></div>
+            <div class="row"><svg class="ic s"><use href="#i-check"/></svg><div class="tx"><small>Is this phone on the same Wi‑Fi (not mobile data, not a guest network)?</small></div></div>
+          </div></div>
+        <div class="stack" style="gap:2px">
+          <button class="btn primary" data-only="found" data-go="home">Connect</button>
+          <button class="btn ghost" data-only="searching" data-var="none">Enter address instead</button>
+          <button class="btn primary" data-only="none" data-var="searching">Search again</button>
+          <button class="btn ghost" data-only="none" style="margin-top:8px">Enter address</button>
+          <button class="btn text" data-go="door">Try a door without a server</button>
+        </div>
+      </section>
+
+      <!-- 4 Home -->
+      <section class="screen" id="s-home">
+        <div class="top"><div class="h" style="font:700 22px var(--display)">Vrata</div>
+          <span class="chip" data-go="app-settings" style="cursor:pointer"><span class="dot"></span>Front desk PC</span>
+          <button class="iconbtn" data-go="app-settings" aria-label="Settings"><svg class="ic"><use href="#i-sliders"/></svg></button></div>
+        <div class="card stack" data-only="ready" style="gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">This room</span><span class="tag">Ready</span></div>
+          <svg class="plan" viewBox="0 0 280 200" style="width:100%;height:150px"><use href="#plan-room"/></svg>
+          <div style="display:flex;align-items:center;gap:8px"><div class="tx" style="flex:1"><b style="font:600 17px var(--text)">Seminar room B</b><br><small style="color:var(--a-ink2)">18 Nov · doorway 0.82 × 2.02 m</small></div><button class="iconbtn" data-go="rooms" aria-label="Rooms"><svg class="ic"><use href="#i-chev"/></svg></button></div>
+        </div>
+        <div class="spacecard" data-only="ready" data-go="spaces" style="cursor:pointer"><svg class="thumb" width="56" height="56"><use href="#th-court"/></svg><div class="tx" style="flex:1"><span class="eyebrow">Behind the door</span><br><b>Sponza Palace atrium</b></div><span class="val" style="color:var(--a-ink2)">Change</span></div>
+        <div class="card stack" data-only="empty" style="gap:10px;align-items:flex-start">
+          <div class="tile teal"><svg class="ic"><use href="#i-scan"/></svg></div>
+          <h2 class="t">No room here yet</h2>
+          <p class="b">Scan this room once and Vrata will remember where its doorway is. It takes about two minutes of walking.</p>
+        </div>
+        <div class="grow"></div>
+        <div class="stack" style="gap:2px">
+          <button class="btn primary" data-only="ready" data-go="locate"><svg class="ic"><use href="#i-door"/></svg>Open the door</button>
+          <button class="btn primary" data-only="empty" data-go="scan-prepare"><svg class="ic"><use href="#i-scan"/></svg>Scan this room</button>
+          <button class="btn text" data-only="ready" data-go="scan-prepare">Scan another room</button>
+          <button class="btn text" data-only="empty" data-go="door">Try a door without scanning</button>
+        </div>
+      </section>
+
+      <!-- 5 Before you scan -->
+      <section class="screen" id="s-scan-prepare">
+        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Scan a room</div></div>
+        <h1 class="t">Before you start</h1>
+        <div class="card stack" style="gap:0;padding:4px 16px">
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-bulb"/></svg></div><div class="tx"><b>Turn on the lights</b><small>A bright room scans better.</small></div></div>
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-door"/></svg></div><div class="tx"><b>Keep the doorway clear</b><small>Nothing standing in it. Open or closed is fine.</small></div></div>
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-walk"/></svg></div><div class="tx"><b>Clear a path along the walls</b><small>You will walk around the room, not just turn.</small></div></div>
+        </div>
+        <div class="notice"><svg class="ic s"><use href="#i-clock"/></svg><span>About 2 minutes of scanning, then 3–15 minutes while the server builds the map. You can use the phone meanwhile.</span></div>
+        <div class="grow"></div>
+        <button class="btn primary" data-go="scan">Start scanning</button>
+      </section>
+
+      <!-- 6 Scanning -->
+      <section class="screen cam" id="s-scan">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <use href="#cam-room"/><use href="#cam-doorway"/>
+          <defs><pattern id="mesh" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M0 26L26 0M0 0h26v26" fill="none" stroke="#3FE0D4" stroke-width=".8" opacity=".55"/></pattern>
+          <pattern id="dots" width="20" height="14" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="1.6" fill="#3FE0D4"/></pattern></defs>
+          <polygon points="0,70 42,150 42,540 0,680" fill="#3FE0D4" opacity=".2"/><polygon points="0,70 42,150 42,540 0,680" fill="url(#mesh)"/>
+          <path d="M42 150h276v390H228V318h-88v222H42z" fill="#3FE0D4" opacity=".2"/><path d="M42 150h276v390H228V318h-88v222H42z" fill="url(#mesh)"/>
+          <polygon points="0,680 42,540 318,540 360,680 360,780 0,780" fill="url(#dots)" opacity=".8"/>
+          <path d="M42 150v390M0 680L42 540h98M228 540h90" stroke="#3FE0D4" stroke-width="2.5" fill="none"/>
+          <polygon class="dash" data-only="walls" points="360,70 318,150 318,540 360,680" fill="none" stroke="#3FE0D4" stroke-width="2.5"/>
+          <g data-only="doorway finish"><polygon points="360,70 318,150 318,540 360,680" fill="#3FE0D4" opacity=".2"/><polygon points="360,70 318,150 318,540 360,680" fill="url(#mesh)"/><path d="M318 150v390l42 140" stroke="#3FE0D4" stroke-width="2.5" fill="none"/></g>
+          <g fill="#fff" stroke="#3FE0D4" stroke-width="2.5"><circle cx="42" cy="150" r="5"/><circle cx="42" cy="540" r="5"/><circle data-only="doorway finish" cx="318" cy="150" r="5"/><circle data-only="doorway finish" cx="318" cy="540" r="5"/></g>
+          <g data-only="doorway" fill="none" stroke="#FFB84D" stroke-width="4" stroke-linecap="round"><path d="M122 330v-28h28M218 302h28v28M246 528v26h-28M150 554h-28v-26"/></g>
+        </svg>
+        <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Stop scanning"><svg class="ic"><use href="#i-x"/></svg></button><span class="hud-sp"></span><span class="hud-pill glass"><span class="dot" style="background:#FF5A4D"></span><span id="scanTime">0:47</span></span></div>
+        <div class="coach glass" data-only="walls"><svg class="ic l" style="color:var(--scan)"><use href="#i-walk"/></svg><div><b>Walk slowly along the walls</b><small>Point at where the wall meets the floor.</small></div></div>
+        <div class="coach glass" data-only="doorway"><svg class="ic l" style="color:var(--door)"><use href="#i-door"/></svg><div><b>Now show the doorway</b><small>Step back until all of it fits, then look at it from a second spot.</small></div></div>
+        <div class="coach glass" data-only="finish"><svg class="ic l" style="color:var(--scan)"><use href="#i-check"/></svg><div><b>That’s enough</b><small>Keep going for a better map, or finish now.</small></div></div>
+        <div class="hud-bottom">
+          <div class="meter"><div class="glass ok"><b>Floor ✓</b>found</div><div class="glass ok"><b data-only="walls">2 walls</b><b data-only="doorway finish">4 walls</b>found</div><div class="glass"><b data-only="walls">3.1 m</b><b data-only="doorway">7.4 m</b><b data-only="finish">9.8 m</b>walked</div></div>
+          <button class="btn ghost" data-only="walls" aria-disabled="true" data-var="doorway">Keep going · 13 s</button>
+          <button class="btn ghost" data-only="doorway" data-var="finish">I showed the doorway</button>
+          <button class="btn primary" data-only="finish" data-go="build">Finish scan</button>
+        </div>
+      </section>
+
+      <!-- 7 Building the map -->
+      <section class="screen" id="s-build">
+        <div class="top"><div class="h">Seminar room B</div><button class="iconbtn" data-go="home" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+        <div class="stack" data-only="running" style="gap:6px"><h1 class="t">Building your room</h1><p class="b" id="bEta">About 6 minutes left</p></div>
+        <div class="stack" data-only="done" style="gap:6px"><h1 class="t">The map is ready</h1><p class="b">Built in 7 min 12 s from 184 frames.</p></div>
+        <div class="ring"><svg viewBox="0 0 148 148"><circle class="tr" cx="74" cy="74" r="64"/><circle class="pr" id="bRing" cx="74" cy="74" r="64" stroke-dasharray="402.1" stroke-dashoffset="233"/></svg><b id="bPct">42%</b></div>
+        <ul class="steps" id="bSteps">
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Sending the scan<small>86 MB</small></li>
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Reading the scan</li>
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Building the 3D map</li>
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Measuring the room</li>
+          <li><span class="m"><svg class="ic"><use href="#i-check"/></svg></span>Finding the doorway</li>
+        </ul>
+        <div class="grow"></div>
+        <div class="notice" data-only="running"><svg class="ic s"><use href="#i-info"/></svg><span>You can leave this screen. Vrata will tell you when the room is ready.</span></div>
+        <button class="btn text" data-only="running" data-go="home">Cancel</button>
+        <button class="btn primary" data-only="done" data-go="room-ready">See the room</button>
+      </section>
+
+      <!-- 8 Room ready -->
+      <section class="screen" id="s-room-ready">
+        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Your room</div></div>
+        <div class="card" style="padding:10px">
+          <svg class="plan" viewBox="0 0 280 214" style="width:100%;height:200px"><use href="#plan-room"/>
+            <text x="140" y="20" text-anchor="middle">5.2 m</text><text x="262" y="88">3.1 m</text>
+            <text x="127" y="50" text-anchor="middle" data-only="found" style="fill:var(--a-amber-text);font-weight:600">A</text><text x="42" y="97" data-only="found">B</text>
+            <path d="M30 204h42M30 200v8M72 200v8" stroke="var(--a-ink2)" stroke-width="1.5" fill="none"/><text x="80" y="208">1 m</text></svg>
+        </div>
+        <div class="stack" data-only="found" style="gap:8px">
+          <h2 class="t">Two doorways found</h2><p class="b">The door will stand in the one you pick.</p>
+          <div class="opt sel"><span class="radio"></span><div class="tx" style="flex:1"><b>Doorway A</b><br><small style="color:var(--a-ink2)">0.82 × 2.02 m · open</small></div><span class="tag amber">Best match</span></div>
+          <div class="opt"><span class="radio"></span><div class="tx" style="flex:1"><b>Doorway B</b><br><small style="color:var(--a-ink2)">0.90 × 2.00 m · closed</small></div></div>
+        </div>
+        <div class="stack" data-only="nodoor" style="gap:8px">
+          <h2 class="t">No doorway found</h2><p class="b">The room map is fine, but Vrata could not see a doorway clearly. Scan again and look at the whole doorway from two spots, or place the door yourself.</p>
+        </div>
+        <div class="grow"></div>
+        <div class="stack" style="gap:2px">
+          <button class="btn primary" data-only="found" data-go="locate">Use doorway A</button>
+          <button class="btn text" data-only="found" data-go="scan-prepare">None of these · scan again</button>
+          <button class="btn primary" data-only="nodoor" data-go="scan-prepare">Scan again</button>
+          <button class="btn text" data-only="nodoor" data-go="door">Place the door by hand</button>
+        </div>
+      </section>
+
+      <!-- 9 Finding the room -->
+      <section class="screen cam" id="s-locate">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#cam-room"/><use href="#cam-doorway"/>
+          <rect class="pulse" data-only="slow" x="137" y="315" width="94" height="228" fill="none" stroke="#FFB84D" stroke-width="3" stroke-dasharray="10 8"/></svg>
+        <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button><span class="hud-sp"></span><span class="hud-pill glass">Seminar room B</span></div>
+        <div class="coach glass" data-only="searching"><svg class="ic l sweep" style="color:var(--door)"><use href="#i-phone"/></svg><div><b>Point at the room and hold still</b><small>Finding your room…</small></div></div>
+        <div class="coach glass" data-only="slow"><svg class="ic l" style="color:var(--door)"><use href="#i-door"/></svg><div><b>Try another view</b><small>Aim at furniture, shelves or pictures, not a bare wall. Hold still.</small></div></div>
+        <div class="coach glass" data-only="stuck"><svg class="ic l" style="color:var(--door)"><use href="#i-bulb"/></svg><div><b>Still looking</b><small>Turn on more lights, or stand where you stood during the scan.</small></div></div>
+        <div class="hud-bottom">
+          <button class="btn ghost" data-only="stuck" data-go="errors" data-var="unknown">This is a different room</button>
+          <button class="btn text" data-only="searching slow" data-go="door">Prototype: show the door</button>
+        </div>
+      </section>
+
+      <!-- 10 Door in the room -->
+      <section class="screen cam" id="s-door">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#cam-room"/>
+          <polygon points="140,540 228,540 262,640 106,640" fill="#FFD38A" opacity=".22"/>
+          <svg x="140" y="318" width="88" height="222" viewBox="0 0 88 222"><use href="#door-world"/></svg>
+          <rect x="136" y="314" width="96" height="228" fill="none" stroke="#6b4a2b" stroke-width="8"/><rect x="136" y="314" width="96" height="228" fill="none" stroke="#8a6238" stroke-width="2"/>
+        </svg>
+        <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button><span class="hud-sp"></span>
+          <button class="hud-pill glass" data-go="spaces" style="cursor:pointer"><svg class="ic s"><use href="#i-layers"/></svg>Sponza atrium</button>
+          <button class="hud-btn glass" data-var="menu" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
+        <div class="devstrip glass" data-only="dev">tracking NORMAL · provider self-hosted · quality good · 142 inliers · 0.9 s<br>door 0.82×2.02 m · conf 0.86 · drift check in 12 s</div>
+        <div class="hud-bottom" data-only="placed dev">
+          <span class="hud-pill glass hint">Walk through the door</span>
+          <button class="shutter" aria-label="Take a photo"></button>
+        </div>
+        <div class="sheet" data-only="menu">
+          <div class="row" data-var="placed" style="cursor:pointer"><svg class="ic"><use href="#i-refresh"/></svg><div class="tx"><b>Find the door again</b><small>If it has slipped out of the doorway</small></div></div>
+          <div class="row" data-go="spaces" style="cursor:pointer"><svg class="ic"><use href="#i-layers"/></svg><div class="tx"><b>Change the space</b></div></div>
+          <div class="row" data-go="room-ready" style="cursor:pointer"><svg class="ic"><use href="#i-door"/></svg><div class="tx"><b>Use another doorway</b></div></div>
+          <button class="btn text" data-var="placed">Close</button>
+        </div>
+      </section>
+
+      <!-- 11 Inside the space -->
+      <section class="screen cam" id="s-inside">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#vr-court"/>
+          <g data-only="walk" fill="none" stroke="#FFB84D"><ellipse cx="180" cy="574" rx="40" ry="11" stroke-width="4"/><ellipse class="pulse" cx="180" cy="574" rx="52" ry="15" stroke-width="2"/><ellipse cx="180" cy="492" rx="17" ry="5" stroke-width="3"/></g>
+          <g data-only="wall"><defs><pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M0 0h30v30" fill="none" stroke="#3FE0D4" stroke-width="1.6"/></pattern></defs>
+            <polygon points="360,150 232,262 232,520 360,700" fill="#0a2b2e" opacity=".35"/><polygon points="360,150 232,262 232,520 360,700" fill="url(#grid)"/><path d="M232 262v258" stroke="#3FE0D4" stroke-width="3"/></g>
+        </svg>
+        <div class="hud-top"><button class="hud-pill glass" data-go="door" style="cursor:pointer"><svg class="ic s"><use href="#i-turn"/></svg>Door is behind you</button><span class="hud-sp"></span><button class="hud-btn glass" data-var="info" aria-label="About this place"><svg class="ic"><use href="#i-info"/></svg></button></div>
+        <div class="coach glass" data-only="wall" style="top:104px"><svg class="ic l" style="color:var(--scan)"><use href="#i-alert"/></svg><div><b>A real wall is close</b><small>The grid shows where your room ends.</small></div></div>
+        <div class="hud-bottom" data-only="walk wall">
+          <span class="hud-pill glass hint" data-only="walk">Tap a ring to move further in</span>
+          <button class="shutter" aria-label="Take a photo"></button>
+        </div>
+        <div class="sheet" data-only="info">
+          <span class="eyebrow">Dubrovnik, Croatia · 16th century</span>
+          <h2 class="t">Sponza Palace atrium</h2>
+          <p class="b">The arcaded court of the old customs house and mint of the Republic of Ragusa. You are standing at its western end, looking down the long axis.</p>
+          <p class="b" style="font-size:12.5px">3D model: Crytek Sponza, CC BY 3.0. Lighting baked for this app.</p>
+          <button class="btn ghost" data-var="walk">Close</button>
+        </div>
+      </section>
+
+      <!-- 12 Spaces -->
+      <section class="screen" id="s-spaces">
+        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Spaces</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="chip sel">All</span><span class="chip">Heritage</span><span class="chip">360° views</span></div>
+        <div class="stack">
+          <div class="spacecard" data-var="detail" style="cursor:pointer"><svg class="thumb" width="72" height="72"><use href="#th-court"/></svg><div class="tx" style="flex:1"><b>Sponza Palace atrium</b><br><small style="color:var(--a-ink2)">Dubrovnik · walk-in 3D · 21 MB</small><br><span class="tag amber" style="margin-top:4px;display:inline-block">Behind your door</span></div></div>
+          <div class="spacecard"><svg class="thumb" width="72" height="72"><use href="#th-hall"/></svg><div class="tx" style="flex:1"><b>Great hall</b><br><small style="color:var(--a-ink2)">Example · walk-in 3D · 84 MB</small></div><button class="iconbtn" aria-label="Download"><svg class="ic"><use href="#i-dl"/></svg></button></div>
+          <div class="spacecard"><svg class="thumb" width="72" height="72"><use href="#th-cloister"/></svg><div class="tx" style="flex:1"><b>Cloister passage</b><br><small style="color:var(--a-ink2)">Example · 360° view · 12 MB</small></div><button class="iconbtn" aria-label="Download"><svg class="ic"><use href="#i-dl"/></svg></button></div>
+        </div>
+        <div class="grow"></div>
+        <div class="notice" data-only="list"><svg class="ic s"><use href="#i-info"/></svg><span>Walk-in spaces have depth: you can step inside and look around corners. 360° views surround you but stay flat.</span></div>
+        <div class="sheet" data-only="detail">
+          <svg class="thumb" style="width:100%;height:120px" viewBox="0 0 64 64" preserveAspectRatio="xMidYMid slice"><use href="#th-court" width="64" height="64"/></svg>
+          <span class="eyebrow">Dubrovnik, Croatia · 16th century</span>
+          <h2 class="t">Sponza Palace atrium</h2>
+          <p class="b">An arcaded stone court, 27 m long. You enter at one end. How far you can walk depends on your real room.</p>
+          <p class="b" style="font-size:12.5px">21 MB · on this phone · 3D model: Crytek Sponza, CC BY 3.0</p>
+          <button class="btn primary" data-go="home">Put behind my door</button>
+          <button class="btn text" data-var="list">Close</button>
+        </div>
+      </section>
+
+      <!-- 13 Rooms -->
+      <section class="screen" id="s-rooms">
+        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Rooms</div></div>
+        <div class="card stack" style="gap:0;padding:2px 16px">
+          <div class="row"><div class="tile teal"><svg class="ic"><use href="#i-plan"/></svg></div><div class="tx"><b>Seminar room B</b><small>Ready · 2 doorways · Sponza atrium</small></div><button class="iconbtn" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
+          <div class="row"><div class="tile amber"><svg class="ic"><use href="#i-clock"/></svg></div><div class="tx"><b>Lobby</b><small>Building the map · 42%</small></div><button class="iconbtn" data-go="build" aria-label="Open"><svg class="ic"><use href="#i-chev"/></svg></button></div>
+          <div class="row"><div class="tile red"><svg class="ic"><use href="#i-alert"/></svg></div><div class="tx"><b>Office 214</b><small>Scan again · the room has changed</small></div><button class="iconbtn" aria-label="More"><svg class="ic"><use href="#i-more"/></svg></button></div>
+        </div>
+        <p class="b" style="font-size:13px">Rooms live on the server “Front desk PC”. Every phone that connects to it sees the same rooms.</p>
+        <div class="grow"></div>
+        <button class="btn primary" data-go="scan-prepare"><svg class="ic"><use href="#i-plus"/></svg>Scan a new room</button>
+      </section>
+
+      <!-- 14 Problems -->
+      <section class="screen" id="s-errors">
+        <div data-only="server camera scan device" class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button></div>
+        <div data-only="server" class="stack grow" style="justify-content:center;gap:12px"><div class="tile red" style="width:64px;height:64px;border-radius:20px"><svg class="ic l"><use href="#i-wifi"/></svg></div><h1 class="t">Can’t reach the server</h1><p class="b">“Front desk PC” is not answering. Your phone and the server must be on the same Wi‑Fi.</p><p class="b" style="font-size:13px">The door needs the server only to find its place. A door that is already standing keeps working.</p></div>
+        <div data-only="server" class="stack" style="gap:2px"><button class="btn primary" data-go="connect">Search again</button><button class="btn text" data-go="app-settings">Connection settings</button></div>
+        <div data-only="camera" class="stack grow" style="justify-content:center;gap:12px"><div class="tile red" style="width:64px;height:64px;border-radius:20px"><svg class="ic l"><use href="#i-camera"/></svg></div><h1 class="t">The camera is off</h1><p class="b">Vrata can’t show a door without the camera. Allow it in the phone settings.</p></div>
+        <div data-only="camera" class="stack" style="gap:2px"><button class="btn primary">Open phone settings</button></div>
+        <div data-only="scan" class="stack grow" style="justify-content:center;gap:12px"><div class="tile red" style="width:64px;height:64px;border-radius:20px"><svg class="ic l"><use href="#i-scan"/></svg></div><h1 class="t">This scan didn’t work</h1><p class="b">The server could not build a map from it. This happens when the walk was too short or too fast, or the walls are very plain.</p><div class="notice"><svg class="ic s"><use href="#i-walk"/></svg><span>Walk for at least a minute, slowly, and pass every wall.</span></div></div>
+        <div data-only="scan" class="stack" style="gap:2px"><button class="btn primary" data-go="scan-prepare">Scan again</button><button class="btn text" data-go="home">Not now</button></div>
+        <div data-only="device" class="stack grow" style="justify-content:center;gap:12px"><div class="tile red" style="width:64px;height:64px;border-radius:20px"><svg class="ic l"><use href="#i-phone"/></svg></div><h1 class="t">This phone can’t show AR</h1><p class="b">Vrata needs Google Play Services for AR, and this phone does not support it.</p></div>
+        <div data-only="device" class="stack" style="gap:2px"><button class="btn ghost">See supported phones</button></div>
+      </section>
+      <section class="screen cam" id="s-errors-cam">
+        <svg class="scene" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#cam-room"/><use href="#cam-doorway"/>
+          <g data-only="tracking" opacity=".45"><svg x="140" y="318" width="88" height="222" viewBox="0 0 88 222"><use href="#door-world"/></svg><rect x="136" y="314" width="96" height="228" fill="none" stroke="#6b4a2b" stroke-width="8"/></g></svg>
+        <div class="hud-top"><button class="hud-btn glass" data-go="home" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+        <div class="banner" data-only="tracking"><svg class="ic"><use href="#i-alert"/></svg><div><b style="display:block">Lost track of the room</b><small style="color:var(--hud-dim)">Move the phone slowly over furniture or pictures.</small></div></div>
+        <div class="sheet" data-only="unknown">
+          <h2 class="t">This doesn’t look like Seminar room B</h2>
+          <p class="b">Vrata could not match what the camera sees to the scan. If the furniture or the light has changed a lot, a new scan helps.</p>
+          <button class="btn primary" data-go="locate">Keep looking</button>
+          <button class="btn ghost" data-go="rooms">Choose another room</button>
+          <button class="btn text" data-go="scan-prepare">Scan this room</button>
+        </div>
+      </section>
+
+      <!-- 15 Settings -->
+      <section class="screen" id="s-app-settings" style="gap:10px">
+        <div class="top"><button class="iconbtn" data-go="home" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button><div class="h">Settings</div></div>
+        <div class="card stack" style="gap:0;padding:2px 16px">
+          <div class="row" data-go="connect" style="cursor:pointer"><svg class="ic"><use href="#i-server"/></svg><div class="tx"><b>Server</b><small><span class="dot" style="display:inline-block;margin-right:6px"></span>Front desk PC · connected</small></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row"><svg class="ic"><use href="#i-wifi"/></svg><div class="tx"><b>Find servers automatically</b></div><span class="switch on"></span></div>
+        </div>
+        <div class="card stack" style="gap:0;padding:2px 16px">
+          <div class="row" data-go="visitor" style="cursor:pointer"><svg class="ic"><use href="#i-user"/></svg><div class="tx"><b>Visitor mode</b><small>Hide setup behind a PIN</small></div><span class="switch"></span></div>
+          <div class="row"><svg class="ic"><use href="#i-globe"/></svg><div class="tx"><b>Language</b></div><span class="val">English</span></div>
+          <div class="row"><svg class="ic"><use href="#i-shield"/></svg><div class="tx"><b>Privacy and data</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+          <div class="row"><svg class="ic"><use href="#i-info"/></svg><div class="tx"><b>Credits and licences</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+        </div>
+        <div class="card stack" data-only="dev" style="gap:0;padding:2px 16px">
+          <div class="row"><div class="tx"><span class="eyebrow">Developer</span></div></div>
+          <div class="row" data-go="door" data-var="dev" style="cursor:pointer"><div class="tx"><b>Diagnostics on the AR screen</b></div><span class="switch on"></span></div>
+          <div class="row"><div class="tx"><b>Localisation provider</b></div><span class="val">Self-hosted</span></div>
+          <div class="row"><div class="tx"><b>Event log</b></div><svg class="ic s"><use href="#i-chev"/></svg></div>
+        </div>
+        <div class="grow"></div>
+        <button class="btn text" data-var="dev" style="font-size:13px">Vrata 1.0.0 · tap 7 times for developer options</button>
+      </section>
+
+      <!-- 16 Visitor mode -->
+      <section class="screen" id="s-visitor">
+        <div class="top"><div class="h" style="color:var(--a-ink2);font-weight:500">Sponza Museum</div><button class="iconbtn" data-go="app-settings" aria-label="Staff"><svg class="ic s"><use href="#i-lock"/></svg></button></div>
+        <div class="hero"><svg width="200" height="250" viewBox="0 0 200 250" aria-hidden="true"><polygon points="62,232 138,232 176,250 24,250" fill="var(--a-amber)" opacity=".28"/><rect x="62" y="34" width="76" height="198" rx="3" fill="var(--a-amber)" stroke="var(--a-ink)" stroke-width="5"/><path d="M80 232V124q20-52 40 0v108z" fill="var(--a-amber-ink)" opacity=".25"/></svg></div>
+        <h1 class="t">Step into the Sponza Palace</h1>
+        <p class="b">Hold up the phone and point it at this room. A door will appear in the doorway. Walk through it.</p>
+        <div class="notice"><svg class="ic s"><use href="#i-walk"/></svg><span>Walk slowly and mind other visitors. The app shows you where the real walls are.</span></div>
+        <button class="btn primary" data-go="locate">Start</button>
+        <div style="display:flex;justify-content:center;gap:8px"><span class="chip sel">English</span><span class="chip">Hrvatski</span><span class="chip">Deutsch</span></div>
+      </section>
+    </div>
+    </div>
+    <p class="legend" id="legend"></p>
+  </main>
+
+  <section class="notes" id="notes" aria-live="polite"></section>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+
+<script>
+(function(){
+var S=[
+ {id:'welcome',g:'First run',t:'Welcome',vars:[['w1','1'],['w2','2'],['w3','3']],
+  why:'Three cards say what the app does, what it asks of the user, and what they get back.',
+  rules:['One idea per card, one button. “Skip” is always there.','Shown once. Later it can be reopened from Settings.','No sign-up, no account.'],
+  now:'Today the app opens straight into the camera with debug buttons.'},
+ {id:'permission',g:'First run',t:'Camera permission',
+  why:'Says why the camera is needed and where the room video goes before Android shows its own dialog.',
+  rules:['The system dialog appears only after “Allow camera”.','The privacy lines must stay true: they describe a server on the local network.','“Not now” leads to the “camera is off” screen, not to a dead end.'],
+  now:'Today the permission dialog appears with no explanation. Deleting a room from the server is not possible yet (server work).'},
+ {id:'connect',g:'First run',t:'Find the server',vars:[['searching','Searching'],['found','Found'],['none','Not found']],
+  why:'The app looks for a server by itself. The user only confirms.',
+  rules:['No IP addresses unless the user asks for “Enter address”.','The server is called by its name, never by its address.','There is always a way to try a door without a server (placed by hand, not remembered).'],
+  now:'Today this is a status chip plus a settings panel with technical wording.'},
+ {id:'home',g:'Main',t:'Home',vars:[['ready','Room ready'],['empty','No room yet']],
+  why:'One screen answers “what can I do right now?”. One amber button.',
+  rules:['The amber button is the next sensible step: “Open the door” or “Scan this room”.','The room card shows the plan the server drew, with the doorway in amber.','Server state is a small chip. It turns red and gets a label only when something is wrong.'],
+  now:'Today there is no home screen.'},
+ {id:'scan-prepare',g:'Scan a room',t:'Before you scan',
+  why:'Three things that decide whether the scan succeeds, and an honest time estimate.',
+  rules:['Shown every time before a scan; it is short.','Times come from real measurements and must be updated when they change.'],
+  now:'Today scanning starts from a panel without preparation advice.'},
+ {id:'scan',g:'Scan a room',t:'Scanning',vars:[['walls','1 Walls'],['doorway','2 Doorway'],['finish','3 Can finish']],
+  why:'The phone tells the user what to do next. Teal paint on walls and floor shows what is already captured.',
+  rules:['One instruction at a time, at the top. Warnings (“Slow down”, “Too dark”) replace it while they apply.','The button is locked until the minimum is met (time, distance, floor and walls found).','The doorway step is confirmed by the user: the phone cannot detect a doorway by itself, the server does that later.','Counters show only what the phone really knows: time, floor, walls, distance walked.'],
+  now:'Today: a scan panel with raw counters. The teal mesh and plane highlights already exist.'},
+ {id:'build',g:'Scan a room',t:'Building the map',vars:[['running','Running'],['done','Done']],
+  why:'A wait of several minutes needs a visible end: one percentage, named steps, time left.',
+  rules:['Five plain steps cover the upload and the seven server stages.','“Time left” is shown only when the server gives an estimate; otherwise “step 3 of 5”.','The user may leave. A system notification says when the room is ready.','If it fails, the scan stays on the phone and can be sent again.'],
+  now:'Today: upload progress and raw job stage names.'},
+ {id:'room-ready',g:'Scan a room',t:'Room and doorway',vars:[['found','Doorways found'],['nodoor','No doorway']],
+  why:'Shows what the server understood, and lets the user confirm or pick the doorway.',
+  rules:['The plan is drawn from server data: walls, corners, openings, sizes in metres.','With one doorway there is nothing to choose, only “Use this doorway”.','A wrong doorway can always be rejected.'],
+  now:'Today the doorway is taken automatically with no confirmation.'},
+ {id:'locate',g:'The door',t:'Finding the room',vars:[['searching','First try'],['slow','Second try'],['stuck','After 10 s']],
+  why:'The few seconds between opening the camera and seeing the door.',
+  rules:['Each try takes about 3 seconds with the phone held still. Advice gets more specific with every failed try.','A faint amber outline may appear where the door is expected before the fix is confirmed.','After about 20 seconds the app offers “This is a different room”.'],
+  now:'Today: a status banner with technical states.'},
+ {id:'door',g:'The door',t:'Door in the room',vars:[['placed','Door placed'],['menu','Menu'],['dev','Developer overlay']],
+  why:'The picture is the product. Almost nothing on top of it.',
+  rules:['Three controls: close, the space name, the “more” menu. One shutter button.','The hint “Walk through the door” fades after a few seconds.','Rare actions live in the menu. Technical readouts appear only with developer options on.'],
+  now:'Today: Provider and World buttons, a tracking line, a server chip and an event log are all on this screen.'},
+ {id:'inside',g:'The door',t:'Inside the space',vars:[['walk','Walking'],['wall','Near a real wall'],['info','About this place']],
+  why:'Inside, the user must always know the way back and where the real walls are.',
+  rules:['“Door is behind you” points to the exit when the door is out of view.','A teal grid shows a real wall when the user comes within about half a metre of it.','Amber rings are places to move to when the real room is too small (later version).'],
+  now:'Today there is no boundary warning and no way to move beyond the real room.'},
+ {id:'spaces',g:'Library',t:'Spaces',vars:[['list','List'],['detail','Details']],
+  why:'A short shelf of places to put behind the door.',
+  rules:['Each card: name, place, type (walk-in 3D or 360° view), download size.','Credits and licence are part of every space; many models require attribution.','Only the Sponza atrium exists today. The other two cards are examples of entries.'],
+  now:'Today: a “World: …” debug button cycles test worlds.'},
+ {id:'rooms',g:'Library',t:'Rooms',
+  why:'Several rooms on one server: a venue with more than one door.',
+  rules:['The app picks the room by recognising it; the list is for managing, not for daily use.','Each room has a state: Ready, Building, Scan again.','Rename and delete need new server functions.'],
+  now:'Today the app works with one room id.'},
+ {id:'errors',g:'Problems',t:'Problem screens',vars:[['server','No server'],['scan','Scan failed'],['camera','Camera off'],['device','Unsupported phone'],['unknown','Room not recognised'],['tracking','Tracking lost']],
+  why:'Every problem says what happened, in plain words, and offers one way forward.',
+  rules:['No error codes on screen. Codes go to the log for support.','The amber button is the fix; a quieter second action lets the user leave.','Problems during AR appear as a banner or a sheet, and the camera stays on.'],
+  now:'Today errors show as raw text in a banner or only in the log.'},
+ {id:'app-settings',g:'Settings',t:'Settings',vars:[['user','Normal'],['dev','Developer options']],
+  why:'Few settings. Everything technical is behind developer options.',
+  rules:['Developer options appear after seven taps on the version line.','Provider choice, diagnostics overlay and the event log live only there.'],
+  now:'Today the debug controls are on the main screen.'},
+ {id:'visitor',g:'Settings',t:'Visitor mode',
+  why:'For a venue: a visitor gets one screen and one button. Setup is behind a staff PIN.',
+  rules:['The venue name comes from the server name.','No scanning, no rooms, no settings. Only language and Start.','The lock icon asks for the PIN and returns to the full app.'],
+  now:'Does not exist today.'}
+];
+var CAM={scan:1,locate:1,door:1,inside:1};
+var CAMVAR={unknown:1,tracking:1};
+var $=function(q){return document.querySelector(q)},dev=$('#device'),nav=$('#nav'),cur=0,curVar='',wi=0,timers=[];
+function el(tag,txt,cls){var e=document.createElement(tag);if(txt!=null)e.textContent=txt;if(cls)e.className=cls;return e}
+var lastG='';
+S.forEach(function(s,i){
+  if(s.g!==lastG){nav.appendChild(el('h4',s.g));lastG=s.g}
+  var b=el('button');b.appendChild(el('span',String(i+1)));b.appendChild(document.createTextNode(s.t));
+  b.addEventListener('click',function(){go(s.id);closeSide()});nav.appendChild(b);s.btn=b;
+});
+function screenEl(s,v){ if(s.id==='errors'&&CAMVAR[v])return $('#s-errors-cam'); return $('#s-'+s.id) }
+function applyVar(){
+  var s=S[cur],root=screenEl(s,curVar);
+  document.querySelectorAll('.screen').forEach(function(x){x.classList.toggle('on',x===root)});
+  root.querySelectorAll('[data-only]').forEach(function(x){x.toggleAttribute('hidden',x.getAttribute('data-only').split(' ').indexOf(curVar)<0)});
+  var cam=root.classList.contains('cam');dev.classList.toggle('is-cam',cam);
+  $('#legend').textContent=cam?(s.id==='inside'?'The stone court is a stand-in drawing for the virtual space.':'The grey room is a stand-in for the live camera picture. Screens over the camera have one look in both themes.'):'';
+  var vb=$('#vars');vb.textContent='';
+  (s.vars||[]).forEach(function(v){var b=el('button',v[1]);b.setAttribute('aria-pressed',String(v[0]===curVar));b.addEventListener('click',function(){setVar(v[0])});vb.appendChild(b)});
+  if(s.id==='welcome'){wi=['w1','w2','w3'].indexOf(curVar);document.querySelectorAll('#wPager i').forEach(function(d,i){d.classList.toggle('on',i===wi)});$('#wNext').textContent=wi===2?'Get started':'Continue'}
+}
+function setVar(v){curVar=v;applyVar();sim()}
+function go(id,v){
+  var i=S.findIndex(function(s){return s.id===id});if(i<0)i=0;cur=i;var s=S[i];
+  curVar=v||(s.vars?s.vars[0][0]:'');
+  S.forEach(function(x,j){x.btn.setAttribute('aria-current',String(j===i))});
+  $('#ttl').textContent='';var n=el('b',(i+1)+' / '+S.length);$('#ttl').appendChild(n);$('#ttl').appendChild(document.createTextNode(s.t));
+  var N=$('#notes');N.textContent='';N.appendChild(el('h2',s.t));N.appendChild(el('p',s.why,'why'));
+  N.appendChild(el('h3','Rules'));var ul=el('ul');s.rules.forEach(function(r){ul.appendChild(el('li',r))});N.appendChild(ul);
+  N.appendChild(el('h3','In the app today'));N.appendChild(el('p',s.now,'now'));
+  applyVar();sim();
+  try{if(location.hash!=='#'+id)history.replaceState(null,'','#'+id)}catch(e){}
+}
+function sim(){
+  timers.forEach(clearInterval);timers=[];var s=S[cur];
+  if(s.id==='scan'){var base={walls:47,doorway:71,finish:96}[curVar]||47,t=base;$('#scanTime').textContent=fmt(t);timers.push(setInterval(function(){t++;$('#scanTime').textContent=fmt(t)},1000))}
+  if(s.id==='build'){var p=curVar==='done'?100:42;drawBuild(p);if(curVar==='running')timers.push(setInterval(function(){p=Math.min(100,p+2);drawBuild(p);if(p>=100)setVar('done')},700))}
+  if(s.id==='connect'&&curVar==='searching')timers.push(setInterval(function(){setVar('found')},2600));
+}
+function fmt(t){return Math.floor(t/60)+':'+('0'+t%60).slice(-2)}
+function drawBuild(p){
+  $('#bPct').textContent=p+'%';$('#bRing').setAttribute('stroke-dashoffset',String(402.1*(1-p/100)));
+  var left=Math.max(1,Math.round((100-p)/100*10));$('#bEta').textContent='About '+left+(left===1?' minute':' minutes')+' left';
+  var edges=[8,17,82,89,100],done=0;edges.forEach(function(e){if(p>=e)done++});
+  document.querySelectorAll('#bSteps li').forEach(function(li,i){li.className=i<done?'done':(i===done?'cur':'')});
+}
+document.addEventListener('click',function(e){
+  var t=e.target.closest('[data-go],[data-var]');if(!t||!dev.contains(t))return;
+  if(t.hasAttribute('data-go'))go(t.getAttribute('data-go'),t.getAttribute('data-var')||undefined);else setVar(t.getAttribute('data-var'));
+});
+$('#wNext').addEventListener('click',function(){if(wi<2)setVar(['w1','w2','w3'][wi+1]);else go('permission')});
+$('#prev').addEventListener('click',function(){go(S[(cur+S.length-1)%S.length].id)});
+$('#next').addEventListener('click',function(){go(S[(cur+1)%S.length].id)});
+function pageDark(){var a=document.documentElement.getAttribute('data-theme');return a?a==='dark':matchMedia('(prefers-color-scheme: dark)').matches}
+function setApp(m){dev.setAttribute('data-app',m);$('#themeBtn').textContent=m==='dark'?'App: dark':'App: light'}
+setApp(pageDark()?'dark':'light');
+$('#themeBtn').addEventListener('click',function(){setApp(dev.getAttribute('data-app')==='dark'?'light':'dark')});
+function closeSide(){$('#side').classList.remove('open');$('#scrim').toggleAttribute('hidden',true)}
+$('#listBtn').addEventListener('click',function(){$('#side').classList.add('open');$('#scrim').toggleAttribute('hidden',false)});
+$('#scrim').addEventListener('click',closeSide);
+function fit(){
+  var box=$('#devbox'),w=box.parentElement.clientWidth,narrow=window.innerWidth<=1100;
+  var s=Math.min(1,w/360);if(!narrow)s=Math.min(s,Math.max(.6,(window.innerHeight-150)/780));
+  dev.style.transform='scale('+s+')';box.style.width=360*s+'px';box.style.height=780*s+'px';
+}
+window.addEventListener('resize',fit);fit();
+window.addEventListener('hashchange',function(){var h=location.hash.slice(1);if(h&&h!==S[cur].id)go(h)});
+go(location.hash.slice(1)||'welcome');
+})();
+</script>
+</body>
+</html>
