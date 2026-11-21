@@ -92,8 +92,8 @@ test('problems in AR (7.3)', () => {
   const unknown = arView(input({ status: 'lost', meta: { code: 'not-recognised' } }));
   assert.equal(unknown.sheet, 'unknown');
   assert.equal(unknown.lostBanner, false);
-  assert.equal(arView(input({ status: 'error', meta: { code: 'no-doorway' } })).sheet, 'noDoorway');
-  assert.equal(arView(input({ status: 'error', hasDoor: true, meta: { code: 'no-doorway' } })).sheet, 'noDoorway');
+  assert.equal(arView(input({ status: 'error', meta: { code: 'no-doorway' } })).sheet, 'noDoor');
+  assert.equal(arView(input({ status: 'error', hasDoor: true, meta: { code: 'no-doorway' } })).sheet, 'noDoor');
   assert.equal(arView(input({ status: 'lost', meta: { code: 'tracking-lost' } })).lostBanner, true);
 });
 

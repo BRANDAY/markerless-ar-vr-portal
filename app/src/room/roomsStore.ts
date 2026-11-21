@@ -11,7 +11,6 @@ import type { ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roo
 import { serverConnection } from '../server/ServerConnection';
 import { getPrefs, prefsActions } from '../state/prefs';
 import { pickRoom } from '../ui/core/homeView';
-import { doorMayBeShown } from '../ui/core/modes';
 import { roomDisplayName } from './roomNames';
 
 export interface RoomDetail {
@@ -75,7 +74,7 @@ export function currentRoomId(): string | null {
   const { visitorMode, lastRoomId } = getPrefs();
   if (visitorMode && state.rooms.length > 0) {
     const withDoor = state.rooms
-      .filter((room) => ids.includes(room.mapId) && doorMayBeShown(room.portalSource, true))
+      .filter((room) => ids.includes(room.mapId) && room.portalConfirmed)
       .map((room) => room.mapId);
     return pickRoom(withDoor, lastRoomId);
   }

@@ -30,6 +30,23 @@ export function openDoor(source: 'room' | 'free' = 'room'): void {
   appActions.go('ar');
 }
 
+/**
+ * "Place the door" and "Move the door" (`ui-spec.md`, 5.14). The room is found through
+ * the server, whatever provider the developer tools were left on.
+ */
+export function openPlaceDoor(): void {
+  if (warnAboutDevice()) {
+    return;
+  }
+  if (serverConnection.getView().connection.state !== 'connected') {
+    appActions.showProblem('server');
+    return;
+  }
+  appActions.setProvider('self-hosted');
+  appActions.setOverlayVisible(false);
+  appActions.go('placeDoor');
+}
+
 /** The staff PIN was right: staff mode, with the welcome cards the first time. */
 export function enterStaffMode(): void {
   prefsActions.set({ visitorMode: false });
@@ -43,6 +60,9 @@ export function enterVisitorMode(): void {
   prefsActions.set({ visitorMode: true });
   appActions.setProvider('self-hosted');
   appActions.setOverlayVisible(false);
+  // A search that is running (the staff AR screen, the placing screen) knows the door as
+  // it was before; the visitor's search starts from what the server has now.
+  appActions.restartProvider();
   appActions.log('mode: visitor');
   appActions.resetTo('visitor');
 }
@@ -130,10 +150,11 @@ export function beginBuild(capture: CaptureSummary | null): void {
   }
 }
 
-/** "See the room", after a build: the room is the current one now. */
+/** "See the room", after a build: the room is the current one now. Back leads Home. */
 export function seeRoom(): void {
   roomActions.resetBuild();
   appActions.resetTo(homeScreen());
+  appActions.go('roomResult');
 }
 
 let deviceWarningShown = false;

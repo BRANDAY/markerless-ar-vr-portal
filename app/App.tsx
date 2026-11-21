@@ -13,6 +13,7 @@ import { PortalARScene } from './src/ar/PortalARScene';
 import { measureController } from './src/measure/measureController';
 import { roomsActions } from './src/room/roomsStore';
 import { useRoomScan } from './src/room/roomStore';
+import { setClientRole } from './src/server/core/client';
 import { deviceLogger } from './src/server/deviceLogger';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
@@ -26,7 +27,9 @@ import { HomeScreen } from './src/ui/HomeScreen';
 import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
 import { PermissionScreen } from './src/ui/PermissionScreen';
+import { PlaceDoorScreen } from './src/ui/PlaceDoorScreen';
 import { ProblemScreen } from './src/ui/ProblemScreen';
+import { RoomResultScreen } from './src/ui/RoomResultScreen';
 import { ScanPrepareScreen } from './src/ui/ScanPrepareScreen';
 import { ScanScreen } from './src/ui/ScanScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
@@ -147,7 +150,7 @@ function useCameraPermission() {
  * visitor screen counts once its welcome panel has been passed.
  */
 function usesCamera(screen: Screen, visitorStarted: boolean): boolean {
-  return screen === 'ar' || screen === 'scan' || (screen === 'visitor' && visitorStarted);
+  return screen === 'ar' || screen === 'scan' || screen === 'placeDoor' || (screen === 'visitor' && visitorStarted);
 }
 
 export default function App() {
@@ -160,6 +163,14 @@ export default function App() {
   const history = useAppState((state) => state.history);
   const prefsLoaded = usePrefs((state) => state.loaded);
   const keepArView = usePrefs((state) => state.keepArView);
+  const visitorMode = usePrefs((state) => state.visitorMode);
+
+  // The server's panel shows which mode each phone is in (it is not a permission).
+  useEffect(() => {
+    if (prefsLoaded) {
+      setClientRole(visitorMode ? 'visitor' : 'staff');
+    }
+  }, [prefsLoaded, visitorMode]);
 
   // Independent of the camera permission and of the AR session: try the saved server
   // address and keep the heartbeat running while the app is in the foreground.
@@ -232,6 +243,10 @@ export default function App() {
       }
       if (current === 'ar' || current === 'build') {
         appActions.resetTo(homeScreen());
+        return true;
+      }
+      // The placing screen asks before a changed door is left; its own handler does that.
+      if (current === 'placeDoor') {
         return true;
       }
       if (!appActions.back()) {
@@ -312,7 +327,11 @@ export default function App() {
     case 'build':
       plain = <BuildScreen />;
       break;
+    case 'roomResult':
+      plain = <RoomResultScreen />;
+      break;
     case 'ar':
+    case 'placeDoor':
     case 'scan':
       // The AR view is mounted only once the camera permission is granted: starting an
       // ARCore session without it is a known source of a black camera image.
@@ -349,6 +368,7 @@ export default function App() {
         </>
       ) : null}
       {screen === 'scan' && permission === 'granted' ? <ScanScreen /> : null}
+      {screen === 'placeDoor' && permission === 'granted' ? <PlaceDoorScreen /> : null}
       {screen === 'visitor' ? <VisitorScreen permission={permission} permissionChecked={permissionChecked} onAllow={ask} /> : null}
       {plain ? <View style={styles.cover}>{plain}</View> : null}
     </View>

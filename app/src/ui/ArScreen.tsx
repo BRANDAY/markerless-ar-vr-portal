@@ -3,14 +3,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { t, type TextKey } from '../i18n';
 import { useMeasure } from '../measure/measureController';
+import { removeSavedDoor } from '../room/doorServer';
 import { roomName as nameOfRoom, useRooms } from '../room/roomsStore';
 import { spaceInfo } from '../spaces/spaces';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
 import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
 import { arView } from './core/arView';
-import { homeScreen, openGuidedScan } from './flows';
-import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle } from './kit';
+import { homeScreen, openGuidedScan, openPlaceDoor } from './flows';
+import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle, Small } from './kit';
 import { useServerView } from './ServerPanel';
 import { HUD, TYPE, useInsets } from './theme';
 
@@ -55,6 +56,8 @@ export function ArScreen() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  /** "Remove the door": the question, then the request, then perhaps "could not be removed". */
+  const [removeAsk, setRemoveAsk] = useState<'ask' | 'removing' | 'failed' | null>(null);
   /** The sheet the user has closed; it stays closed until the problem goes away. */
   const [closedSheet, setClosedSheet] = useState<string | null>(null);
   useEffect(() => {
@@ -99,6 +102,22 @@ export function ArScreen() {
   const findAgain = () => {
     setMenuOpen(false);
     appActions.requestRelocalize();
+  };
+  const moveDoor = () => {
+    setMenuOpen(false);
+    openPlaceDoor();
+  };
+  const removeDoor = async () => {
+    if (!currentRoom || removeAsk === 'removing') {
+      return;
+    }
+    setRemoveAsk('removing');
+    if (await removeSavedDoor(currentRoom)) {
+      // The room has no door now: Home says so and offers to place one.
+      appActions.resetTo(homeScreen());
+    } else {
+      setRemoveAsk('failed');
+    }
   };
   const roomName = nameOfRoom(currentRoom) || t('home.room.eyebrow');
   const space = spaceInfo(environment);
@@ -158,6 +177,25 @@ export function ArScreen() {
       {menuOpen ? (
         <Sheet onClose={() => setMenuOpen(false)}>
           <Row icon="search" tone="amber" title={t('ar.menu.findAgain')} sub={t('ar.menu.findAgain.sub')} onPress={findAgain} />
+          <Row icon="door" tone="teal" title={t('door.move')} onPress={moveDoor} />
+          <Row
+            icon="close"
+            tone="danger"
+            title={t('door.remove')}
+            onPress={() => {
+              setMenuOpen(false);
+              setRemoveAsk('ask');
+            }}
+          />
+        </Sheet>
+      ) : null}
+
+      {removeAsk ? (
+        <Sheet onClose={() => setRemoveAsk(null)}>
+          <SheetTitle>{t('door.remove.ask', { room: roomName })}</SheetTitle>
+          {removeAsk === 'failed' ? <Small>{t('door.remove.failed')}</Small> : null}
+          <AppButton label={t('door.remove.yes')} onPress={() => void removeDoor()} disabled={removeAsk === 'removing'} />
+          <AppButton kind="text" label={t('door.remove.keep')} onPress={() => setRemoveAsk(null)} />
         </Sheet>
       ) : null}
 
@@ -173,12 +211,12 @@ export function ArScreen() {
           ) : null}
         </Sheet>
       ) : null}
-      {sheet === 'noDoorway' ? (
-        <Sheet onClose={() => setClosedSheet('noDoorway')}>
-          <SheetTitle>{t('problem.noDoorway.title')}</SheetTitle>
-          <Body dim>{t('problem.noDoorway.body')}</Body>
-          <AppButton label={t('problem.noDoorway.scan')} onPress={() => openGuidedScan('again')} />
-          <AppButton kind="text" label={t('common.close')} onPress={() => setClosedSheet('noDoorway')} />
+      {sheet === 'noDoor' && source === 'room' ? (
+        <Sheet onClose={() => setClosedSheet('noDoor')}>
+          <SheetTitle>{t('problem.noDoor.title')}</SheetTitle>
+          <Body dim>{t('problem.noDoor.body')}</Body>
+          {/* In place of this screen: the room is found already, and "close" there leads Home. */}
+          <AppButton label={t('home.placeDoor')} onPress={() => appActions.replace('placeDoor')} />
         </Sheet>
       ) : null}
     </View>

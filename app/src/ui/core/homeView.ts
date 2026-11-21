@@ -4,8 +4,10 @@
  */
 
 export type HomeSituation =
-  /** A room on the server can be opened. */
+  /** A room on the server with a door saved in it: it can be opened. */
   | 'room-ready'
+  /** A room on the server in which no door has been saved yet. */
+  | 'room-no-door'
   /** Connected, but the server has no room. */
   | 'no-room'
   /** A map of a room is being sent or built. */
@@ -28,6 +30,11 @@ export interface HomeInput {
   lastRoomId: string | null;
   /** A scan is being sent or its map is being built. */
   building: boolean;
+  /**
+   * Whether staff saved a door in the room the app works with; null while the server has
+   * not said (the room then shows as ready: opening it leads to the placing screen anyway).
+   */
+  doorSaved?: boolean | null;
 }
 
 export function homeSituation(input: HomeInput): HomeSituation {
@@ -36,7 +43,10 @@ export function homeSituation(input: HomeInput): HomeSituation {
   }
   switch (input.connection) {
     case 'connected':
-      return input.rooms.length > 0 ? 'room-ready' : 'no-room';
+      if (input.rooms.length === 0) {
+        return 'no-room';
+      }
+      return input.doorSaved === false ? 'room-no-door' : 'room-ready';
     case 'not-configured':
       return 'no-server';
     case 'searching':

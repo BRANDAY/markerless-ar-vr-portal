@@ -37,6 +37,8 @@ export interface PlanLayout {
     state: string;
     middle: Point;
   })[];
+  /** The door staff saved, as a segment across its width; null when there is none. */
+  door: Segment | null;
   /** Screen points per metre. */
   scale: number;
   /** A one-metre bar: its length in screen points. */
@@ -48,9 +50,18 @@ function floor(p: V3): Point {
   return { x: p[0], y: p[2] };
 }
 
+/** The saved door on the floor plan: where it stands, where its room side looks, how wide it is. */
+export interface PlanDoor {
+  position: V3;
+  /** Degrees about the vertical; the door's own +X is (cos, 0, -sin) of it. */
+  yaw: number;
+  width: number;
+}
+
 /**
- * @param chosenAt  the position of the doorway in use (the portal), in the plan's frame;
- *                  the opening nearest to it within half a metre is marked as chosen
+ * @param chosenAt  the position of the doorway in use, in the plan's frame; the opening
+ *                  nearest to it within half a metre is marked as chosen
+ * @param door      the door staff saved; it need not stand in a doorway
  */
 export function planLayout(
   source: PlanSource,
@@ -58,7 +69,18 @@ export function planLayout(
   boxHeight: number,
   chosenAt: V3 | null = null,
   padding = 16,
+  door: PlanDoor | null = null,
 ): PlanLayout | null {
+  let doorSegment: Segment | null = null;
+  if (door) {
+    const half = door.width / 2;
+    const along = { x: Math.cos((door.yaw * Math.PI) / 180), y: -Math.sin((door.yaw * Math.PI) / 180) };
+    const middle = floor(door.position);
+    doorSegment = {
+      a: { x: middle.x - along.x * half, y: middle.y - along.y * half },
+      b: { x: middle.x + along.x * half, y: middle.y + along.y * half },
+    };
+  }
   const wallSegments = source.walls
     .filter((wall) => wall.corners.length >= 2)
     .map((wall) => ({ id: wall.id, a: floor(wall.corners[0]), b: floor(wall.corners[1]), lengthM: wall.width }));
@@ -69,6 +91,7 @@ export function planLayout(
     ...wallSegments.flatMap((s) => [s.a, s.b]),
     ...openingSegments.flatMap((s) => [s.a, s.b]),
     ...source.corners.map((c) => floor(c.bottom)),
+    ...(doorSegment ? [doorSegment.a, doorSegment.b] : []),
   ];
   if (points.length < 2) {
     return null;
@@ -116,6 +139,7 @@ export function planLayout(
         middle: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 },
       };
     }),
+    door: doorSegment ? { a: place(doorSegment.a), b: place(doorSegment.b) } : null,
     scale,
     metreBar: scale,
   };

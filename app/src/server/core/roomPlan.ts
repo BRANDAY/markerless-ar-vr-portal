@@ -281,17 +281,54 @@ export function parseRoom(body: unknown): ServerRoom | null {
 
 // ---- portal -----------------------------------------------------------------------------
 
+/** The doorway the server found by itself: a suggestion for the staff member who places the door. */
+export interface SuggestedDoor {
+  openingId: string | null;
+  position: V3;
+  rotation: V3;
+  width: number | null;
+  height: number | null;
+  confidence: number | null;
+}
+
 export interface ServerPortal {
+  /**
+   * `manual`: placed by staff; `selected`: a found doorway accepted by staff; `auto`: found
+   * by the server and confirmed by nobody; `none`: no door.
+   */
   source: 'manual' | 'selected' | 'auto' | 'none';
+  /** A person decided where the door stands (`manual`, `selected`): the door visitors get. */
+  confirmed: boolean;
   openingId: string | null;
   /** Doorway frame; null when `source` is "none". */
   position: V3 | null;
   rotation: V3 | null;
-  /** Size of the real opening, metres; null for a manually stored pose. */
+  /** Size of the door, metres; null for a door saved without one. */
   width: number | null;
   height: number | null;
   confidence: number | null;
+  /** ISO time the door was saved, or empty. */
+  updatedUtc: string;
+  /** What the server found by itself, next to a staff door too; null when it found nothing. */
+  suggested: SuggestedDoor | null;
   reason: string;
+}
+
+function parseSuggested(value: unknown): SuggestedDoor | null {
+  const json = asObject(value);
+  const position = asV3(json?.position);
+  const rotation = asV3(json?.rotation_euler_deg);
+  if (!json || !position || !rotation) {
+    return null;
+  }
+  return {
+    openingId: typeof json.opening_id === 'string' ? json.opening_id : null,
+    position,
+    rotation,
+    width: asNumber(json.width),
+    height: asNumber(json.height),
+    confidence: asNumber(json.confidence),
+  };
 }
 
 export function parsePortal(body: unknown): ServerPortal | null {
@@ -306,25 +343,56 @@ export function parsePortal(body: unknown): ServerPortal | null {
   if (!known || !position || !rotation) {
     return {
       source: 'none',
+      confirmed: false,
       openingId: null,
       position: null,
       rotation: null,
       width: null,
       height: null,
       confidence: null,
+      updatedUtc: '',
+      suggested: parseSuggested(json.suggested),
       reason: asString(json.reason) || 'the server returned no doorway pose',
     };
   }
+  const source = json.source as ServerPortal['source'];
+  const saved = source === 'manual' || source === 'selected';
   return {
-    source: json.source as ServerPortal['source'],
+    source,
+    // A server from before the two modes does not send the field: the source says the same.
+    confirmed: typeof json.confirmed === 'boolean' ? json.confirmed && saved : saved,
     openingId: typeof json.opening_id === 'string' ? json.opening_id : null,
     position,
     rotation,
     width: asNumber(json.width),
     height: asNumber(json.height),
     confidence: asNumber(json.confidence),
+    updatedUtc: asString(json.updated_utc),
+    // A doorway found by the server and used as it is, is its own suggestion.
+    suggested: parseSuggested(json.suggested) ?? (source === 'auto' ? parseSuggested(json) : null),
     reason: asString(json.reason),
   };
+}
+
+/** The answer of `PUT /maps/{id}/anchors/portal`: the door as visitors will get it. */
+export interface SavedDoor {
+  /** `recording_session`, `session_alignment`, `matrix` or `map`: how the server placed it. */
+  alignmentUsed: string;
+  /** The Door object in the map frame; null when the server did not send one. */
+  portal: ServerPortal | null;
+}
+
+export function parseSavedDoor(body: unknown): SavedDoor | null {
+  const json = asObject(body);
+  if (!json) {
+    return null;
+  }
+  return { alignmentUsed: asString(json.alignment_used), portal: parsePortal(json.portal) };
+}
+
+/** An answer whose content is not needed: any JSON object will do. */
+export function parseAnyObject(body: unknown): true | null {
+  return asObject(body) ? true : null;
 }
 
 // ---- /localize --------------------------------------------------------------------------
@@ -370,6 +438,8 @@ export interface ServerMapInfo {
   roomStatus: string;
   /** "manual", "selected", "auto" or "none": how the doorway is known. */
   portalSource: string;
+  /** Staff saved a door in this room: the room a visitor can be shown. */
+  portalConfirmed: boolean;
 }
 
 export function parseMaps(body: unknown): ServerMapInfo[] | null {
@@ -384,12 +454,15 @@ export function parseMaps(body: unknown): ServerMapInfo[] | null {
     if (!map || !mapId) {
       continue;
     }
+    const portalSource = asString(map.portal_source) || 'none';
     maps.push({
       mapId,
       label: asString(map.label),
       createdUtc: asString(map.created_utc),
       roomStatus: asString(map.room_status) || 'unavailable',
-      portalSource: asString(map.portal_source) || 'none',
+      portalSource,
+      portalConfirmed:
+        typeof map.portal_confirmed === 'boolean' ? map.portal_confirmed : portalSource === 'manual' || portalSource === 'selected',
     });
   }
   return maps;

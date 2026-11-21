@@ -6,7 +6,6 @@ import type { ConnectionSnapshot } from '../server/core/connectionMachine';
 import type { ServerPortal } from '../server/core/roomPlan';
 import { SESSION_ID } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
-import { getPrefs } from '../state/prefs';
 import { doorMayBeShown } from '../ui/core/modes';
 import { BaseProvider } from './BaseProvider';
 import {
@@ -50,8 +49,9 @@ let nextWorldFrame = 0;
 const HOW_TO_LOOK = 'Look at a part of the room that was scanned (not a bare wall) and press "Re-localize"';
 
 /**
- * Self-hosted localization server on the local network: the doorway is the REAL door
- * opening the server found in the scanned room.
+ * Self-hosted localization server on the local network: the door stands where a staff
+ * member saved it in the scanned room. A doorway the server found by itself is only a
+ * suggestion for the placing screen (`ui-spec.md`, 5.14) and is never shown as a door.
  *
  * Two ways to a doorway pose in the current AR session:
  *  - the room was scanned and built in this very session: the server's plan is already in
@@ -70,8 +70,10 @@ const HOW_TO_LOOK = 'Look at a part of the room that was scanned (not a bare wal
  * status says so, and the room is looked for again as soon as tracking is back. The
  * server-side session id changes then, because the AR world frame may have changed.
  *
- * If the server found no door opening, nothing is placed and the status says so. There
- * is no fallback position: placing the door by hand is the `manual` provider's job.
+ * If the room has no saved door, nothing is placed and the status says so; there is no
+ * fallback position. Whenever the server could place its map in this AR session, the
+ * provider says so in the room store (`found`): that is what the placing screen saves a
+ * door through.
  */
 export class SelfHostedServerProvider extends BaseProvider {
   readonly id: ProviderId = 'self-hosted';
@@ -124,6 +126,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.episode = null;
     this.busy = false;
     this.generation++;
+    roomActions.setFound(null);
     this.watch.onState(context.getTrackingState(), Date.now());
     this.subscriptions = [
       serverConnection.subscribe((view) => this.follow(view.connection)),
@@ -139,6 +142,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.generation++;
     this.clearTimers();
     this.episode = null;
+    roomActions.setFound(null);
     this.subscriptions.forEach((off) => off());
     this.subscriptions = [];
   }
@@ -276,6 +280,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     }
     this.interrupted = true;
     this.trusted = false;
+    roomActions.setFound(null); // the alignment belonged to the frame that was interrupted
     this.generation++; // a clip recorded across the interruption is worthless
     this.clearRetryTimer();
     this.context?.log('self-hosted: tracking lost');
@@ -334,6 +339,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     const roomId = currentRoomId();
+    const sessionId = `${SESSION_ID}-w${this.worldEpoch}`;
     if (!roomId) {
       this.episode = null;
       this.setStatus('error', 'the server has no room yet - scan the room first', { code: 'no-room' });
@@ -355,7 +361,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     );
     const generation = this.generation;
     this.busy = true;
-    const result = await localizeWithClip(roomId, `${SESSION_ID}-w${this.worldEpoch}`);
+    const result = await localizeWithClip(roomId, sessionId);
     this.busy = false;
     if (this.stopped || generation !== this.generation || this.episode !== episode) {
       // Stopped, interrupted or superseded while the clip was on its way: the answer is
@@ -371,6 +377,9 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     const { outcome, plan } = result;
+    if (outcome.alignmentStatus === 'ok' && outcome.quality !== 'failed') {
+      roomActions.setFound({ mapId: roomId, sessionId, strong: outcome.quality === 'good', plan });
+    }
     episode.scaleUnknown = outcome.alignmentStatus === 'scale_unknown';
     episode.server = {
       quality: outcome.quality,
@@ -555,12 +564,12 @@ export class SelfHostedServerProvider extends BaseProvider {
     if (getRoomScanState().serverPlan !== plan) {
       roomActions.setServerPlan(plan); // the walls are still worth drawing
     }
-    const why = plan.portal?.reason ? ` (${plan.portal.reason})` : '';
+    const found = plan.portal?.suggested ? 'the server found a doorway, which is only a suggestion' : 'the server found no doorway either';
     this.setStatus(
       'error',
-      `no door opening found in map "${plan.mapId}"${why}. ` +
-        (this.shown ? 'The doorway shown is an earlier one. ' : 'Nothing was placed: ') +
-        'switch the provider to "manual" to place the door by hand, or scan the room again with the whole door in view',
+      `no door has been saved in map "${plan.mapId}" (${found}). ` +
+        (this.shown ? 'The door shown is an earlier one. ' : 'Nothing was placed: ') +
+        'place the door and save it ("Place the door" on Home)',
       { code: 'no-doorway' },
     );
   }
@@ -583,8 +592,8 @@ export class SelfHostedServerProvider extends BaseProvider {
 
 /** The doorway of a server answer as a candidate pose, or null when there is none. */
 function candidateFrom(portal: ServerPortal | null, strong: boolean): DoorCandidate | null {
-  // A visitor sees a door only where a staff member saved one (`ui-spec.md`, 4.3).
-  if (!portal || !doorMayBeShown(portal.source, getPrefs().visitorMode) || !portal.position || !portal.rotation) {
+  // A door stands only where a staff member saved one (`ui-spec.md`, 4.3 and 5.9).
+  if (!portal || !doorMayBeShown(portal.source) || !portal.position || !portal.rotation) {
     return null;
   }
   return { position: portal.position, rotation: portal.rotation, strong };

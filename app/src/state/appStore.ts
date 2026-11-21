@@ -61,6 +61,7 @@ export type Screen =
   | 'scan'
   | 'build'
   | 'roomResult'
+  | 'placeDoor'
   | 'ar'
   | 'spaces'
   | 'rooms'
@@ -108,6 +109,8 @@ export interface AppState {
   providerMeta: StatusMeta;
   /** Incremented by the UI to ask the active provider to re-localize / re-place. */
   relocalizeNonce: number;
+  /** Incremented to make the search for the room start from nothing (a new provider run). */
+  providerRun: number;
 
   attachMode: AttachMode;
   environment: EnvironmentId;
@@ -145,6 +148,7 @@ let state: AppState = {
   providerDetail: '',
   providerMeta: {},
   relocalizeNonce: 0,
+  providerRun: 0,
 
   attachMode: 'direct',
   environment: 'sponza',
@@ -300,6 +304,15 @@ export const appActions = {
 
   requestRelocalize(): void {
     setState({ relocalizeNonce: state.relocalizeNonce + 1 });
+  },
+
+  /**
+   * Forget what the running search found and look for the room anew. For the moment the
+   * door on the server has changed under a search that is still running: its door, and
+   * what it trusts, belong to the door that was there before.
+   */
+  restartProvider(): void {
+    setState({ providerRun: state.providerRun + 1 });
   },
 
   setAttachMode(attachMode: AttachMode): void {

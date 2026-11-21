@@ -1,29 +1,32 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { ServerRoom } from '../server/core/roomPlan';
-import { planLayout, type Segment, segmentBar } from './core/planLayout';
+import { type PlanDoor, planLayout, type Segment, segmentBar } from './core/planLayout';
 import { Icon } from './icons';
 import { TYPE, useTheme } from './theme';
 
 /**
  * The room seen from above (`docs/product/ui-spec.md`, 5.4 and 5.8): walls as teal lines
- * on a soft teal field, corners as dots, the doorway in use as a thick amber segment,
- * other doorways grey. Drawn with rotated thin views: no drawing module is in the build.
- * Without a plan, a door icon.
+ * on a soft teal field, corners as dots. On Home the door staff saved is a thick amber
+ * segment and the doorways the server found are grey; on the room result screen
+ * (`detailed`) there is no door yet and the found doorways are amber, with letters.
+ * Drawn with rotated thin views: no drawing module is in the build. Without a plan, a
+ * door icon.
  */
 export function PlanDrawing(props: {
   room: ServerRoom | null;
-  /** Position of the doorway in use, in the plan's frame. */
-  chosenAt: readonly number[] | null;
+  /** The saved door, in the plan's frame. */
+  door: PlanDoor | null;
   width: number;
   height: number;
   /** Letters on the doorways, wall lengths and a one-metre bar (the room result screen). */
   detailed?: boolean;
-  /** Mark this doorway as the chosen one instead of the one nearest to `chosenAt`. */
-  chosenId?: string | null;
 }) {
   const theme = useTheme();
-  const layout = props.room && props.room.status !== 'unavailable' ? planLayout(props.room, props.width, props.height, props.chosenAt) : null;
+  const layout =
+    props.room && props.room.status !== 'unavailable'
+      ? planLayout(props.room, props.width, props.height, null, 16, props.door)
+      : null;
   const box = { width: props.width, height: props.height, backgroundColor: theme.tealSoft };
   if (!layout) {
     return (
@@ -50,16 +53,15 @@ export function PlanDrawing(props: {
       />
     );
   };
-  const isChosen = (id: string, nearest: boolean) => (props.chosenId !== undefined ? props.chosenId === id : nearest);
+  const found = props.detailed ? theme.amber : theme.ink2;
   return (
     <View style={[styles.box, box]}>
       {layout.walls.map((wall) => line(wall, theme.teal, 3, wall.id))}
       {layout.corners.map((corner, index) => (
         <View key={`c${index}`} style={[styles.corner, { left: corner.x - 4, top: corner.y - 4, backgroundColor: theme.teal }]} />
       ))}
-      {layout.openings.map((opening) =>
-        line(opening, isChosen(opening.id, opening.chosen) ? theme.amber : theme.ink2, 7, opening.id),
-      )}
+      {layout.openings.map((opening) => line(opening, found, props.detailed ? 7 : 5, opening.id))}
+      {layout.door ? line(layout.door, theme.amber, 8, 'door') : null}
       {props.detailed
         ? layout.walls.map((wall) => {
             const bar = segmentBar(wall);
@@ -79,7 +81,7 @@ export function PlanDrawing(props: {
                 {
                   left: opening.middle.x - 11,
                   top: opening.middle.y - 11,
-                  backgroundColor: isChosen(opening.id, opening.chosen) ? theme.amber : theme.surface,
+                  backgroundColor: theme.amber,
                   borderColor: theme.line,
                 },
               ]}

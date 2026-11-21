@@ -9,7 +9,7 @@ test('t: parameters and the product names are filled in', () => {
   assert.equal(t('connect.found.title', { server: 'Museum PC' }), 'Found “Museum PC”');
   assert.equal(t('permission.title'), `${BRAND.name} needs your camera`);
   assert.ok(t('connect.none.check.pc').includes(BRAND.serverName));
-  assert.equal(t('home.room.doorway', { w: '0.90', h: '2.00' }), 'Doorway 0.90 × 2.00 m');
+  assert.equal(t('home.room.doorPlaced.noDate', { w: '0.90', h: '2.00' }), 'Door placed · 0.90 × 2.00 m');
   // A parameter nobody passed stays visible, so that a missing value is noticed.
   assert.equal(t('connect.found.title'), 'Found “{server}”');
 });

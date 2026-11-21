@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, test } from 'node:test';
 
-import { getJob, getJobs, getPortal, getRoom, localize, uploadRecording } from './client';
+import { getJob, getJobs, getPortal, getRoom, localize, removeDoor, saveDoor, setClientRole, uploadRecording } from './client';
 import { validateHealth } from './health';
 import {
   describeJob,
@@ -15,6 +15,7 @@ import {
   parseLocalize,
   parsePortal,
   parseRoom,
+  parseSavedDoor,
 } from './roomPlan';
 
 const JOB = {
@@ -173,6 +174,8 @@ describe('parsePortal', () => {
     assert.equal(none?.position, null);
     assert.match(none?.reason ?? '', /no door opening/);
     assert.equal(parsePortal({ ...PORTAL, position: [1, 2] })?.source, 'none');
+    assert.equal(none?.confirmed, false);
+    assert.equal(none?.suggested, null);
     assert.equal(parsePortal({ ...PORTAL, source: 'invented' })?.source, 'none');
     assert.equal(parsePortal({}), null);
   });
@@ -204,10 +207,65 @@ describe('parseLocalize', () => {
   });
 });
 
+describe('the door staff placed (api-v2, section 5)', () => {
+  const SUGGESTED = { source: 'auto', opening_id: 'o0', position: [1, -1.3, -2], rotation_euler_deg: [0, 90, 0], width: 0.86, height: 2.02, confidence: 0.78 };
+  const MANUAL = {
+    map_id: 'room',
+    frame: 'map',
+    source: 'manual',
+    confirmed: true,
+    position: [0.4, -1.3, -1],
+    rotation_euler_deg: [0, 30, 0],
+    width: 0.9,
+    height: 2.05,
+    opening_id: null,
+    confidence: null,
+    updated_utc: '2026-11-21T09:40:00Z',
+    placed_by: 'staff-phone',
+    suggested: SUGGESTED,
+    reason: null,
+  };
+
+  test('a saved door is confirmed, carries its size and the found doorway next to it', () => {
+    const door = parsePortal(MANUAL);
+    assert.equal(door?.source, 'manual');
+    assert.equal(door?.confirmed, true);
+    assert.deepEqual([door?.width, door?.height], [0.9, 2.05]);
+    assert.equal(door?.updatedUtc, '2026-11-21T09:40:00Z');
+    assert.deepEqual(door?.suggested, { openingId: 'o0', position: [1, -1.3, -2], rotation: [0, 90, 0], width: 0.86, height: 2.02, confidence: 0.78 });
+    // saved without a size: the app draws its default
+    assert.equal(parsePortal({ ...MANUAL, width: null, height: null })?.width, null);
+  });
+  test('a doorway the server found by itself is not confirmed, and is its own suggestion', () => {
+    const auto = parsePortal(PORTAL);
+    assert.equal(auto?.confirmed, false);
+    assert.deepEqual(auto?.suggested?.position, [1, -1.3, -2]);
+    // whatever such a server claims, "auto" is nobody's decision
+    assert.equal(parsePortal({ ...PORTAL, confirmed: true })?.confirmed, false);
+    // a server from before the two modes sends no `confirmed`: the source says the same
+    const { confirmed: _dropped, ...old } = MANUAL;
+    assert.equal(parsePortal(old)?.confirmed, true);
+    assert.equal(parsePortal({ ...old, source: 'selected' })?.confirmed, true);
+  });
+  test('no door, but a suggestion', () => {
+    const none = parsePortal({ source: 'none', position: null, rotation_euler_deg: null, suggested: SUGGESTED, reason: 'removed' });
+    assert.equal(none?.source, 'none');
+    assert.equal(none?.suggested?.openingId, 'o0');
+  });
+  test('the answer to saving a door', () => {
+    const saved = parseSavedDoor({ name: 'portal', alignment_used: 'session_alignment', portal: MANUAL });
+    assert.equal(saved?.alignmentUsed, 'session_alignment');
+    assert.equal(saved?.portal?.source, 'manual');
+    // an older server answers with the stored anchor only
+    assert.deepEqual(parseSavedDoor({ name: 'portal' }), { alignmentUsed: '', portal: null });
+    assert.equal(parseSavedDoor('nonsense'), null);
+  });
+});
+
 describe('room-scan requests against a local mock', () => {
   let server: Server;
   let baseUrl = '';
-  const seen: { method: string; url: string; contentType: string; bytes: number }[] = [];
+  const seen: { method: string; url: string; contentType: string; bytes: number; role: string; body: string }[] = [];
 
   before(async () => {
     server = createServer((request, response) => {
@@ -220,6 +278,8 @@ describe('room-scan requests against a local mock', () => {
           url,
           contentType: request.headers['content-type'] ?? '',
           bytes: Buffer.concat(chunks).length,
+          role: String(request.headers['x-device-role'] ?? ''),
+          body: (request.headers['content-type'] ?? '').startsWith('application/json') ? Buffer.concat(chunks).toString('utf8') : '',
         });
         const send = (status: number, body: unknown) => {
           response.writeHead(status, { 'Content-Type': 'application/json' });
@@ -236,6 +296,11 @@ describe('room-scan requests against a local mock', () => {
         if (url === '/jobs/b3f9c2a17d04') return send(200, JOB);
         if (url === '/jobs/unknown') return send(404, { detail: 'no such job' });
         if (url === '/maps/room/room') return send(200, { map_id: 'room', room: ROOM });
+        if (request.method === 'PUT' && url === '/maps/room/anchors/portal') {
+          return send(200, { name: 'portal', alignment_used: 'session_alignment', portal: { ...PORTAL, source: 'manual', confirmed: true } });
+        }
+        if (request.method === 'PUT' && url === '/maps/lost/anchors/portal') return send(422, { detail: 'no accepted alignment for this session' });
+        if (request.method === 'DELETE' && url === '/maps/room/portal') return send(200, { deleted: true, portal: { source: 'none' } });
         if (url === '/maps/room/portal') return send(200, PORTAL);
         if (url === '/maps/odd/portal') return send(200, 'not an object');
         if (request.method === 'POST' && url === '/localize') return send(200, { success: false, quality: 'failed', reason: 'too dark' });
@@ -288,6 +353,25 @@ describe('room-scan requests against a local mock', () => {
     assert.equal(odd.ok, false);
     assert.match(odd.ok ? '' : odd.reason, /expected shape/);
   });
+  test('the door: saved with the session that found the room, refused without one, removed', async () => {
+    const body = { ar_pose: { position: [1, -1.3, -2] as [number, number, number], rotation: [0, 35, 0] as [number, number, number] }, session_id: 'run-1-w0', width: 0.85, height: 2.05 };
+    setClientRole('staff');
+    const saved = await saveDoor(baseUrl, 'room', body);
+    setClientRole(null);
+    assert.equal(saved.ok && saved.value.alignmentUsed, 'session_alignment');
+    assert.equal(saved.ok && saved.value.portal?.confirmed, true);
+    const request = seen.find((r) => r.method === 'PUT' && r.url === '/maps/room/anchors/portal');
+    assert.deepEqual(JSON.parse(request?.body ?? 'null'), body);
+    assert.equal(request?.role, 'staff'); // the mode goes with every request while it is set
+
+    const refused = await saveDoor(baseUrl, 'lost', body);
+    assert.deepEqual(refused, { ok: false, status: 422, reason: 'HTTP 422: no accepted alignment for this session' });
+
+    const removed = await removeDoor(baseUrl, 'room');
+    assert.equal(removed.ok, true);
+    assert.equal(seen.find((r) => r.method === 'DELETE')?.role, '');
+    assert.equal((await removeDoor(baseUrl, 'nowhere')).ok, false);
+  });
   test('localize: a failed localisation is an answer, not an error', async () => {
     const result = await localize(baseUrl, form());
     assert.equal(result.ok && result.value.quality, 'failed');
@@ -311,9 +395,18 @@ describe('parseMaps', () => {
       ],
     });
     assert.deepEqual(maps, [
-      { mapId: 'room', label: 'Living room', createdUtc: '2026-11-20T10:00:00Z', roomStatus: 'ok', portalSource: 'auto' },
-      { mapId: 'old', label: '', createdUtc: '', roomStatus: 'unavailable', portalSource: 'none' },
+      { mapId: 'room', label: 'Living room', createdUtc: '2026-11-20T10:00:00Z', roomStatus: 'ok', portalSource: 'auto', portalConfirmed: false },
+      { mapId: 'old', label: '', createdUtc: '', roomStatus: 'unavailable', portalSource: 'none', portalConfirmed: false },
     ]);
+    // which rooms have a door for a visitor: the server's word, or the source on an older server
+    const doors = parseMaps({
+      maps: [
+        { map_id: 'a', portal_source: 'manual', portal_confirmed: true },
+        { map_id: 'b', portal_source: 'selected' },
+        { map_id: 'c', portal_source: 'auto', portal_confirmed: false },
+      ],
+    });
+    assert.deepEqual(doors?.map((room) => room.portalConfirmed), [true, true, false]);
     assert.equal(parseMaps({ maps: 'no' }), null);
     assert.equal(parseMaps(null), null);
   });

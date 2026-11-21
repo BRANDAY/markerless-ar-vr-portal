@@ -3,7 +3,7 @@
  * a phone: the same functions the app calls (`client.ts`), the same decisions
  * (`localization/core/relocalization.ts`), on a recording that lies on the PC.
  *
- *   npm run e2e:server -- <server url> <recording folder> [map id] [--localize-only]
+ *   npm run e2e:server -- <server url> <recording folder> [map id] [--localize-only] [--door]
  *   npm run e2e:server -- http://127.0.0.1:8077 D:\recordings\room1 app_e2e
  *
  * The recording folder holds `video.mp4` and `session.jsonl` (and optionally
@@ -14,6 +14,13 @@
  * later session against a map that already exists on the server. If the folder has an
  * `expected.json` with `expected_T_arworld_from_map` (the server's test recordings do),
  * the doorway of the answer is compared with the map's doorway moved by that transform.
+ *
+ * After the localisation the run does what a staff member and a visitor do with the door
+ * (`ui-spec.md`, 5.14): a door is saved as placed in the clip's AR session, a second
+ * localisation in the same session must bring it back to the same place with its size, a
+ * save without a found room must be refused, and the door is removed again. THE DOOR OF
+ * THE MAP IS REPLACED AND THEN REMOVED, so with `--localize-only` (somebody else's map)
+ * this part runs only when `--door` is given as well.
  *
  * What this does not cover (needs a device): how React Native encodes the multipart
  * upload from file URIs, the upload progress events, the recorder, and everything visual.
@@ -30,14 +37,20 @@ import {
   type MeasurementRecord,
   parseTrials,
 } from '../../measure/core/measurement';
+import { type DoorDraft, doorSaveBody, yawFromEuler } from '../../ui/core/doorEdit';
+import { doorMayBeShown } from '../../ui/core/modes';
 import {
   getJob,
+  getMaps,
   getPortal,
   getRoom,
   localize,
   postDeviceLog,
   probeHealth,
+  removeDoor,
+  saveDoor,
   setClientIdentity,
+  setClientRole,
   uploadRecording,
 } from './client';
 import { buildLogBody, type ClientIdentity, DeviceLogQueue, newDeviceId } from './deviceLog';
@@ -61,9 +74,10 @@ function filePart(path: string, type: string): Blob {
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const localizeOnly = args.includes('--localize-only');
+  const withDoor = !localizeOnly || args.includes('--door');
   const [baseUrl, recording, mapId = 'app_e2e'] = args.filter((arg) => !arg.startsWith('--'));
   if (!baseUrl || !recording) {
-    console.log('usage: npm run e2e:server -- <server url> <recording folder> [map id] [--localize-only]');
+    console.log('usage: npm run e2e:server -- <server url> <recording folder> [map id] [--localize-only] [--door]');
     return 2;
   }
   const video = join(recording, 'video.mp4');
@@ -172,26 +186,34 @@ async function main(): Promise<number> {
   // 5. localisation with a clip, as a later session does it. The clip here is the
   //    recording itself, so the "AR world" of the clip is the frame the map was built in
   //    and the doorway must come back where the map has it.
-  const clip = new FormData();
-  clip.append('video', filePart(video, 'video/mp4'), 'video.mp4');
-  clip.append('session_jsonl', filePart(session, 'application/x-ndjson'), 'session.jsonl');
-  clip.append('map_id', mapId);
-  clip.append('session_id', `${identity.sessionId}-w0`);
-  clip.append('device_id', identity.deviceId);
-  clip.append('include_room', 'true');
+  const arSession = `${identity.sessionId}-w0`;
+  const makeClip = () => {
+    const clip = new FormData();
+    clip.append('video', filePart(video, 'video/mp4'), 'video.mp4');
+    clip.append('session_jsonl', filePart(session, 'application/x-ndjson'), 'session.jsonl');
+    clip.append('map_id', mapId);
+    clip.append('session_id', arSession);
+    clip.append('device_id', identity.deviceId);
+    clip.append('include_room', 'true');
+    return clip;
+  };
   let measured: MeasurementRecord | null = null;
   const t0 = Date.now();
-  const located = await localize(baseUrl, clip);
+  const located = await localize(baseUrl, makeClip());
   const localizeMs = Date.now() - t0;
   check(located.ok, `localize answered in ${localizeMs} ms${located.ok ? '' : `: ${located.reason}`}`);
   if (located.ok) {
     const outcome = located.value;
     console.log(`      quality ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}${outcome.reason ? `, reason ${outcome.reason}` : ''}`);
     check(outcome.alignmentStatus === 'ok', 'the map was placed in the session of the clip');
+    // As the app does it: a door is one that staff saved; a doorway the server only found is a suggestion.
     const door =
-      outcome.portal && outcome.portal.source !== 'none' && outcome.portal.position && outcome.portal.rotation
+      outcome.portal && doorMayBeShown(outcome.portal.source) && outcome.portal.position && outcome.portal.rotation
         ? { position: outcome.portal.position, rotation: outcome.portal.rotation }
         : null;
+    if (outcome.portal?.suggested) {
+      console.log(`      the server suggests a doorway at ${fmt(outcome.portal.suggested.position)} (a suggestion, not a door)`);
+    }
     const decision = decide(null, false, {
       quality: outcome.quality,
       alignmentStatus: outcome.alignmentStatus,
@@ -262,10 +284,71 @@ async function main(): Promise<number> {
           console.log(`      as a measurement record: ${describeRecord(measured)}`);
         }
       } else {
-        console.log('      no doorway in this map: the app would report "no door opening found" and place nothing');
-        check(decision.action === 'no-doorway', 'no doorway -> nothing is placed');
+        console.log('      no door saved in this map: the app shows none and sends staff to "Place the door"');
+        check(decision.action === 'no-doorway', 'no saved door -> nothing is placed');
       }
     }
+  }
+
+  // 6. the staff's door (`ui-spec.md`, 5.14): saved as placed in the AR session of the
+  //    clip, and what a visitor's phone gets back in that same frame.
+  if (!withDoor) {
+    console.log(`SKIP  the staff's door: it would replace the door of "${mapId}" (add --door to run it)`);
+  } else if (!caps.includes('staff_door')) {
+    console.log('SKIP  the staff\'s door: the server does not announce staff_door');
+  } else if (!located.ok || located.value.alignmentStatus !== 'ok') {
+    check(false, 'the staff\'s door could not be tried: the room was not found in the clip\'s session');
+  } else {
+    const sized = caps.includes('door_size');
+    const floorY = located.value.room?.floorOutline?.[0]?.[1] ?? located.value.portal?.suggested?.position[1] ?? -1.3;
+    const placed: DoorDraft = { position: [0.4, Math.round(floorY * 1000) / 1000, -0.6], yaw: 35, width: 0.85, height: 2.05 };
+    setClientRole('staff');
+
+    const stranger = await saveDoor(baseUrl, mapId, doorSaveBody(placed, `${identity.sessionId}-never-localized`, sized));
+    check(!stranger.ok && stranger.status === 422, `a door from a session that never found the room is refused with 422${stranger.ok ? ' - it was ACCEPTED' : `: ${stranger.reason}`}`);
+
+    const saved = await saveDoor(baseUrl, mapId, doorSaveBody(placed, arSession, sized));
+    check(saved.ok, `door saved${saved.ok ? ` (alignment used: ${saved.value.alignmentUsed || 'not named'})` : `: ${saved.reason}`}`);
+    if (saved.ok) {
+      check(saved.value.portal?.source === 'manual' && saved.value.portal.confirmed === true, 'the answer shows the door as placed by hand and confirmed');
+      const stored = await getPortal(baseUrl, mapId);
+      check(stored.ok && stored.value.confirmed && doorMayBeShown(stored.value.source), `GET portal: ${stored.ok ? `source ${stored.value.source}, ${stored.value.width ?? '?'} x ${stored.value.height ?? '?'} m` : stored.reason}`);
+      const rooms = await getMaps(baseUrl);
+      check(rooms.ok && rooms.value.find((room) => room.mapId === mapId)?.portalConfirmed === true, 'GET /maps lists the room as one with a door for visitors');
+
+      // A visitor's phone in the same AR frame: the door must stand where it was put.
+      setClientRole('visitor');
+      const back = await localize(baseUrl, makeClip());
+      check(back.ok && back.value.alignmentStatus === 'ok', `a second localisation in that session${back.ok ? '' : `: ${back.reason}`}`);
+      const got = back.ok ? back.value.portal : null;
+      if (got && got.position && got.rotation) {
+        const apart = Math.hypot(got.position[0] - placed.position[0], got.position[1] - placed.position[1], got.position[2] - placed.position[2]);
+        const turned = Math.abs(((yawFromEuler(got.rotation) - placed.yaw + 540) % 360) - 180);
+        console.log(`      door back from /localize ${fmt(got.position)} yaw ${yawFromEuler(got.rotation).toFixed(1)} vs placed ${fmt(placed.position)} yaw ${placed.yaw}: ${(apart * 100).toFixed(1)} cm, ${turned.toFixed(1)} deg`);
+        check(got.confirmed && doorMayBeShown(got.source), 'the visitor is given the door (confirmed)');
+        check(apart < 0.05 && turned < 3, 'the door comes back within 5 cm and 3 degrees of where it was placed');
+        if (sized) {
+          check(got.width === placed.width && got.height === placed.height, `the door comes back with its size: ${got.width} x ${got.height} m`);
+        } else {
+          console.log('      this server does not store door sizes (no capability door_size)');
+        }
+        const decision = decide(null, false, {
+          quality: back.ok ? back.value.quality : 'failed',
+          alignmentStatus: back.ok ? back.value.alignmentStatus : 'none',
+          door: { position: got.position, rotation: got.rotation },
+        });
+        check(decision.action === 'place', "the visitor's app would place the door");
+      } else {
+        check(false, 'the second localisation carries no door');
+      }
+
+      setClientRole('staff');
+      const removed = await removeDoor(baseUrl, mapId);
+      check(removed.ok, `door removed${removed.ok ? '' : `: ${removed.reason}`}`);
+      const after = await getPortal(baseUrl, mapId);
+      check(after.ok && !after.value.confirmed && !doorMayBeShown(after.value.source), `after removal the room has no door for visitors${after.ok ? ` (source ${after.value.source}${after.value.suggested ? ', a suggestion stays' : ''})` : `: ${after.reason}`}`);
+    }
+    setClientRole(null);
   }
 
   if (caps.includes('device_log')) {

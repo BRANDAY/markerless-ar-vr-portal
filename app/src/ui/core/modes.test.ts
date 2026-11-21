@@ -26,16 +26,13 @@ test('modes: a fresh install opens the visitor screen; staff mode opens Home (4.
   assert.equal(startScreen({ visitorMode: false, onboardingDone: false }), 'welcome');
 });
 
-test('modes: a visitor sees only a door that staff saved', () => {
+test('modes: a door is shown only where staff saved one', () => {
   for (const source of ['manual', 'selected']) {
-    assert.equal(doorMayBeShown(source, true), true, source);
-    assert.equal(doorMayBeShown(source, false), true, source);
+    assert.equal(doorMayBeShown(source), true, source);
   }
-  assert.equal(doorMayBeShown('auto', true), false);
-  assert.equal(doorMayBeShown('auto', false), true);
+  assert.equal(doorMayBeShown('auto'), false); // a suggestion for the placing screen, not a door
   for (const source of ['none', '', null, undefined]) {
-    assert.equal(doorMayBeShown(source, true), false);
-    assert.equal(doorMayBeShown(source, false), false);
+    assert.equal(doorMayBeShown(source), false);
   }
 });
 

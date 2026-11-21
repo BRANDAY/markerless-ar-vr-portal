@@ -28,6 +28,11 @@ interface DoorPortalProps {
    * `DOOR.openingWidth` x `DOOR.openingHeight`.
    */
   opening?: { width: number; height: number };
+  /**
+   * False while the door is being placed: walking through a door that is still being moved
+   * would leave the user inside a space that moves with it.
+   */
+  passable?: boolean;
 }
 
 /**
@@ -60,7 +65,7 @@ interface DoorPortalProps {
  * Both must look identical; the switch exists to compare how the native side behaves when
  * the pose is updated (auto-anchoring of scene children, portals under moving parents).
  */
-export function DoorPortal({ pose, attachMode, environment, frame, opening }: DoorPortalProps) {
+export function DoorPortal({ pose, attachMode, environment, frame, opening, passable = true }: DoorPortalProps) {
   const width = opening?.width ?? DOOR.openingWidth;
   const height = opening?.height ?? DOOR.openingHeight;
   const casing = frame === 'casing';
@@ -87,7 +92,7 @@ export function DoorPortal({ pose, attachMode, environment, frame, opening }: Do
 
   const portal = (position: Vec3, rotation: Vec3) => (
     <ViroPortalScene
-      passable={true}
+      passable={passable}
       position={position}
       rotation={rotation}
       onPortalEnter={onPortalEnter}

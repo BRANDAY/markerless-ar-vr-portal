@@ -21,7 +21,7 @@ import type {
 } from '../localization/types';
 import { measureController } from '../measure/measureController';
 import { toPlaneAnchorData } from '../room/roomGeometry';
-import { roomActions } from '../room/roomStore';
+import { roomActions, useRoomScan } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, getAppState, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
@@ -29,6 +29,7 @@ import { DoorOutline } from './DoorOutline';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
 import { MeasureLayer } from './MeasureLayer';
+import { PlaceMarker } from './PlaceMarker';
 import { RoomScanLayer } from './RoomScanLayer';
 import { ServerRoomLayer } from './ServerRoomLayer';
 import './materials';
@@ -71,15 +72,38 @@ interface SceneProps {
 export function PortalARScene(props: SceneProps) {
   const providerId = useAppState((s) => s.providerId);
   const relocalizeNonce = useAppState((s) => s.relocalizeNonce);
+  const providerRun = useAppState((s) => s.providerRun);
   const door = useAppState((s) => s.door);
   const attachMode = useAppState((s) => s.attachMode);
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
   const mode = useAppState((s) => s.mode);
-  /** The door is looked for only on the staff AR screen and the visitor screen (not while scanning, not when covered). */
-  const active = useAppState((s) => s.screen === 'ar' || s.screen === 'visitor');
   /** A first pose that is still being checked is drawn as an outline, not as the door. */
   const pending = useAppState((s) => s.providerMeta.pending === true);
+  /**
+   * The room is looked for on the staff AR screen, the visitor screen and the placing
+   * screen (not while scanning, not when covered). Going from one of them to another
+   * keeps the search and what it found.
+   */
+  const active = useAppState((s) => s.screen === 'ar' || s.screen === 'visitor' || s.screen === 'placeDoor');
+  /** "Place the door": the door drawn is the one the staff member is placing, not the saved one. */
+  const placing = useAppState((s) => s.screen === 'placeDoor');
+  const draft = useRoomScan((s) => s.doorDraft);
+  const draftPose = useMemo(
+    () => (draft ? { position: draft.position, rotation: [0, draft.yaw, 0] as Vec3 } : null),
+    [draft],
+  );
+  const draftOpening = useMemo(() => (draft ? { width: draft.width, height: draft.height } : undefined), [draft]);
+  /**
+   * The door that is drawn as a door: on the placing screen the one being placed (until it
+   * exists, the saved one stays); elsewhere the provider's, once its place is believed.
+   */
+  const shownDoor =
+    placing && draftPose
+      ? { pose: draftPose, opening: draftOpening }
+      : door && !pending
+        ? { pose: door.pose, opening: door.opening }
+        : null;
   const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);
 
   const cameraRef = useRef<CameraPose | null>(null);
@@ -187,7 +211,7 @@ export function PortalARScene(props: SceneProps) {
       // A door belongs to the visit of the AR screen it was found in.
       appActions.clearDoor();
     };
-  }, [providerId, context, applyPose, active]);
+  }, [providerId, context, applyPose, active, providerRun]);
 
   // What was learnt in this AR session is in this session's coordinates: when the view
   // goes, it goes too.
@@ -195,6 +219,8 @@ export function PortalARScene(props: SceneProps) {
     () => () => {
       roomActions.clearPlanes();
       roomActions.setServerPlan(null);
+      roomActions.setFound(null);
+      roomActions.setDoorDraft(null);
       roomActions.setScanning(false);
       measureController.resetSession();
       // The next AR view starts from "not tracking, no floor", not from this one's last word.
@@ -359,20 +385,24 @@ export function PortalARScene(props: SceneProps) {
       <ServerRoomLayer />
       <MeasureLayer />
 
-      {door && pending ? (
+      {shownDoor === null && door && pending ? (
         <DoorOutline pose={door.pose} opening={door.opening} />
-      ) : door ? (
-        // `key` re-mounts the portal when the attach mode, the world or the frame changes, so each
-        // starts clean.
+      ) : shownDoor ? (
+        // One element for the saved door and for the door that is being placed, so that
+        // "Move the door" does not load the space anew. `key` re-mounts the portal when the
+        // attach mode, the world or the frame changes, so each starts clean.
         <DoorPortal
           key={`${attachMode}-${environment}-${frame}`}
-          pose={door.pose}
+          pose={shownDoor.pose}
           attachMode={attachMode}
           environment={environment}
           frame={frame}
-          opening={door.opening}
+          opening={shownDoor.opening}
+          // A door that is being placed cannot be walked through.
+          passable={!placing}
         />
       ) : null}
+      {placing && draftPose && draft ? <PlaceMarker pose={draftPose} width={draft.width} /> : null}
     </ViroARScene>
   );
 }

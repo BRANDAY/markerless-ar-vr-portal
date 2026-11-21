@@ -41,8 +41,11 @@ export interface ArView {
   pill: 'off' | 'offline' | null;
   /** The red "Lost track of the room" banner. */
   lostBanner: boolean;
-  /** A problem that is shown as a sheet over the camera. */
-  sheet: 'unknown' | 'noDoorway' | null;
+  /**
+   * A problem that is shown as a sheet over the camera: the room was not recognised, or
+   * it was and no door has been saved in it.
+   */
+  sheet: 'unknown' | 'noDoor' | null;
   /** The AR screen cannot go on: the app leaves it for Home or for a problem screen. */
   leave: 'no-room' | 'server' | 'version' | null;
 }
@@ -120,7 +123,7 @@ export function arView(input: ArInput): ArView {
       view.pill = 'offline';
     }
     if (status === 'error' && meta.code === 'no-doorway') {
-      view.sheet = 'noDoorway'; // the door on screen is an earlier one
+      view.sheet = 'noDoor'; // the door on screen is an earlier one
     }
     return view;
   }
@@ -140,7 +143,7 @@ export function arView(input: ArInput): ArView {
       } else if (meta.code === 'incompatible') {
         view.leave = 'version';
       } else if (meta.code === 'no-doorway') {
-        view.sheet = 'noDoorway';
+        view.sheet = 'noDoor';
       } else {
         view.sheet = 'unknown';
       }

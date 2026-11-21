@@ -13,13 +13,16 @@
 import { type ClientIdentity, identityHeaders, type LogReceipt, parseLogReceipt } from './deviceLog';
 import { type ServerInfo, validateHealth } from './health';
 import {
+  parseAnyObject,
   parseJob,
   parseJobs,
   parseLocalize,
   parseMaps,
   parsePortal,
   parseRoom,
+  parseSavedDoor,
   type LocalizeOutcome,
+  type SavedDoor,
   type ServerJob,
   type ServerMapInfo,
   type ServerPortal,
@@ -27,15 +30,24 @@ import {
 } from './roomPlan';
 
 let identity: Record<string, string> = {};
+let role: 'staff' | 'visitor' | null = null;
 
 /** Who this client is; from now on sent as `X-Device-Id`, `X-Session-Id`... with every request. */
 export function setClientIdentity(client: ClientIdentity | null): void {
   identity = identityHeaders(client);
 }
 
+/**
+ * The mode the app is in, sent as `X-Device-Role` (api-v2, 9.1). The server only shows it
+ * in its panel: it is not a permission.
+ */
+export function setClientRole(next: 'staff' | 'visitor' | null): void {
+  role = next;
+}
+
 /** Headers of every request: JSON answers wanted, and the identity of the device. */
 function baseHeaders(): Record<string, string> {
-  return { Accept: 'application/json', ...identity };
+  return role ? { Accept: 'application/json', ...identity, 'X-Device-Role': role } : { Accept: 'application/json', ...identity };
 }
 
 export type ProbeResult =
@@ -330,6 +342,33 @@ export function getRoom(baseUrl: string, mapId: string, options?: RequestOptions
 /** `GET /maps/{map_id}/portal`: the doorway in the map frame (`source: "none"` = not found). */
 export function getPortal(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<ServerPortal>> {
   return requestJson(`${baseUrl}/maps/${enc(mapId)}/portal`, { method: 'GET' }, parsePortal, options);
+}
+
+/** What `PUT /maps/{map_id}/anchors/portal` takes for a door placed in the running AR session. */
+export interface DoorSaveBody {
+  ar_pose: { position: [number, number, number]; rotation: [number, number, number] };
+  /** The id of the AR session whose `/localize` found the room. */
+  session_id: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * `PUT /maps/{map_id}/anchors/portal`: the door a staff member placed. `422` when the
+ * server has no accepted alignment for the session.
+ */
+export function saveDoor(baseUrl: string, mapId: string, body: DoorSaveBody, options?: RequestOptions): Promise<ApiResult<SavedDoor>> {
+  return requestJson(
+    `${baseUrl}/maps/${enc(mapId)}/anchors/portal`,
+    { method: 'PUT', body: JSON.stringify(body) },
+    parseSavedDoor,
+    options,
+  );
+}
+
+/** `DELETE /maps/{map_id}/portal`: removes the door, however it was set. The found doorway stays a suggestion. */
+export function removeDoor(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<true>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}/portal`, { method: 'DELETE' }, parseAnyObject, options);
 }
 
 /** `POST /localize`: the form carries a clip with its `session.jsonl` (or an image with `ar_pose`). */

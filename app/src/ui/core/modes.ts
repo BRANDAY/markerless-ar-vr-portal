@@ -13,15 +13,13 @@ export function startScreen(prefs: { visitorMode: boolean; onboardingDone: boole
 }
 
 /**
- * Whether a door the server reports may be shown. A visitor sees a door only where a
- * staff member saved one (`manual`: placed by hand, `selected`: a found doorway chosen by
- * staff); a doorway the server found by itself (`auto`) is a suggestion for staff.
+ * Whether a door the server reports may be shown. A door stands only where a staff member
+ * saved one (`manual`: placed by hand, `selected`: a found doorway accepted by staff). A
+ * doorway the server found by itself (`auto`) is a suggestion on the placing screen, for
+ * staff as well as for visitors.
  */
-export function doorMayBeShown(source: string | null | undefined, savedOnly: boolean): boolean {
-  if (!source || source === 'none') {
-    return false;
-  }
-  return savedOnly ? source === 'manual' || source === 'selected' : true;
+export function doorMayBeShown(source: string | null | undefined): boolean {
+  return source === 'manual' || source === 'selected';
 }
 
 // ---- staff PIN ---------------------------------------------------------------------------

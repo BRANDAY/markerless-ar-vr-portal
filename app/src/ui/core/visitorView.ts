@@ -87,7 +87,7 @@ export function visitorView(input: VisitorInput): VisitorView {
     } else {
       view.sheet = input.wifi ? 'noServer' : 'wifi';
     }
-  } else if (staff.leave === 'no-room' || staff.sheet === 'noDoorway') {
+  } else if (staff.leave === 'no-room' || staff.sheet === 'noDoor') {
     view.sheet = 'noDoor';
   } else if (staff.sheet === 'unknown') {
     view.sheet = 'notRecognised';

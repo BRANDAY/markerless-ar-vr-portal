@@ -4,9 +4,10 @@ A mobile app that shows a doorway in augmented reality. Through the doorway the 
 a virtual world - the atrium of the Sponza Palace in Dubrovnik -, can physically walk
 through it into VR and walk back out into AR. The goal of the assignment is that the
 doorway appears at the same real-world place in every app session, found without
-markers, QR codes, GPS or manual placement: the app scans the room once, a
-self-hosted server builds a map and a plan of the room from the recording and finds the
-real door opening in it, and from then on the virtual doorway stands in that opening.
+markers, QR codes or GPS: a staff member scans the room once and a self-hosted server
+builds a map and a plan of the room from the recording; the staff member then puts the
+door where it should stand and saves it to the server. From then on every phone that
+opens the app in that room gets the door from the server, in the same place.
 
 **Where this stands (2026-11-20).** Everything is written and unit-tested. On a phone
 (Xiaomi 14 Ultra) these parts have been seen working: the AR scene and the walk-through
@@ -28,7 +29,7 @@ New here? Go through [Setup on Windows](#setup-on-windows), then
 | --- | --- |
 | 1. Camera feed and basic 3D objects in AR | Implemented (`src/ar/PortalARScene.tsx`); camera feed and tracking confirmed on a device |
 | 2. Recognise a previously scanned room without markers | **Written; half of it seen on a device.** The app scans the room (planes, room mesh, video with camera poses) and sends the recording to the localization server, which builds the map and the room plan; in a later session a short clip sent to `/localize` finds the room again. Seen on the phone: mesh, recording, upload, build progress, the server's refusal of a one-second recording shown in words. Not seen: a successful build from a phone recording, and finding the room again ([the scenario](#the-scenario-step-by-step)) |
-| 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** The portal is placed in the real door opening the server found in the scanned room, with the door casing built to the size of that opening (`self-hosted` provider). Against the server on the PC, with a test recording that lies there, the app's client code gets a doorway back from `/localize` 2.3 cm from where it should be - a doorway set by hand in a test map, not one the server found ([End-to-end check without a phone](#end-to-end-check-without-a-phone)) |
+| 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** A staff member places the door in the scanned room and saves it to the server ([Placing the door](#placing-the-door)); every later session, on any phone, finds the room through the server and gets the door at that place, with its size (`self-hosted` provider). Against the server on the PC, with a test recording that lies there, the app's client code saves a door and gets it back from `/localize` at the same place, and a door set in a test map comes back 2.3 cm from where it should be ([End-to-end check without a phone](#end-to-end-check-without-a-phone)) |
 | 4. See a virtual world through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`); the walk-through was confirmed on a device with the stage-1 test room, one visual defect at the crossing (see below). The world behind the door is now the atrium of the Sponza Palace with a wooden door casing (`src/environments/`): both load on the phone without an error, **nobody has looked at them yet** |
 | 5. Tests: restart, angles, lighting, tracking loss | **Tools and procedure written, tests on a device not started.** What the app does when tracking is lost and comes back, how often it asks the server again and what it does with weak answers is implemented and unit-tested ([Keeping the doorway in place](#keeping-the-doorway-in-place)). A measurement mode records every localisation and compares the door with the marked corners of the real opening, in centimetres and degrees ([Measuring where the door stands](#measuring-where-the-door-stands)); the procedure for the five checks is in [`docs/test-protocol.md`](docs/test-protocol.md). **No trial has been run on a phone** |
 
@@ -178,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (154 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (174 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -189,8 +190,8 @@ textures and the simple door model).
 
 Since 21 November 2026 the app has product screens, built step by step from
 [`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 3 of its first revision, and
-steps A, D and F of the second: the two modes, the guided scan, inside the space. Step B,
-placing the door, is not built yet). **None of these screens has been seen on a phone**; the build on the phone is still
+steps A, B, D and F of the second: the two modes, placing the door, the guided scan,
+inside the space). **None of these screens has been seen on a phone**; the build on the phone is still
 `546697d`. "Vrata" and the amber and teal colours are working choices, kept in one file
 (`src/brand.ts`).
 
@@ -202,8 +203,9 @@ The app is always in one of two modes, and remembers which (`app-prefs.json`).
   welcome panel ("Step through the door", **Start**); **Start** asks for the camera.
   Later launches open the camera at once. The app looks for the server on the Wi-Fi by
   itself ("One moment…"), finds the room and shows the door: no button, no settings.
-  A visitor sees a door **only where staff saved one** (the server's `portal.source` is
-  `manual` or `selected`); a doorway the server only found is not shown. When something
+  A door stands **only where staff saved one** (the server's `portal.source` is
+  `manual` or `selected`), for visitors and for staff alike; a doorway the server only
+  found is a suggestion on the placing screen and is never shown as a door. When something
   does not work, a sheet says so in plain words ("The door isn't ready - please ask a
   member of staff"), with **Try again** and a small line for staff ("No server on this
   Wi-Fi", "No door has been placed yet", "Room not recognised"...). A help button brings
@@ -214,10 +216,6 @@ The app is always in one of two modes, and remembers which (`app-prefs.json`).
   time, the three welcome cards and **Find the server** come before Home. **Switch to
   visitor mode** is on Home and in Settings; **Change staff PIN** is in Settings.
 
-Until placing the door is built (step B), the app itself cannot save a door: a visitor
-gets one only in a room whose doorway was fixed on the server by other means
-(`PUT /maps/{id}/portal`, or the manual anchor of the server's README).
-
 What staff meet, in order:
 
 1. **The first time in staff mode:** three welcome cards, the camera permission screen if
@@ -225,7 +223,10 @@ What staff meet, in order:
    once.
 2. **Home.** The app name, a server chip (green dot and the server's name when
    connected), the settings button, and one card with one amber button:
-   - a room on the server: its plan drawing, name and doorway size, and **Open the door**;
+   - a room with a saved door: tag "Ready", its plan drawing with the door in amber, its
+     name, "Door placed {date} · {w} × {h} m", and **Open the door**;
+   - a room without a saved door: tag "No door yet", "Put the door where visitors should
+     find it.", **Place the door** ([below](#placing-the-door)) and **Scan again**;
    - connected, no room yet: **Scan this room**, which starts the guided scan (below);
    - a scan is being sent or built: the percentage and **See progress**;
    - server offline or never set up: **Search again** or **Find the server**.
@@ -233,7 +234,10 @@ What staff meet, in order:
    the space, and one instruction at a time: "Point at the room and hold still", "Try
    another view", "Take a step sideways", "Slow down"... When the door stands, the
    instruction goes and "Walk through the door" shows for five seconds. A menu holds
-   **Find the door again**. Small states are a pill under the top row ("The door may be
+   **Find the door again**, **Move the door** (the placing screen, with the door at its
+   saved place) and **Remove the door** (asks first; the room then counts as having no
+   door). In a room without a saved door a sheet says "This room has no door yet" and
+   leads to **Place the door**. Small states are a pill under the top row ("The door may be
    slightly off · Find again", "Server offline · the door stays where it is") or a red
    banner ("Lost track of the room"). A first door position that the server is not sure of
    is drawn as an amber dashed outline until a second look confirms it.
@@ -263,8 +267,8 @@ One flow in place of the buttons **Scan room**, **Record** and **Upload** of the
    three counters show floor, walls and metres walked, and there is one button:
    - step 1, "Walk slowly along the walls": the button counts down from 60 s and stays
      disabled until a minute has passed, a floor has been found and 6 m have been walked;
-   - step 2, "Now show the doorway", with amber corner brackets as an aiming aid: **I showed
-     the doorway**;
+   - step 2, "Now show where the door will be", with amber corner brackets as an aiming
+     aid: **Done, I showed it**;
    - step 3, "That's enough": **Finish scan**. From 150 s on the scan can be finished in any
      case; at 180 s it finishes by itself.
    Tracking warnings ("Slow down", "It's too dark here"...) replace the step text while
@@ -283,6 +287,75 @@ recording_too_short` or `too_little_motion`, server 0.3.0 and later) is shown as
 was too short". If a build for the room is already running (HTTP 409), that build is
 followed. If the server stops answering for eight checks in a row, the screen says so; the
 build is taken up again when the server answers.
+
+### Placing the door
+
+The main way a door gets its place (`ui-spec.md`, 5.8 and 5.14). After a build, **See the
+room** opens the **room result**: the plan drawing with wall lengths, a one-metre bar and
+the doorways the server found (amber, with letters), one sentence about what was found,
+**Place the door** and **Scan again**. A found doorway is a suggestion; nothing is saved
+there.
+
+**Place the door** (also on Home for a room without a door, and as **Move the door** in
+the staff AR menu) opens the camera and first finds the room, like the AR screen. Then:
+
+- the door appears at its saved place if there is one, else in the doorway the server
+  suggests, else on the floor two metres in front of the camera, facing it. It is drawn
+  as visitors will see it, with an amber outline on the floor under it and a short arrow
+  on the floor pointing from the room into the space. It cannot be walked through while
+  it is being placed;
+- a small cross marks the middle of the picture. **Put it here** moves the door to the
+  spot on the floor the phone is aimed at, turned to face the camera: the side the staff
+  member stands on is the room side. When the phone is not aimed at the floor (less than
+  8 degrees below the horizon, or at a spot more than 6 m away) the door goes two metres
+  in front of the camera;
+- **Adjust** opens a panel: move by 5 cm along the door and towards or away from the
+  room, turn by 5 degrees, **Turn around**, width (0.60-1.40 m) and height (1.80-2.40 m)
+  in steps of 5 cm, **Use the found doorway** (each tap goes to the next doorway the
+  server found). Holding a step button repeats the step. The door always stands on the
+  floor;
+- **Save door** sends the door as it stands in this AR session:
+  `PUT /maps/{id}/anchors/portal` with `ar_pose` (position, `[0, yaw, 0]`), the
+  `session_id` under which `/localize` found the room, and `width` and `height`. The
+  server converts the place into the room's map through its alignment of that session.
+  Then "Door saved", with **See it as a visitor** (switches to visitor mode) and
+  **Done** (Home). If it fails: "The door wasn't saved", **Try again**. Closing after a
+  change asks "Leave without saving?".
+
+What decides when a door can be saved: the server must have placed the room's map in the
+running AR session. The provider records that in the room store (`found`: room, session
+id, the plan and the doorways of that answer in this session's coordinates) with every
+`/localize` answer whose alignment is complete, and drops it as soon as tracking is
+interrupted, because the session's coordinates may have changed; the room is then found
+again before **Save door** is enabled ("Finding your room…"). If the server answers 422
+(it has no alignment for the session, e.g. after its restart), the app looks for the room
+again. The session id changes with every new AR view and after every interruption of
+tracking, as the server's contract asks.
+
+Details that are choices of the app, not of the spec:
+
+- Width, Height and the size readout are shown only when the server announces the
+  capability `door_size`; without it other phones would draw 0.90 × 2.00 m whatever was
+  set, so the door being placed is drawn at that size as well.
+- For a door that is already saved, **Save door** stays disabled until something was
+  changed: saving the unchanged door through a new alignment would move it by that
+  alignment's error.
+- While a saved door's first position is still being checked by the server's second look
+  (the weak-match rule of [Keeping the doorway in place](#keeping-the-doorway-in-place)),
+  the screen still says "Finding your room…". In a room without a saved door there is
+  nothing to check against, and the first complete alignment counts, weak or not; the log
+  line of the save says "weak match" then.
+- The server can also take a door **without `/localize`, in the AR session that recorded
+  the room**. The app does not use that: the AR view is closed while the map is built, so
+  the session that recorded the room no longer exists when the door is placed. One
+  `/localize` (a 2.5 s clip) comes first, as after any restart.
+- A door is always saved as "placed by hand" (`manual`), also when it stands exactly in a
+  found doorway; the server's "accept the suggested doorway" call is not used.
+
+The steps of the panel and "Put it here" are in `src/ui/core/doorEdit.ts`, what the
+screens show when in `src/ui/core/placeView.ts` (both unit-tested); the screens are
+`src/ui/PlaceDoorScreen.tsx` and `RoomResultScreen.tsx`, the server calls
+`src/room/doorServer.ts`, the floor outline `src/ar/PlaceMarker.tsx`.
 
 ### Developer options and the developer tools
 
@@ -335,10 +408,17 @@ Kept as a list for the product side; nothing here was decided silently.
 | Scan and build texts | a few lines the spec does not have: "Saving the scan…", "The scan could not start", "Stopped" after **Cancel**, "Keep going" once the minute is over, "Floor" before it is found | moments the spec's tables do not cover |
 | Home while a build is running | also shows a build that failed while the user was elsewhere, until it has been looked at | otherwise a failure would go unnoticed |
 | "Send again" after a restart of the app | the scan and its room are remembered, but no screen offers it | the spec has no place for it |
-| "See the room" opens the room result | opens Home | the room result is step 5 |
 | Inside the space: only "Door is behind you" and the info button | the close button stays as well | a way out that does not depend on Android's back button |
-| "Place the door by hand" | not offered | the spec itself postpones it |
-| Staff AR screen shows a door only where one was saved | it still shows a doorway the server found by itself | placing and saving the door is step B; until then staff would see no door at all |
+| AR screen, room without a saved door: "go to Place the door" (5.9) and a sheet "This room has no door yet" (7.3) | the sheet, whose button opens the placing screen | the two places of the spec differ; the sheet says why the screen changes |
+| **Save door** is enabled once the room is found | for a door that is already saved it stays disabled until something was changed | saving an unchanged door through a new alignment would move it by that alignment's error |
+| "The door wasn't saved": "The server did not answer…" | the same sheet when the server answered and refused (e.g. 422: it has no alignment for this session; the room is then looked for again) | the spec has one failure sheet |
+| **Put it here** moves the door to the aimed spot | when the phone is not aimed at the floor, the door goes two metres in front of the camera | the spec has no text for "aim at the floor" |
+| Coach lines once the room is found | shown until a control is used, and hidden while the adjust panel is open | they would cover the door that is being placed |
+| The door "as it will look to visitors" | the same, but it cannot be walked through while it is being placed | walking into a space that is still being moved |
+| **Remove the door** | a failed removal says "The door could not be removed. Try again." | the spec has no text for it |
+| **Move the door**, **Remove the door** in the Rooms row menu | in the staff AR menu only | the Rooms screen is step I |
+| Home: arrow to Rooms, "Change" next to the space | not shown | steps I and G |
+| Adjust panel: ⟲ ⟳ | one drawn turn icon and its mirror image; the other step buttons are the characters ← → ↑ ↓ − + | no icon set in the build |
 | "Scan another room" lives on the Rooms screen | no product screen offers a second room | the Rooms screen is step I; the scan panel of the tools still records one |
 | Visitor: "This phone can't show the door" has no button | the sheet can be closed, and the app goes on | the AR engine's answer has not been tried on a device |
 | Staff PIN sheets | one title the spec does not have: "Enter the current PIN" (changing the PIN) | the spec names the step, not its words |
@@ -379,7 +459,7 @@ Buttons of the debug overlay:
 | **Scan room**, **Record**, **Upload as "room"**, **Plan**, **Mesh lines**, **Save mesh**, **Reset mesh** | the room scan, see [the scenario](#the-scenario-step-by-step) |
 | **Re-place door** / **Re-localize** | manual provider: puts the doorway 2 m in front of the camera again. Self-hosted provider: looks for the room again now |
 | **Attach: direct / parent** | how the portal is attached to the scene graph ([How the portal works](#how-the-portal-works)); both must look the same |
-| **Provider: manual / self-hosted** | who decides where the doorway stands. `manual` (the default): in front of the camera, no server needed. `self-hosted`: in the real door opening the server found. The two stubs (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered |
+| **Provider: manual / self-hosted** | who decides where the doorway stands. `self-hosted` (the default): where staff saved the door in the scanned room. `manual`: in front of the camera, no server needed, not tied to the room. The two stubs (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered |
 | **World: sponza / test-room** | what is behind the door. `sponza` (the default) is the atrium; `test-room` is the small violet room of stage 1, kept to tell a portal problem from a problem with the big model |
 | **Frame: casing / simple** | the door frame, see [How the portal works](#how-the-portal-works) |
 | **Measuring** / **Measuring: on** | measurement mode: the scan panel is replaced by the measurement panel, a crosshair marks the middle of the screen. See [Measuring where the door stands](#measuring-where-the-door-stands) |
@@ -420,18 +500,20 @@ tools and sends its recording as the room `room`.
    build takes minutes. **Cancel** stops it. If the server cannot build a map it says why
    and the app shows that text ("The room could not be reconstructed... Record again,
    slower, walking along the walls").
-5. **Portal in the doorway.** When the build has succeeded the server's room plan is
-   drawn in orange (walls, corner posts, floor outline; door openings in white), the
-   provider switches to `self-hosted` and the door casing stands in the real door
-   opening, built to its width and height. **Plan: on/off** hides the plan. Walk through.
+5. **Plan, then the door.** When the build has succeeded the server's room plan is
+   drawn in orange (walls, corner posts, floor outline; door openings in white) and the
+   provider switches to `self-hosted`. **Plan: on/off** hides the plan. No door stands
+   yet: close the tools and choose **Place the door** in the sheet "This room has no door
+   yet", put the door where it should stand and save it
+   ([Placing the door](#placing-the-door)). Open the door from Home and walk through.
 6. **Next session.** Start the app in the same room, connect, choose **Provider:
    self-hosted**. Once tracking is NORMAL the app records a 2.5 s clip, sends it to the
    server and places plan and door from the answer; the banner shows the attempts. Hold
    the phone still, pointed at a part of the room with detail (not a bare wall).
 7. **If it goes wrong.** "Room not recognised": look at another part of the room and
-   press **Re-localize**. "No door opening found": the map has no doorway - switch to
-   `manual` to place the door by hand, or scan again with the whole door in view; the
-   app never substitutes a position of its own. Tracking lost: see
+   press **Re-localize**. "No door has been saved": close the tools; the sheet "This room
+   has no door yet" leads to **Place the door**. The app never substitutes a position of
+   its own. Tracking lost: see
    [Keeping the doorway in place](#keeping-the-doorway-in-place).
 
 The map is always called `room`, and a new upload replaces it.
@@ -577,7 +659,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 154 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 174 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -635,14 +717,16 @@ and the doorway (`GET /maps/room/room`, `/portal`). The contract is
 parsing of the answers in `src/server/core/roomPlan.ts` (both unit-tested).
 `src/ar/ServerRoomLayer.tsx` draws the server's plan.
 
-**The doorway.** A map built from a recording has the coordinate frame of the AR session
-that recorded it, so right after the build the plan and the doorway can be shown as they
-are. In any later session the frames differ; then a short clip with its camera poses goes
-to `POST /localize`, and the answer carries plan and doorway already transformed into the
-current session.
+**The door.** A map built from a recording has the coordinate frame of the AR session
+that recorded it, so in the developer tools the plan can be drawn right after the build.
+In any later session the frames differ; then a short clip with its camera poses goes to
+`POST /localize`, and the answer carries the plan, the door staff saved and the doorway
+the server suggests, all transformed into the current session.
 
-If the server found **no door opening**, nothing is placed and the status says what to
-do. The app never substitutes a position of its own.
+A door is shown only where staff saved one ([Placing the door](#placing-the-door)). If
+the room has **no saved door**, nothing is placed and the status says so; a doorway the
+server found by itself is only offered on the placing screen. The app never substitutes
+a position of its own.
 
 ### Keeping the doorway in place
 
@@ -802,6 +886,7 @@ src/
     scanController.ts         world mesh, session recording, capture folders
     meshFormat.ts             the engine's mesh file (RVWM) and its conversion to PLY (unit-tested)
     roomServer.ts             upload, build progress, room plan, localisation by clip
+    doorServer.ts             saving the door staff placed, removing a saved door
   server/
     core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network,
                               state machine, room plan, device log; server.e2e.ts = run against a real server
@@ -824,6 +909,10 @@ src/
   ui/modeSheets.tsx           the staff PIN pad, and the question before switching to visitor mode
   ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts
   ar/WallGridLayer.tsx        the real room's wall as a grid, inside the space
+  ui/PlaceDoorScreen.tsx      "Place the door": put it here, adjust, save to the server
+  ui/RoomResultScreen.tsx     what the server understood about a room that was just scanned
+  ui/core/doorEdit.ts, placeView.ts   pure: the steps of placing a door, what is sent to the server, what the placing screen shows when
+  ar/PlaceMarker.tsx          outline and arrow on the floor under a door that is being placed
   ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
   ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
   ui/ProblemScreen.tsx, MoreScreens.tsx, PlanDrawing.tsx, flows.ts   the other screens and the paths between them
@@ -885,7 +974,7 @@ Providers:
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
 | `ReactVisionVpsProvider` | Stub, no network code. Needs a ReactVision API key + project id and plugin option `provider: "reactvision"`. |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
-| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. The doorway is the door opening the server found: straight from the plan after a build in the same session, otherwise by a 2.5 s clip sent to `/localize`. Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
+| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. The door stands where staff saved it in the room: the place comes with the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, straight from the plan after a build in the same session). It also tells the placing screen when the room is found, so that a door can be saved. Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
 The ViroReact plugin is currently configured with `provider: "none"` and
 `telemetry: false` (no anchor back-end, no usage ping); no API keys or accounts are used.
@@ -1108,6 +1197,16 @@ has never been installed.
   light and dark, with the largest system font; that leaving and re-entering the AR
   screen starts a new AR session cleanly; the plan drawing against the real room; the
   amber outline of an unconfirmed doorway; the AR-support query;
+- **placing the door**: the whole pass "staff scan the room, place and save the door,
+  the app is closed, a visitor opens it, the door stands where it was saved" - the
+  assignment's main question; that the door being placed is drawn (the portal with
+  `passable` off, moved with every tap), the outline and the arrow on the floor (lines
+  lying flat on the floor have not been seen), whether the cross is the middle of the
+  camera picture and **Put it here** lands where it points, the step buttons and their
+  repeat, the turn icons against the direction the door turns, the size steps redrawing
+  the casing, **Use the found doorway**, saving in a fresh AR session right after a
+  build, **Move the door** and **Remove the door**, the room result screen with a real
+  plan;
 - **the two modes**: a fresh install opening the visitor screen; **Start** and Android's
   camera dialog; the search for the server behind "One moment…"; every visitor sheet
   (server off, no Wi-Fi, no saved door, room not recognised, camera refused); the help

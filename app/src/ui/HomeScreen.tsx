@@ -8,8 +8,9 @@ import { isBuilding, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
 import { buildProblem, percentOf } from './core/buildView';
+import { doorSize, draftFromServer } from './core/doorEdit';
 import { chipState, homeSituation } from './core/homeView';
-import { openDoor, openGuidedScan } from './flows';
+import { openDoor, openGuidedScan, openPlaceDoor } from './flows';
 import { Icon } from './icons';
 import { AppButton, Body, Card, Dot, Eyebrow, IconTile, ScreenFrame, Small, Tag } from './kit';
 import { SwitchToVisitorSheet } from './modeSheets';
@@ -49,6 +50,8 @@ export function HomeScreen() {
     rooms: connection.state === 'connected' ? (connection.info?.maps ?? []) : [],
     lastRoomId,
     building,
+    // Not known until the list of rooms has been read.
+    doorSaved: rooms.find((room) => room.mapId === currentId)?.portalConfirmed ?? null,
   });
   const chip = chipState(connection.state);
   const chipColor = { connected: theme.ok, connecting: theme.amber, offline: theme.danger, none: theme.ink2 }[chip];
@@ -57,31 +60,35 @@ export function HomeScreen() {
       ? (connection.info?.serverName ?? '')
       : t({ connecting: 'home.chip.connecting', offline: 'home.chip.offline', none: 'home.chip.none' }[chip] as TextKey);
 
-  const roomId = situation === 'room-ready' ? currentId : lastRoomId;
-  const info = rooms.find((room) => room.mapId === roomId);
+  const hasRoom = situation === 'room-ready' || situation === 'room-no-door';
+  const roomId = hasRoom ? currentId : lastRoomId;
   const plan = detail && detail.mapId === roomId ? detail : null;
   const portal = plan?.portal ?? null;
-  const scanned = info?.createdUtc ? formatDate(info.createdUtc) : '';
-  const doorway =
-    portal && portal.source !== 'none'
-      ? portal.width && portal.height
-        ? t('home.room.doorway', { w: portal.width.toFixed(2), h: portal.height.toFixed(2) })
-        : ''
-      : plan
-        ? t('home.room.noDoorway')
-        : '';
-  const roomLine = [scanned ? t('home.room.scanned', { date: scanned }) : '', doorway].filter(Boolean).join(' · ');
+  // The door staff saved, as it is drawn on the plan and described under it.
+  const saved = portal && portal.confirmed && portal.position && portal.rotation ? portal : null;
+  const savedDoor = saved?.position && saved.rotation
+    ? draftFromServer({ position: saved.position, rotation: saved.rotation, width: saved.width, height: saved.height })
+    : null;
+  const size = doorSize(saved?.width, saved?.height);
+  const placedOn = saved?.updatedUtc ? formatDate(saved.updatedUtc) : '';
+  const sizeParams = { w: size.width.toFixed(2), h: size.height.toFixed(2) };
+  const doorLine = !saved
+    ? ''
+    : placedOn
+      ? t('home.room.doorPlaced', { date: placedOn, ...sizeParams })
+      : t('home.room.doorPlaced.noDate', sizeParams);
   const planWidth = width - 2 * SPACE.screen - 34;
 
-  const roomCard = (dimmed: boolean) => (
-    <Card dimmed={dimmed}>
+  const roomCard = (kind: 'ready' | 'no-door' | 'offline') => (
+    <Card dimmed={kind === 'offline'}>
       <View style={styles.cardHead}>
         <Eyebrow>{t('home.room.eyebrow')}</Eyebrow>
-        {!dimmed ? <Tag label={t('home.room.ready')} /> : null}
+        {kind === 'ready' ? <Tag label={t('home.room.ready')} /> : null}
+        {kind === 'no-door' ? <Tag label={t('home.room.noDoor')} tone="amber" /> : null}
       </View>
-      <PlanDrawing room={plan?.room ?? null} chosenAt={portal?.position ?? null} width={planWidth} height={150} />
+      <PlanDrawing room={plan?.room ?? null} door={kind === 'no-door' ? null : savedDoor} width={planWidth} height={150} />
       <Text style={[TYPE.cardTitle, { color: theme.ink }]}>{roomName(roomId) || t('home.room.eyebrow')}</Text>
-      {roomLine ? <Small>{roomLine}</Small> : null}
+      {kind === 'no-door' ? <Small>{t('home.room.noDoor.line')}</Small> : doorLine ? <Small>{doorLine}</Small> : null}
     </Card>
   );
 
@@ -91,7 +98,7 @@ export function HomeScreen() {
     case 'room-ready':
       content = (
         <>
-          {roomCard(false)}
+          {roomCard('ready')}
           <Card>
             <Eyebrow>{t('home.space.eyebrow')}</Eyebrow>
             <View style={styles.spaceRow}>
@@ -105,6 +112,15 @@ export function HomeScreen() {
         <>
           <AppButton label={t('home.openDoor')} onPress={() => openDoor('room')} />
           <AppButton kind="text" label={t('settings.switch')} onPress={() => setSwitchOpen(true)} />
+        </>
+      );
+      break;
+    case 'room-no-door':
+      content = roomCard('no-door');
+      footer = (
+        <>
+          <AppButton label={t('home.placeDoor')} onPress={openPlaceDoor} />
+          <AppButton kind="text" label={t('build.scanAgain')} onPress={() => openGuidedScan('again')} />
         </>
       );
       break;
@@ -147,7 +163,7 @@ export function HomeScreen() {
     case 'offline':
       content = (
         <>
-          {roomCard(true)}
+          {roomCard('offline')}
           <Body dim>{t('home.offline.line')}</Body>
         </>
       );

@@ -7,6 +7,7 @@ import { useSyncExternalStore } from 'react';
 
 import type { ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import type { BuildFailure } from '../ui/core/buildView';
+import type { DoorDraft } from '../ui/core/doorEdit';
 import { buildRoom, EMPTY_ROOM, type PlaneAnchorData, type RoomModel } from './roomGeometry';
 
 /** What the AR engine says about its fused room mesh. */
@@ -33,6 +34,22 @@ export interface ServerPlan {
   origin: 'build' | 'localize';
   room: ServerRoom | null;
   portal: ServerPortal | null;
+}
+
+/**
+ * The server has placed a room's map in the running AR session (`/localize` answered with
+ * a complete alignment). A door placed now can be saved: the server converts its place
+ * through this alignment, which it keeps under `sessionId`. Gone as soon as tracking is
+ * interrupted, because the session's frame may have changed.
+ */
+export interface FoundRoom {
+  mapId: string;
+  /** The id `/localize` was called with; `PUT .../anchors/portal` takes the same one. */
+  sessionId: string;
+  /** False when the server called its own match weak. */
+  strong: boolean;
+  /** Plan, door and suggested doorway of that answer, in this session's frame. */
+  plan: ServerPlan;
 }
 
 /** Sending a capture to the server and waiting for the map. */
@@ -118,6 +135,10 @@ export interface RoomScanState {
   serverPlan: ServerPlan | null;
   /** Draw the server's plan in the scene. */
   planVisible: boolean;
+  /** See `FoundRoom`; null while the room is not found in this AR session. */
+  found: FoundRoom | null;
+  /** "Place the door": the door as the staff member has it now, in this session's frame. */
+  doorDraft: DoorDraft | null;
 }
 
 /** The room model is rebuilt at most this often while planes keep changing. */
@@ -138,6 +159,8 @@ let state: RoomScanState = {
   scanTarget: null,
   serverPlan: null,
   planVisible: true,
+  found: null,
+  doorDraft: null,
 };
 
 const anchors = new Map<string, PlaneAnchorData>();
@@ -246,6 +269,18 @@ export const roomActions = {
 
   setServerPlan(serverPlan: ServerPlan | null): void {
     setState({ serverPlan });
+  },
+
+  setFound(found: FoundRoom | null): void {
+    if (found !== state.found) {
+      setState({ found });
+    }
+  },
+
+  setDoorDraft(doorDraft: DoorDraft | null): void {
+    if (doorDraft !== state.doorDraft) {
+      setState({ doorDraft });
+    }
   },
 
   togglePlan(): void {
