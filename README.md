@@ -33,10 +33,13 @@ particular network. The app is built around a small `LocalizationProvider` inter
 so the self-hosted server is one option next to ready-made services (ReactVision VPS,
 ARCore Cloud Anchors), which are planned and not implemented yet.
 
-The doorway is not placed by hand: the user scans the room once, the server builds a map
-and a simple plan of the room (floor, walls, corners) from the recording, finds a real door
-opening in it and stores it. In later sessions the server recognises the room from a camera
-frame and the virtual door is put into that same opening.
+The doorway is placed once, not in every session. A staff member scans the room, the server
+builds a map of it from the recording, and the staff member puts the virtual door where it
+should stand and saves it on the server. In later sessions — on any phone, also one that
+never scanned the room — the server recognises the room from a camera frame and the app
+puts the door back at the saved place. The server also tries to find a real door opening in
+the room and offers it as a suggestion; on the recordings tried so far it has not found one
+reliably.
 
 ## Status (21 November 2026)
 
