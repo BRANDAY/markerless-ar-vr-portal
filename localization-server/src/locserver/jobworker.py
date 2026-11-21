@@ -118,7 +118,7 @@ def run(spec: dict, report) -> dict:
                 torch.cuda.empty_cache()
         except Exception:
             pass
-        extra = {k: spec[k] for k in ("label", "device_id") if spec.get(k)}
+        extra = {k: spec[k] for k in ("label", "device_id", "recording_session_id") if spec.get(k)}
         extra["built_from"] = "recording upload"
         lmap.meta.update(extra)
         (lmap.path / "map.json").write_text(json.dumps(lmap.meta, indent=2), encoding="utf-8")

@@ -109,7 +109,7 @@ def test_buffers_are_bounded():
 
 
 # --------------------------------------------------------------------- flow --- #
-MAP = {"map_id": "room", "num_images": 30, "room_status": "ok", "portal_source": "auto"}
+MAP = {"map_id": "room", "num_images": 30, "room_status": "ok", "portal_source": "manual", "portal_size": [0.9, 2.0]}  # door placed by the staff
 
 
 def job(state="running", **kw):
@@ -143,8 +143,10 @@ def test_usage_flow_follows_the_scenario():
     st, f = flow(device(mon, "ready"), [MAP], [job("succeeded")], mon)
     assert (st["build"], st["doorway"], st["localize"]) == ("done", "done", "todo") and "Point the phone" in f["next"]
 
-    st, _ = flow(device(mon, "ready"), [{**MAP, "portal_source": "none"}], [job("succeeded")], mon)
-    assert st["doorway"] == "problem"
+    # without the staff's door the step stays open: a doorway the server only found is a suggestion
+    for source, word in (("none", "no door yet"), ("auto", "suggests")):
+        st, f = flow(device(mon, "ready"), [{**MAP, "portal_source": source, "portal_size": None}], [job("succeeded")], mon)
+        assert st["doorway"] == "active" and word in f["steps"][3]["detail"] and "staff mode" in f["next"]
 
     st, f = flow(device(mon, "ready"), [], [job("failed", error={"code": "sfm_failed", "message": "SfM failed"})], mon)
     assert st["build"] == "problem" and f["steps"][2]["detail"] == "SfM failed"

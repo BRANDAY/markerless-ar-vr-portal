@@ -26,15 +26,18 @@ Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-ro
 ```json
 {
   "status": "ok", "service": "arportal-localization-server", "api_version": 1,
-  "api_revision": 2,
-  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal"],
+  "api_revision": 3,
+  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"],
   "jobs": {"running": 1, "queued": 0},
   "...": "all v1 fields unchanged"
 }
 ```
 
   A client that needs a v2 feature checks `capabilities` (absent on a v1
-  server → treat as empty list).
+  server → treat as empty list). `staff_door` (server 0.4.0): the door placed
+  by the staff carries its size, can be saved in the recording's own AR session
+  and comes with `confirmed` / `suggested` (section 5). `rooms_admin`: rename
+  and delete a room (section 10).
 * Errors are unchanged: HTTP status + `{"detail": "text"}`.
 * Units and frames are unchanged: metres, right-handed, `T_a_from_b`,
   quaternions `[x, y, z, w]`, `rotation_euler_deg` = ViroReact Euler degrees
@@ -61,6 +64,7 @@ server builds the map **in the background** and answers immediately.
 | `display_rotation_cw` | 0/90/180/270 | no | only if the video's orientation tag is wrong: rotate frames clockwise by this to make them upright |
 | `device_id` | text | no | stored in the map; same meaning as in `/localize` |
 | `label` | text | no | human-readable name shown in `/maps` |
+| `session_id` | text | no | id of the **AR session that is recording** (same character rule as `map_id`). Send it and the staff can save the door in this same session without a `/localize` first (section 5). Use a new id whenever the AR session starts anew (app start, tracking reset) |
 | `max_frames` | int | no (200) | upper bound of frames used for the map (build time grows with it), 30–400 |
 | `detect_openings` | bool | no (true) | run the doorway search |
 
@@ -372,43 +376,123 @@ object is a few kilobytes.
 
 ---
 
-## 5. Portal: automatic doorway
+## 5. The door (portal)
 
-Where the portal stands is resolved by the server in this order:
+**Decision of 2026-11-21:** the door is placed **once by a staff member** and
+saved on the server; a visitor's device only receives it. The doorway the
+server finds by itself is a *suggestion* for the staff member, not a door.
 
-1. **manual** — an anchor named `portal` stored with the v1
-   `PUT /maps/{map_id}/anchors/portal` (unchanged, always wins);
-2. **selected** — an opening chosen explicitly (below);
-3. **auto** — `room.best_opening_id`;
-4. **none** — no portal. The server never falls back to "2 m in front of the
-   camera"; that decision, if wanted, belongs to the app.
+The door is the anchor named `portal` of the room. Where the door stands is
+resolved in this order:
+
+1. **manual** — the door the staff placed by hand (`PUT /maps/{map_id}/anchors/portal`);
+2. **selected** — a doorway of the room plan that the staff accepted (`PUT /maps/{map_id}/portal`);
+3. **auto** — `room.best_opening_id`: found by the server, **not confirmed by anybody**;
+4. **none** — no door. The server never falls back to "2 m in front of the camera".
 
 ```
-GET /maps/{map_id}/portal      -> Portal (frame "map")
-PUT /maps/{map_id}/portal      {"opening_id": "o1"}     choose an opening;  {"opening_id": null} = back to auto
+GET    /maps/{map_id}/portal            -> Door (frame "map")
+PUT    /maps/{map_id}/anchors/portal    the staff places the door by hand            -> source "manual"
+PUT    /maps/{map_id}/portal            {"opening_id": "o0"}: the staff accepts the suggested doorway -> source "selected"
+DELETE /maps/{map_id}/portal            remove the door, however it was set (the suggestion stays)
 ```
-
-`DELETE /maps/{map_id}/anchors/portal` (v1) removes the manual pose and
-returns to selected/auto.
 
 ```json
 {
   "map_id": "room", "frame": "map",
-  "source": "auto",
-  "opening_id": "o0",
+  "source": "manual",
+  "confirmed": true,
   "position": [x, y, z], "rotation_euler_deg": [0, 90, 0], "quaternion_xyzw": [0, 0.7071, 0, 0.7071],
-  "width": 0.86, "height": 2.02,
-  "confidence": 0.78,
+  "width": 0.9, "height": 2.05,
+  "opening_id": null, "confidence": null,
+  "updated_utc": "2026-11-21T09:40:00Z", "placed_by": "staff-phone",
+  "suggested": {
+    "source": "auto", "opening_id": "o0",
+    "position": [..], "rotation_euler_deg": [..], "quaternion_xyzw": [..],
+    "width": 0.86, "height": 2.02, "confidence": 0.78
+  },
   "reason": null
 }
 ```
 
 * `source`: `manual` | `selected` | `auto` | `none`.
-* The pose is the doorway frame described under `portal_pose`.
-* `width` / `height` / `confidence` / `opening_id` are `null` for `manual`.
+* **`confirmed`**: `true` for `manual` and `selected` (a person decided),
+  `false` for `auto` and `none`. **A visitor's app shows the door only when
+  `confirmed` is true**; otherwise it tells the visitor to ask the staff.
+* The pose is the doorway frame of the app: origin on the floor in the middle
+  of the threshold, +Y up, +Z into the scanned room.
+* `width` / `height`: metres. For `manual` they are what the staff sent
+  (`null` if the client sent none - then use the app's default 0.9 x 2.0);
+  for `selected` / `auto` they are measured from the opening.
+* `placed_by`: the `X-Device-Id` of the request that saved or accepted the door; `updated_utc`: when.
+* **The latest decision of the staff wins**: accepting a doorway removes a
+  door placed by hand before, and a door placed by hand afterwards takes over
+  again. (`DELETE /maps/{map_id}/anchors/portal` and `PUT ... {"opening_id": null}`
+  from earlier revisions still work and undo only their own kind.)
+* Capabilities: `staff_door` = everything in this section; **`door_size`** =
+  the server stores and returns `width` / `height` of a door placed by hand
+  (hide those inputs on a server without it).
+* **`suggested`**: the doorway the server found by itself (`selected` or
+  `auto`), or `null`. It is present next to a staff door too, so the staff
+  screen can offer "use the doorway that was found". With `source` `auto` /
+  `selected` it repeats the door itself.
 * `source: "none"`: `position` and rotations are `null`, `reason` explains
   (`"no door opening was found in this room"`, `"the map has no room plan"`).
-* `PUT` with an unknown `opening_id` → `404`.
+
+### Saving the staff's door
+
+`PUT /maps/{map_id}/anchors/portal` with a JSON body; it takes the optional
+`"width"`, `"height"` (metres, 0.3-6) and `"note"`.
+
+**(a) As placed in the running AR session** - the normal case:
+
+```json
+{"ar_pose": {"position": [x, y, z], "rotation": [0, yaw, 0]},
+ "session_id": "<the AR session id>", "width": 0.9, "height": 2.05}
+```
+
+`ar_pose` is the door in the phone's AR world (`rotation` = ViroReact Euler
+degrees, or `quaternion_xyzw`). The server needs to know how that AR world
+lies in the map:
+
+* **In the AR session that recorded the room** (the upload carried the same
+  `session_id`, section 2) **nothing else is needed**: that AR world *is* the
+  map frame. The staff member scans, waits for the build and places the door
+  without restarting the app and without a `/localize`.
+  Do **not** reuse that `session_id` after the AR session was restarted
+  (app start, tracking reset): the door would be saved in the wrong place.
+  This shortcut needs a metric map (always the case for a recording with poses).
+* **In any other AR session** (the app was restarted, another phone): call
+  `/localize` with this `session_id` until `alignment.status == "ok"`, then
+  send the `PUT`. Without an accepted alignment the answer is `422` and says so.
+* Instead of `session_id` the body may carry the alignment itself:
+  `"T_arworld_from_map": [[4x4]]` (v1, unchanged).
+
+**(b) In map coordinates** (v1, unchanged): `{"position": [..], "quaternion_xyzw": [..]}`.
+
+The answer is the stored anchor plus
+
+```json
+{"alignment_used": "recording_session", "portal": { "...": "the Door object above" }}
+```
+
+`alignment_used`: `recording_session` | `session_alignment` | `matrix` |
+`map` - which of the ways above placed it. Show the staff member
+the result (`portal`) in AR right away; it is exactly what visitors will get.
+
+### Accepting the suggested doorway
+
+```
+PUT /maps/{map_id}/portal      {"opening_id": "o0"}      -> the Door object, source "selected"
+```
+
+The doorway `suggested.opening_id` of the room plan becomes the door, with the
+place and size the server measured (`404` if the plan has no such opening).
+Nothing about the AR session is needed for this call.
+
+A new scan of the room (`replace=true`) **removes the door**: it stood in the
+frame of the old scan. The room's `label` and `vps` data are kept. Place the
+door again after the build.
 
 ---
 
@@ -429,9 +513,12 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
     "portal": {"position": [..], "rotation_euler_deg": [..], "quaternion_xyzw": [..]}
   },
   "portal": {
-    "frame": "arworld", "source": "auto", "opening_id": "o0",
+    "frame": "arworld", "source": "manual", "confirmed": true,
     "position": [..], "rotation_euler_deg": [..], "quaternion_xyzw": [..],
-    "width": 0.86, "height": 2.02, "confidence": 0.78, "reason": null
+    "width": 0.9, "height": 2.05, "opening_id": null, "confidence": null,
+    "updated_utc": "...", "placed_by": "staff-phone",
+    "suggested": {"source": "auto", "opening_id": "o0", "position": [..], "...": "in the AR world too"},
+    "reason": null
   },
   "room": { "...": "Room object of section 4 with frame = arworld" }
 }
@@ -441,8 +528,10 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
   selected or auto), so a v1 client that reads `anchors.portal` gets the
   automatic doorway without any change. With `source: "none"` the key
   `anchors.portal` is absent, exactly as in v1 when no anchor was stored.
-* `alignment.portal` is always present when `status == "ok"`; check
-  `portal.source != "none"` before using the pose.
+* `alignment.portal` is always present when `status == "ok"`; it is the Door
+  object of section 5 in AR-world coordinates (`suggested` included). Check
+  `portal.source != "none"` before using the pose, and in visitor mode
+  `portal.confirmed`.
 * `alignment.room` is `null` when `include_room=false`, when the map has no
   plan, or when the alignment is not complete.
 * All positions are transformed with `T_arworld_from_map`; lengths (`width`,
@@ -452,33 +541,49 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 
 `GET /maps` and `GET /maps/{map_id}` additionally report
 `"room_status": "ok|partial|unavailable"`, `"portal_source": "manual|selected|auto|none"`,
-`"gravity_aligned": bool`, `"label"`.
+`"portal_confirmed": bool`, `"portal_size": [width, height] | null`,
+`"gravity_aligned": bool`, `"label"`, `"vps"` (section 11).
 
 ---
 
 ## 7. Client flows
 
-**Scan a room**
+**Staff: set a room up (once per room)**
 
-1. Record `video.mp4` + `session.jsonl` (+ mesh snapshot if available).
-2. `POST /maps/{map_id}/recording` → keep `job.job_id`.
-3. Every 1–2 s `GET /jobs/{job_id}`: show `progress` (percent), `stage_index`
+1. Start an AR session; make up a `session_id` for it.
+2. Record `video.mp4` + `session.jsonl` (+ mesh snapshot if available).
+3. `POST /maps/{map_id}/recording` with `label` and that `session_id` → keep `job.job_id`.
+4. Every 1–2 s `GET /jobs/{job_id}`: show `progress` (percent), `stage_index`
    / `stage_count` and `stage`. Stop on `succeeded` / `failed` / `cancelled`.
-4. On success: `job.result.room` and `job.result.portal` say what was found.
-   Optionally `GET /maps/{map_id}/room` and draw it right away (same AR
-   session, see section 2).
+   **Keep the AR session alive meanwhile** (do not leave the AR screen).
+5. On success: `GET /maps/{map_id}/room` (draw it: same AR session, so map
+   coordinates are AR-world coordinates) and `GET /maps/{map_id}/portal`.
+   If `suggested` is not null, offer it ("use the doorway that was found").
+6. The staff member puts the door where it should stand, adjusts it, and
+   saves: `PUT /maps/{map_id}/anchors/portal`, form (a) with the same
+   `session_id` - or accepts the suggestion with `PUT /maps/{map_id}/portal`.
+   Show the returned door.
+7. Later changes: the same `PUT` moves the door ("place again"; in a new AR
+   session after one accepted `/localize`), `DELETE /maps/{map_id}/portal`
+   removes it, `PATCH /maps/{map_id}` renames the room, `DELETE /maps/{map_id}`
+   removes the room (section 10).
 
-**Use a room (every later session)**
+**Visitor: nothing on the device but the app**
 
-1. `POST /localize` with frames + AR poses as in v1 (`session_id` for
-   multi-frame alignment).
-2. When `alignment.status == "ok"`:
-   * place the doorway at `alignment.portal` (if `source != "none"`);
-   * draw `alignment.room` (walls as quads/outlines from `corners`, room
-     corners from `corners[].bottom`/`top`, the opening from
-     `openings[].corners`).
-3. `portal.source == "none"` → tell the user that no doorway was found; offer
-   manual placement (v1 anchor `PUT`, form 2) or a new scan.
+1. `GET /maps`: the rooms. Offer (or pick) those with `portal_confirmed == true`.
+2. Optionally `GET /maps/{map_id}/room` and `GET /maps/{map_id}/portal` (plan
+   and door in map coordinates; not needed for step 3).
+3. `POST /localize` with frames or a clip + AR poses as in v1, with a
+   `session_id` of this AR session.
+4. When `alignment.status == "ok"`:
+   * `alignment.portal.confirmed` → show the door at `alignment.portal`
+     (`position`, rotation, `width`, `height`) - all in this phone's AR world;
+   * draw `alignment.room` if wanted (walls from `corners`, room corners from
+     `corners[].bottom`/`top`, openings from `openings[].corners`).
+5. `portal.confirmed == false` (no door, or only a suggestion) → "ask a staff
+   member". A visitor never places or moves the door.
+
+Both modes send `X-Device-Role` (section 9.1).
 
 ---
 
@@ -493,6 +598,7 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 | Openings: image detector (closed doors) | done | synthetic boxes in tests; the real detector only looked at on TUM frames (no door ground truth there) |
 | `mesh` input | OBJ/PLY reader done, tested on hand-made files | waits for `app/docs/capture-format.md` and a real snapshot |
 | `/maps/{id}/portal`, `/localize` / `/align` / `/sessions` additions | done | tests |
+| Staff door with size, `confirmed` / `suggested`, saving in the recording's session, `X-Device-Role`, rename / delete a room, `vps` entry (sections 5, 10, 11) | done (server 0.4.0) | `tests/test_staff_door.py`; a run of `scripts/simulate_phone.py` as staff device and as visitor device against the running server. Not with a phone |
 | Section 9: device headers, `POST /devices/{id}/log`, `GET /devices`, log read-back, `/ui` | done (server 0.3.0) | tests; a run of `scripts/simulate_phone.py` against the running server. No log from the real app has been received yet |
 
 **Not verified: anything on a real room recorded with the phone.** No such
@@ -521,6 +627,7 @@ polls, uploads, job polling, `/localize`, ...). All optional, all ASCII:
 | `X-Device-Name` | human-readable name for the panel, e.g. `Xiaomi 14 Ultra` (max 64; non-ASCII characters percent-encoded as in a URL) |
 | `X-Session-Id` | id of the current app run (new value on every app start), same character rule as `X-Device-Id` |
 | `X-App-Version` | app version / build, max 32 |
+| `X-Device-Role` | `staff` or `visitor`: the mode the app is in (server 0.4.0). Shown in the panel; for a visitor the panel's strip has no scan and build steps. **Not a permission**: the server does not check it (see section 10) |
 
 Without `X-Device-Id` the server still lists the client, by its IP address,
 as an unnamed device. The server measures and shows "last seen" and its own
@@ -646,6 +753,98 @@ number, use it as `after`), `device_id`, `session_id` and `server_time_ms`
 The panel's own data feed (`/monitor/...`) is internal and may change without
 notice; do not build the app on it.
 
+## 10. Rooms: rename, delete
+
+Capability `rooms_admin` (server 0.4.0). A room is a map; its id never changes,
+its name is the `label`.
+
+```
+PATCH  /maps/{map_id}     {"label": "Exhibition 2"}      -> the room, as GET /maps/{map_id}
+DELETE /maps/{map_id}                                    -> {"deleted": "hall", "kept_as": ".trash/hall-20261121-094000"}
+```
+
+* `label`: text of at most 80 characters, or `null` to remove the name.
+  `PATCH` accepts only `label` and `vps` (section 11); anything else → `422`.
+* `DELETE` unloads the room and moves its folder into `.trash` inside the
+  maps folder - nothing is erased, and whoever runs the server can put it back
+  by moving the folder and calling `POST /maps/reload`. Alignment sessions of
+  that room are dropped. `409` while a build for this room is queued or
+  running (cancel it first), `404` for an unknown room. The id is free again
+  afterwards.
+* Deleting only the door: `DELETE /maps/{map_id}/portal` (section 5).
+
+**No access control today.** The server has no login: any device in the
+network can call every endpoint, these included. The staff PIN is created and
+checked on the device only, so on their own phone anybody can make themselves
+staff, and another program in the network needs no PIN at all.
+
+**Planned, not built (waits for a go-ahead): the staff PIN on the server.**
+Outline, so that the app can be prepared for it:
+
+* the server keeps one staff PIN (only a salted hash of it, in its work
+  folder, never in the repository); it is set on the PC that runs the server
+  (command line or the panel), not from a phone;
+* `POST /staff/login {"pin": "..."}` → `{"staff_token": "...", "expires_utc": "..."}`;
+  a few wrong attempts in a row lock the login for a while;
+* the app sends `X-Staff-Token` with the requests that change something:
+  recording upload, the door calls of section 5, `PATCH` / `DELETE` of a room,
+  room-plan rebuild. Without a valid token those answer `401`; everything a
+  visitor needs (`/health`, `GET /maps...`, `/localize`, device log) stays open;
+* announced as capability `staff_auth`; a server without it behaves as today.
+
+The traffic is plain HTTP in the local network, so this keeps honest users in
+their role; it is not protection against someone who listens on the Wi-Fi.
+
+---
+
+## 11. Place at an external positioning service (ReactVision Advanced VPS)
+
+The app can be built to recognise the room through ReactVision's Advanced VPS
+instead of this server. For that mode the server only **keeps two facts per
+room** and hands them to every device; it does not talk to the service.
+
+```
+PATCH /maps/{map_id}
+{"vps": {"provider": "reactvision",
+         "location_id": "<the service's location id>",
+         "door": {"position": [x, y, z], "quaternion_xyzw": [x, y, z, w], "width": 0.9, "height": 2.05},
+         "note": "scanned 2026-11-22"}}
+```
+
+* `location_id` (required, 1-128 characters): what the visitor's app passes to
+  `startTracking(locationId)`.
+* `door` (optional): the door in the frame of **that service's map** (metres,
+  Y up - the frame of `<ViroVPSAnchor>` content), same doorway convention as
+  section 5. The service has no call to store a placed object, so the place
+  the staff chose has to live here.
+* `provider` defaults to `"reactvision"`; `note` is free text (max 200).
+  Unknown fields → `422` (so that a key never ends up here by mistake).
+  `{"vps": null}` removes the entry. The server adds `updated_utc`.
+* Read it back in `GET /maps` and `GET /maps/{map_id}` as `"vps"` (`null` when
+  not set). It survives a new scan of the room on this server.
+
+The two frames are unrelated: `vps.door` is **not** the door of section 5 in
+other coordinates, and the server does not convert between them. A staff
+member who wants both ways for one room places the door once per way.
+
+**Not built: handing out keys for the scan upload.** Sending a scan to the
+service from the app (`uploadScanRecording`) needs a short-lived *user token*
+(`rv_ut_...`, one hour) that a backend creates with the account's *secret key*
+(`rv_secret_...`); the secret key must never be in the app or in this public
+repository. When the owner has an account, this server would get:
+
+1. the secret key and project id from a file outside the repository (or
+   environment variables), never returned by any endpoint;
+2. one endpoint, e.g. `POST /vps/user-token`, that asks the service for a user
+   token and returns it with its expiry - the app's `fetchToken` calls it;
+3. a check that the caller is staff (see "No access control" above) - without
+   it anyone in the network could spend the account's paid scan minutes.
+
+Until then the staff can scan with the service's own StudioGo app and type the
+resulting `location_id` in.
+
+---
+
 ## Change log
 
 * 2026-11-20 — first draft.
@@ -659,6 +858,22 @@ notice; do not build the app on it.
   how the files are read; a recording that is too short or does not move is
   refused at upload with `X-Error-Code`; the minimum of 10 pose lines became
   30 lines and 3 s; mesh layout of the app confirmed.
+* 2026-11-21 — **revision 3, server 0.4.0: two modes of the app** (owner's
+  decision: a staff member places the door, visitors receive it).
+  Section 5 rewritten: the staff's door carries `width` / `height`, the Door
+  object gains `confirmed`, `suggested`, `updated_utc`, `placed_by`;
+  `PUT /maps/{id}/anchors/portal` accepts `width`, `height` and works without
+  `/localize` in the recording's own AR session (new upload field
+  `session_id`); its answer gains `alignment_used` and `portal`. Accepting the
+  suggested doorway stays `PUT /maps/{id}/portal` (source `selected`) and now
+  replaces a door placed by hand; `DELETE /maps/{id}/portal` removes the door
+  of either kind.
+  `GET /maps` gains `portal_confirmed`, `portal_size`, `vps`. New: header
+  `X-Device-Role`, `PATCH /maps/{id}` and `DELETE /maps/{id}` (section 10),
+  the `vps` entry of a room (section 11). Capabilities `staff_door`,
+  `door_size`, `rooms_admin`. Changed meaning to mind: `width` / `height` of a
+  `manual` door are no longer always `null`, and a rebuilt room loses its door.
+  Planned and described, not built: staff PIN on the server (section 10).
 * 2026-11-21 — room plan with `status: "partial"`: `reason` now names what was
   missing and what to do when wall-like surfaces were seen over too little of
   their height (text for the user, e.g. "fewer than two walls were found: 2 more

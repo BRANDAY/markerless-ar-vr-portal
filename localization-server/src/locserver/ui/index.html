@@ -199,7 +199,7 @@ function renderDevices(list) {
   const box = $("devices");
   if (!list.length) { box.replaceChildren(el("div", "empty", "No device has contacted the server yet. Start the app on a phone in the same Wi-Fi network and enter one of the addresses on the left.")); return; }
   const t = el("table"), h = el("tr");
-  ["State", "Device", "Address", "Last seen", "Server", "Latency", "App step", "Tracking", "Requests", "Errors", ""].forEach((x, i) => h.append(el("th", i >= 4 && i <= 5 || i >= 8 ? "num" : "", x)));
+  ["State", "Device", "Role", "Address", "Last seen", "Server", "Latency", "App step", "Tracking", "Requests", "Errors", ""].forEach((x, i) => h.append(el("th", i >= 5 && i <= 6 || i >= 9 ? "num" : "", x)));
   t.append(h);
   list.forEach(d => {
     const r = el("tr", "pick" + (d.device_id === selDev ? " sel" : ""));
@@ -207,7 +207,9 @@ function renderDevices(list) {
     const st = el("td"); st.append(d.online ? chip("good", "●", "online") : chip("serious", "○", "lost"));
     const name = el("td"); name.append(el("div", "", d.name || (d.identified ? d.device_id : "unnamed client")), el("div", "muted", d.device_id + (d.app_version ? " · app " + d.app_version : "")));
     const stt = d.state || {};
-    r.append(st, name, el("td", "mono", d.address || "–"), el("td", "", d.online ? d.last_seen_age_s.toFixed(1) + " s ago" : dur(d.last_seen_age_s) + " ago"),
+    const role = el("td"); role.append(d.role ? chip(d.role === "staff" ? "info" : "idle", d.role === "staff" ? "◆" : "◇", d.role) : "–");
+    role.title = d.role === "staff" ? "Staff mode: scans rooms and places the door" : d.role === "visitor" ? "Visitor mode: gets room and door from the server" : "The app did not say which mode it is in (header X-Device-Role)";
+    r.append(st, name, role, el("td", "mono", d.address || "–"), el("td", "", d.online ? d.last_seen_age_s.toFixed(1) + " s ago" : dur(d.last_seen_age_s) + " ago"),
       el("td", "num", num(d.server_ms, 1) + " ms"), el("td", "num", d.rtt_ms === null ? "–" : num(d.rtt_ms) + " ms"),
       el("td", "", stt.step || "–"), el("td", "", stt.tracking || "–"), el("td", "num", d.requests), el("td", "num", d.errors));
     const fg = el("td", "num");
@@ -228,13 +230,16 @@ function renderMaps(maps) {
   const box = $("maps");
   if (!maps.length) { box.replaceChildren(el("div", "empty", "No map yet. A map appears here when the app has uploaded a room recording and the build has finished.")); return; }
   const t = el("table"), h = el("tr");
-  ["Map", "Images", "3D points", "Room plan", "Portal"].forEach((x, i) => h.append(el("th", i === 1 || i === 2 ? "num" : "", x)));
+  ["Room", "Images", "3D points", "Room plan", "Door"].forEach((x, i) => h.append(el("th", i === 1 || i === 2 ? "num" : "", x)));
   t.append(h);
   maps.forEach(m => {
     const r = el("tr", "pick" + (m.map_id === selMap ? " sel" : "")); r.onclick = () => { selMap = m.map_id; pickedMap = true; $("mapsel").value = selMap; renderMaps(S.maps); loadMap(true); };
     const id = el("td"); id.append(el("div", "", m.label || m.map_id), el("div", "muted", m.map_id + (m.metric ? " · metric" : " · no scale")));
     const rp = el("td"); const rs = ROOM[m.room_status] || ROOM.unavailable; rp.append(chip(rs[0], rs[1], rs[2]));
-    const po = el("td"); po.append(m.portal_source === "none" ? chip("serious", "○", "no doorway") : chip("good", "✓", m.portal_source));
+    const po = el("td"), sz = m.portal_size ? " " + m.portal_size[0].toFixed(2) + " × " + m.portal_size[1].toFixed(2) + " m" : "";
+    po.append(m.portal_source === "manual" ? chip("good", "✓", "staff door" + sz) : m.portal_source === "selected" ? chip("good", "✓", "chosen doorway" + sz)
+      : m.portal_source === "auto" ? chip("warning", "▲", "suggested only") : chip("serious", "○", "no door"));
+    po.title = m.portal_source === "auto" ? "The server found a doorway, but no staff member has placed or confirmed the door: visitors get no door" : m.portal_source === "none" ? "No door: a staff member has to place it in the app" : "";
     r.append(id, el("td", "num", m.num_images), el("td", "num", m.num_points3D === null ? "–" : m.num_points3D), rp, po); t.append(r);
   });
   box.replaceChildren(t);
@@ -360,7 +365,7 @@ function drawPlan() {
   const cy_ = Math.cos(view.yaw), sy_ = Math.sin(view.yaw), ct = Math.cos(view.tilt), st = Math.sin(view.tilt);
   const flat = p => { const q = toPlan(p), a = q[0] * cy_ - q[1] * sy_, b = q[0] * sy_ + q[1] * cy_; return [a, b * ct + q[2] * st]; };
   // fit: walls and cameras decide the frame (stray points do not)
-  const frame = [...mapData.cameras, ...room.walls.flatMap(w => w.corners)];
+  const frame = [...mapData.cameras, ...room.walls.flatMap(w => w.corners), ...(mapData.portal.position ? [mapData.portal.position] : [])];
   if (!frame.length) frame.push(...mapData.points.slice(0, 500));
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   frame.forEach(p => { const f = flat(p); x0 = Math.min(x0, f[0]); x1 = Math.max(x1, f[0]); y0 = Math.min(y0, f[1]); y1 = Math.max(y1, f[1]); });
@@ -401,7 +406,7 @@ function drawPlan() {
     hits.push({ at: m, text: "Opening " + o.id + " in " + o.wall_id + " (" + o.state + ")\n" + o.width.toFixed(2) + " × " + o.height.toFixed(2) + " m" + (o.height_measured ? "" : " (height assumed)") +
       "\nconfidence " + o.confidence + "\ngeometry " + (o.evidence.geometry ?? "–") + ", detector " + (o.evidence.detector ?? "–") + ", " + o.evidence.views + " key frames" });
   });
-  // portal anchor: a pin with an arrow into the room
+  // the door: a pin with an arrow into the room
   const po = mapData.portal;
   if (po.source !== "none" && po.position) {
     const q = po.quaternion_xyzw, z = [2 * (q[0] * q[2] + q[3] * q[1]), 2 * (q[1] * q[2] - q[3] * q[0]), 1 - 2 * (q[0] * q[0] + q[1] * q[1])];
@@ -409,8 +414,8 @@ function drawPlan() {
     g.strokeStyle = C("--accent"); g.lineWidth = 2; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
     const an = Math.atan2(b[1] - a[1], b[0] - a[0]); g.beginPath(); g.moveTo(b[0], b[1]); g.lineTo(b[0] - 9 * Math.cos(an - 0.45), b[1] - 9 * Math.sin(an - 0.45)); g.lineTo(b[0] - 9 * Math.cos(an + 0.45), b[1] - 9 * Math.sin(an + 0.45)); g.closePath(); g.fillStyle = C("--accent"); g.fill();
     g.beginPath(); g.arc(a[0], a[1], 7, 0, 7); g.fillStyle = C("--surface"); g.fill(); g.beginPath(); g.arc(a[0], a[1], 5, 0, 7); g.fillStyle = C("--accent"); g.fill();
-    label("portal (" + po.source + ")", [b[0], b[1] - 14], C("--ink"));
-    hits.push({ at: a, text: "Portal anchor\nsource: " + po.source + (po.opening_id ? ", opening " + po.opening_id : "") + (po.width ? "\n" + po.width.toFixed(2) + " × " + po.height.toFixed(2) + " m" : "") + "\nthe arrow points into the scanned room" });
+    label(po.source === "manual" ? "door (staff)" : po.source === "auto" ? "doorway (suggested)" : "door (" + po.source + ")", [b[0], b[1] - 14], C("--ink"));
+    hits.push({ at: a, text: (po.confirmed ? "Door" : "Suggested doorway (not confirmed)") + "\nsource: " + po.source + (po.placed_by ? ", placed by " + po.placed_by : "") + (po.opening_id ? ", opening " + po.opening_id : "") + (po.width ? "\n" + po.width.toFixed(2) + " × " + po.height.toFixed(2) + " m" : "") + "\nthe arrow points into the scanned room" });
   }
   // phone: last successful localisation
   const l = mapData.last_localization;
@@ -429,14 +434,15 @@ function drawPlan() {
   $("plansum").textContent = room.status === "unavailable" ? "No room plan: " + (room.reason || "not computed") + ". Showing the map's points and the camera path only."
     : "Plan " + room.status + " · " + room.walls.length + " walls · " + room.corners.length + " corners · " + room.openings.length + " openings" +
       (room.height ? " · ceiling height " + room.height.toFixed(2) + " m" : "") + (fl ? " · floor at " + fl.level.toFixed(2) + " m" : "") +
-      " · portal: " + po.source + (po.reason ? " (" + po.reason + ")" : "") + (room.sources && room.sources.length ? " · from: " + room.sources.join(", ") : "") +
+      " · door: " + (po.source === "manual" ? "placed by the staff" + (po.width ? ", " + po.width.toFixed(2) + " × " + po.height.toFixed(2) + " m" : "")
+        : po.source === "auto" ? "only suggested by the server" : po.source) + (po.reason ? " (" + po.reason + ")" : "") + (room.sources && room.sources.length ? " · from: " + room.sources.join(", ") : "") +
       (room.status !== "ok" && room.reason ? ". Why partial: " + room.reason + "." : "");
   const lg = $("legend"); if (!lg.childElementCount) {
     const item = (svg, text) => { const s = el("span"); s.innerHTML = svg; s.append(document.createTextNode(text)); return s; };
     lg.append(item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="currentColor" stroke-width="3"/></svg>', "wall"),
       item('<svg width="10" height="10"><rect x="1" y="1" width="8" height="8" fill="currentColor"/></svg>', "corner"),
       item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--accent)" stroke-width="5"/></svg>', "door opening (dashed: not used)"),
-      item('<svg width="22" height="12"><circle cx="5" cy="6" r="4" fill="var(--accent)"/><line x1="5" y1="6" x2="20" y2="6" stroke="var(--accent)" stroke-width="2"/></svg>', "portal anchor"),
+      item('<svg width="22" height="12"><circle cx="5" cy="6" r="4" fill="var(--accent)"/><line x1="5" y1="6" x2="20" y2="6" stroke="var(--accent)" stroke-width="2"/></svg>', "door"),
       item('<svg width="14" height="12"><path d="M13 6 L2 1 L2 11 Z" fill="var(--good)"/></svg>', "phone (last localization)"),
       item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--muted)" stroke-dasharray="4 3"/></svg>', "camera path of the scan"),
       el("span", "muted", "drag to turn · wheel to zoom · hover for details"));

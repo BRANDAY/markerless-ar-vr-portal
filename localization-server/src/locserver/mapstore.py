@@ -111,7 +111,8 @@ class LocMap:
         f = self.path / "anchors.json"
         return json.loads(f.read_text(encoding="utf-8-sig")) if f.exists() else {}
 
-    def set_anchor(self, name: str, T_map_from_anchor: np.ndarray, note: str | None = None) -> dict:
+    def set_anchor(self, name: str, T_map_from_anchor: np.ndarray, note: str | None = None, extra: dict | None = None) -> dict:
+        """Store a named pose. ``extra``: further fields of the entry (the door's width and height, who placed it)."""
         check_id(name, "anchor name")
         if not g.is_rotation(T_map_from_anchor[:3, :3], tol=1e-4):
             raise ValueError("anchor rotation is not a rotation matrix")
@@ -121,6 +122,7 @@ class LocMap:
             "quaternion_xyzw": [float(v) for v in g.rotmat_to_quat(R)],
             "note": note,
             "updated_utc": utc_now(),
+            **{k: v for k, v in (extra or {}).items() if v is not None},
         }
         with self._lock:
             all_ = self.anchors()
@@ -158,17 +160,31 @@ class LocMap:
             self._room_cache = cached
         return cached[1]
 
-    def portal_selection(self) -> str | None:
-        """Id of the opening the user chose for the portal (None = automatic)."""
+    def portal_selection_info(self) -> dict:
+        """The staff's choice of an opening for the door: ``{"opening_id", "updated_utc", "placed_by"}`` (empty = none)."""
         f = self.path / PORTAL_FILE
         try:
-            return json.loads(f.read_text(encoding="utf-8-sig")).get("opening_id") if f.exists() else None
+            return json.loads(f.read_text(encoding="utf-8-sig")) if f.exists() else {}
         except (OSError, ValueError):
-            return None
+            return {}
 
-    def set_portal_selection(self, opening_id: str | None) -> None:
+    def portal_selection(self) -> str | None:
+        """Id of the opening the user chose for the portal (None = automatic)."""
+        return self.portal_selection_info().get("opening_id")
+
+    def set_portal_selection(self, opening_id: str | None, placed_by: str | None = None) -> None:
         with self._lock:
-            _write_json(self.path / PORTAL_FILE, {"opening_id": opening_id, "updated_utc": utc_now()})
+            _write_json(self.path / PORTAL_FILE, {"opening_id": opening_id, "updated_utc": utc_now(), "placed_by": placed_by})
+
+    def set_meta(self, changes: dict) -> None:
+        """Change descriptive fields of ``map.json`` (the room's name, the link to an external service); None removes one."""
+        with self._lock:
+            for k, v in changes.items():
+                if v is None:
+                    self.meta.pop(k, None)
+                else:
+                    self.meta[k] = v
+            _write_json(self.path / "map.json", self.meta)
 
     # -------------------------------------------------------------- scale --- #
     def set_scale(self, scale_m_per_unit: float, source: str) -> None:

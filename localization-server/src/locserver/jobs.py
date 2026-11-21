@@ -280,6 +280,15 @@ class JobManager:
         if not (new / "map.json").exists():
             raise JobError("internal", "the worker reported success but wrote no map")
         old = self.maps_dir / f"{BUILD_PREFIX}old-{job.job_id}"
+        try:  # what the staff typed in for this room outlives a new scan (the door does not: its frame is gone)
+            before = json.loads((final / "map.json").read_text(encoding="utf-8-sig")) if (final / "map.json").exists() else {}
+            keep = {k: before[k] for k in ("vps", "label") if before.get(k) is not None}
+            if keep:
+                meta = json.loads((new / "map.json").read_text(encoding="utf-8-sig"))
+                meta.update({k: v for k, v in keep.items() if meta.get(k) is None})
+                (new / "map.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        except (OSError, ValueError):
+            log.warning("could not carry the room's name over to the new map", exc_info=True)
         for attempt in range(5):
             try:
                 if final.exists():

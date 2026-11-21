@@ -23,6 +23,7 @@ from .mapstore import check_id
 log = logging.getLogger(__name__)
 
 ONLINE_WITHIN_S = 10.0
+ROLES = ("staff", "visitor")  # header X-Device-Role: which mode of the app the device is in
 MAX_BATCH_EVENTS = 200
 MAX_BATCH_BYTES = 256 * 1024
 MAX_MESSAGE = 500
@@ -140,7 +141,7 @@ class Monitor:
         now = self.clock()
         if d is None:
             d = self.devices[device_id] = {
-                "device_id": device_id, "name": None, "address": address, "app_version": None, "session_id": None,
+                "device_id": device_id, "name": None, "address": address, "app_version": None, "session_id": None, "role": None,
                 "first_seen": now, "last_seen": now, "requests": 0, "last_request": None, "server_ms": None, "rtt_ms": None,
                 "clock_offset_ms": None, "state": {}, "errors": 0, "identified": not device_id.startswith("ip-"),
                 "_seq": {},
@@ -162,7 +163,8 @@ class Monitor:
         return f"ip-{safe}"[:64]
 
     def touch(self, header_id: str | None, address: str | None, method: str, path: str, status: int, ms: float,
-              name: str | None = None, session_id: str | None = None, app_version: str | None = None) -> str:
+              name: str | None = None, session_id: str | None = None, app_version: str | None = None,
+              role: str | None = None) -> str:
         """Record one handled HTTP request. Returns the device id it was booked on."""
         device_id = self.resolve_id(header_id, address)
         with self._lock:
@@ -171,6 +173,8 @@ class Monitor:
             d["last_request"] = f"{method} {path}"
             d["server_ms"] = round(ms, 1)
             self._identity(d, name, session_id, app_version)
+            if role and role.strip().lower() in ROLES:
+                d["role"] = role.strip().lower()
             entry = {"id": self._next_id, "kind": "request", "device_id": device_id, "server_time_ms": int(self.clock() * 1000),
                      "method": method, "path": path, "status": int(status), "ms": round(ms, 1)}
             self._next_id += 1
@@ -323,9 +327,12 @@ def usage_flow(devices: list[dict], maps: list[dict], jobs: list[dict], monitor:
     """
     dev = pick_device(devices, prefer_device)
     step = (dev or {}).get("state", {}).get("step")
+    visitor = (dev or {}).get("role") == "visitor"  # a visitor's device never scans: it gets the room and the door
     running = next((j for j in jobs if j["state"] in ("running", "queued")), None)
     last_build = next((j for j in jobs if j["kind"] == "build_map"), None)
-    map_id = (dev or {}).get("state", {}).get("map_id") or (running or {}).get("map_id") or (last_build or {}).get("map_id")
+    seen = monitor.last_localization(None, dev["device_id"]) if dev and visitor else None
+    map_id = (dev or {}).get("state", {}).get("map_id") or (seen or {}).get("map_id") or (running or {}).get("map_id") \
+        or (last_build or {}).get("map_id")
     by_id = {m["map_id"]: m for m in maps}
     if map_id not in by_id:
         newest = sorted(maps, key=lambda m: (m.get("room_status", "unavailable") != "unavailable", str(m.get("created_utc") or "")))
@@ -344,24 +351,35 @@ def usage_flow(devices: list[dict], maps: list[dict], jobs: list[dict], monitor:
         steps.append(item("connect", "Connect the phone", "done", f"{dev.get('name') or dev['device_id']} at {dev.get('address')}"))
     else:
         steps.append(item("connect", "Connect the phone", "problem", f"{dev.get('name') or dev['device_id']} was last seen {dev['last_seen_age_s']:.0f} s ago"))
-    scanned = bool(m) or bool(running) or step in after_scan
-    steps.append(item("scan", "Scan the room", "done" if scanned else "active" if step == "scanning" else "todo",
-                      (dev or {}).get("state", {}).get("detail") if step == "scanning" else "recording uploaded" if scanned else "walk through the room while recording"))
-    if running:
-        pct = f"{running['progress'] * 100:.0f} %"
-        steps.append(item("build", "Build the map", "active", f"{running.get('stage') or 'queued'} - {pct}" + (f", about {running['eta_s']} s left" if running.get("eta_s") else "")))
-    elif last_build and last_build["state"] == "failed" and not m:
-        steps.append(item("build", "Build the map", "problem", (last_build.get("error") or {}).get("message", "the build failed")))
+    if visitor:
+        steps.append(item("room", "Get the room", "done" if m else "active",
+                          f"{m.get('label') or map_id} from the server" if m else "the app asks the server for the rooms"))
     else:
-        steps.append(item("build", "Build the map", "done" if m else "todo", f"map {map_id}: {m.get('num_images')} images" if m else "starts after the upload"))
-    if m and not running:
-        src = m.get("portal_source", "none")
-        if src != "none":
-            steps.append(item("doorway", "Find the doorway", "done", f"portal from: {src}"))
+        scanned = bool(m) or bool(running) or step in after_scan
+        steps.append(item("scan", "Scan the room", "done" if scanned else "active" if step == "scanning" else "todo",
+                          (dev or {}).get("state", {}).get("detail") if step == "scanning" else "recording uploaded" if scanned else "walk through the room while recording"))
+        if running:
+            pct = f"{running['progress'] * 100:.0f} %"
+            steps.append(item("build", "Build the map", "active", f"{running.get('stage') or 'queued'} - {pct}" + (f", about {running['eta_s']} s left" if running.get("eta_s") else "")))
+        elif last_build and last_build["state"] == "failed" and not m:
+            steps.append(item("build", "Build the map", "problem", (last_build.get("error") or {}).get("message", "the build failed")))
         else:
-            steps.append(item("doorway", "Find the doorway", "problem", "no doorway found - place the portal by hand in the app, or scan again with the whole door in view"))
+            steps.append(item("build", "Build the map", "done" if m else "todo", f"map {map_id}: {m.get('num_images')} images" if m else "starts after the upload"))
+    src, size = (m or {}).get("portal_source", "none"), (m or {}).get("portal_size")
+    door = "Door from the staff" if visitor else "Place the door"
+    if m and (visitor or not running):
+        if src == "manual":
+            steps.append(item("doorway", door, "done", "door placed by the staff" + (f", {size[0]:.2f} x {size[1]:.2f} m" if size else "")))
+        elif src == "selected":
+            steps.append(item("doorway", door, "done", "doorway chosen by the staff from the room plan"))
+        elif visitor:
+            steps.append(item("doorway", door, "problem", "no door has been placed for this room"))
+        elif src == "auto":
+            steps.append(item("doorway", door, "active", "the server suggests a doorway - confirm it or place the door in the app"))
+        else:
+            steps.append(item("doorway", door, "active", "no door yet - place it in the app (staff mode)"))
     else:
-        steps.append(item("doorway", "Find the doorway", "todo", "computed at the end of the build"))
+        steps.append(item("doorway", door, "todo", "the staff places the door in the app" if visitor else "after the build, in the app (staff mode)"))
     placed = step in ("portal_placed", "inside")
     if loc and loc.get("success"):
         steps.append(item("localize", "Localise the phone", "done", f"{loc.get('quality')}, {loc.get('num_inliers')} inliers"))
@@ -376,7 +394,10 @@ def usage_flow(devices: list[dict], maps: list[dict], jobs: list[dict], monitor:
         "connect": "Start the app on the phone (same Wi-Fi) and enter one of the addresses above, or use Find automatically.",
         "scan": "In the app, record the room: walk slowly in an arc, show every wall, the floor edges and the whole door.",
         "build": "Wait for the build to finish - progress is shown under Jobs.",
-        "doorway": "Check the room plan below. If the door is missing, scan again or place the portal by hand.",
+        "room": "Open the app in visitor mode; it asks this server for the rooms.",
+        "doorway": "A staff member has to place the door for this room first (staff mode of the app)." if visitor else
+                   "In the app (staff mode) stand where the door should be, adjust it and save. "
+                   "A doorway found by the server is offered there as a suggestion.",
         "localize": "Point the phone at a part of the room that was scanned; hold still for a moment.",
         "portal": "Walk to the doorway shown in AR.",
     }

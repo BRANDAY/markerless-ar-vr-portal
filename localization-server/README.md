@@ -52,7 +52,7 @@ git clone <repository url> ; cd localization-server
 
 # 2. environment (Python 3.13 and all packages; ~3 GB download, ~10 GB disk)
 uv sync
-uv run pytest                               # 144 tests, no GPU needed, about 5 minutes (4 of them need the phone captures and are skipped without them)
+uv run pytest                               # 155 tests, no GPU needed, about 5 minutes (4 of them need the phone captures and are skipped without them)
 
 # 3. a map: either your own room video ...
 uv run locserver-build-map data\input\room.mp4 --map-id room
@@ -64,7 +64,8 @@ uv run locserver-build-map data\datasets\tum_fr1_room\rgbd_dataset_freiburg1_roo
 #    --panel also opens the monitoring panel in its own window
 uv run locserver-serve --panel
 
-# 5. no phone at hand? a simulated one walks through the whole scenario
+# 5. no phone at hand? two simulated ones walk through the whole scenario: a staff
+#    phone scans the room and places the door, a visitor phone gets room and door
 #    (second PowerShell window; needs the test sequence of step 3; about 6 minutes)
 uv run python scripts\simulate_phone.py
 
@@ -72,8 +73,15 @@ uv run python scripts\simulate_phone.py
 uv run locserver-doctor
 ```
 
+**The two modes of the app (server 0.4.0).** A *staff member* scans a room
+once, places the door and saves it on the server; a *visitor's* phone has
+nothing but the app - it gets the room and the door from the server and only
+has to look around. What the server offers for that: section 5, 7, 10 of
+[`docs/api-v2.md`](docs/api-v2.md); what the simulator shows of it:
+[Without a phone](#without-a-phone-the-simulator).
+
 **State of verification (2026-11-21).** Everything runs end to end with the
-simulated phone and with public test data. From a real phone the server has so
+simulated phones and with public test data. From a real phone the server has so
 far only read two accidental one-second captures (enough to settle the file
 format, see [Room plan](#room-plan-and-automatic-doorway-api-v2)); **a full
 recording of a real room has not been processed yet**, so map quality, room plan
@@ -149,7 +157,7 @@ COLMAP binary, ffmpeg, Docker or compiler is needed.
 ```powershell
 cd localization-server
 uv sync            # creates .venv and installs everything (~3 GB download)
-uv run pytest      # 144 tests, about 5 minutes, no GPU needed
+uv run pytest      # 155 tests, no GPU needed, about 5 minutes
 ```
 
 By default everything stays inside the project folder or in the normal
@@ -358,37 +366,54 @@ client" with its requests only.
 
 ## Without a phone: the simulator
 
-`scripts/simulate_phone.py` plays the phone. It makes the same requests the app
-makes, in the same order, with files of the same shape, so the server, the
-build, the room plan and the panel can be watched end to end without a device:
+`scripts/simulate_phone.py` plays the phones - two of them, one per mode of the
+app. It makes the same requests the app makes, in the same order, with files
+of the same shape, so the server, the build, the room plan and the panel can
+be watched end to end without a device:
 
 ```powershell
 .\scripts\get_test_data.ps1                      # once: the public test sequence (782 MB)
 uv run locserver-serve --panel                   # window 1
-uv run python scripts\simulate_phone.py          # window 2: the whole scenario, about 6 minutes
-uv run python scripts\simulate_phone.py --keep-map   # again, reusing the map: connect + localise only (1 minute)
-uv run python scripts\simulate_phone.py --device-id sim-2 --name "Second phone" --keep-map   # a second device
+uv run python scripts\simulate_phone.py          # window 2: staff, then visitor - about 6 minutes
+uv run python scripts\simulate_phone.py --role visitor                 # one more visit (1 minute)
+uv run python scripts\simulate_phone.py --role visitor --device-id sim-visitor-2 --name "Second visitor"
+uv run python scripts\simulate_phone.py --role staff --keep-map        # staff after an app restart: recognise the room, then place the door
+uv run python scripts\simulate_phone.py --door suggested               # the staff accepts the doorway the server found (if it found one)
 ```
 
 What happens, and what you see in the panel:
 
+**Staff phone** (`sim-staff-1`, role *staff*)
+
 1. **Connect** - `/health` with the device headers; the device appears as *online*.
 2. **Scan** - 10 s of "recording" (log events and the app step `scanning`; there is no camera).
-3. **Upload** - `POST /maps/sim_room/recording` with `video.mp4` + `session.jsonl`.
+3. **Upload** - `POST /maps/sim_room/recording` with `video.mp4`, `session.jsonl`,
+   the room's name and the id of the AR session that recorded.
 4. **Build** - polls `/jobs/{id}` once a second; the job bar moves through its seven steps.
 5. **Room plan** - reads `/maps/sim_room/room` and `/portal`; the plan is drawn
-   (on this short clip often without walls - see the table below).
-6. **Localise** - up to six clips of 2.5 s (video + `session.jsonl`, as the app records
-   them) go to `/localize`, as a *new* AR session that is turned by 35° and moved
-   by about 1.5 m against the scan. The list fills, the phone marker moves on the plan.
-7. **Portal** - when the alignment is accepted the step becomes `portal_placed`;
-   if the server found no doorway it is sure about, the simulator does what the
-   user would do and places the portal by hand (`PUT /maps/sim_room/anchors/portal`).
-   Then `inside` for 20 s, and back out.
+   (on this short clip often with one wall or none - see the table below), and
+   a doorway the server found is logged as a suggestion.
+6. **The door** - the staff member "stands" where the recording ended and puts
+   the door 1.5 m ahead on the floor, 0.9 x 2.0 m: `PUT /maps/sim_room/anchors/portal`
+   with the pose in the AR session and that session's id. **No `/localize` is
+   needed**: it is the session that recorded the room.
+
+**Visitor phone** (`sim-visitor-1`, role *visitor* - it never scanned)
+
+7. **Rooms** - `GET /maps`; it takes the room only if a staff member has placed
+   its door (`portal_confirmed`), otherwise it stops with "ask a staff member".
+8. **Localise** - up to six clips of 2.5 s (video + `session.jsonl`, as the app
+   records them) go to `/localize`, as a *new* AR session that is turned by 35°
+   and moved by about 1.5 m against the scan. The list fills, the phone marker
+   moves on the plan.
+9. **Door** - when the alignment is accepted, the staff's door comes back in
+   this phone's own AR coordinates, with its size; the step becomes
+   `portal_placed`, then `inside` for 20 s, and back out.
 
 At the end it prints how far the server's alignment is from the offset the
-script applied. It is also the reference client for the device log (section 9
-of the API document) - `class Phone` in the script is the whole of it.
+script applied, and how far the door ends up from where the staff put it. It
+is also the reference client for the device log (section 9 of the API
+document) - `class Phone` in the script is the whole of it.
 
 **What is real and what is not.** The files have the shape of the files a phone
 writes (checked against captures of a Xiaomi 14 Ultra): H.264 frames stored in
@@ -412,6 +437,9 @@ Result on the development PC (GTX 1050 Ti), 2026-11-21:
 | Room plan | **differs between the builds.** First build: 2 walls (3.1 and 3.9 m), 1 corner, a closed-door candidate with confidence 0.51 - just above the 0.5 limit, so the portal came from the server (`source: "auto"`); whether there is a door at that place of the room is not known. Second and third build: no wall - both walls are seen over only 0.8-1.1 m of their height, the plan asks for 1.2 m. The server reports exactly that, and the simulator placed the portal by hand, as the app does |
 | Localisation right after the scan (6 clips of the same walk, frames not in the recording) | 6 of 6 good in every run, 628-855 inliers, 1.5-3.2 s per clip. Alignment against the offset the script applied: 0.39 / 0.69 / 0.77 deg and 5.8 / 6.7 / 7.0 cm at the camera |
 | Localisation from the end of the sequence (`--keep-map --clips-from 1230`, 2 clips fit) | 2 of 2 good, 497 and 719 inliers, 3.6-4.5 s per clip; 0.88 deg and 5.6 cm |
+| **Two modes** (server 0.4.0, one more build of the same recording, 243 s): the staff phone saves the door right after the build | saved without any `/localize` (`alignment_used: "recording_session"`), 0.90 x 2.00 m |
+| ...the visitor phone, a second device that never scanned | got 5 rooms, 2 of them with a staff door; 6 of 6 clips good; the door appeared after the first clip with its size; alignment 0.89 deg and 6.0 cm at the camera; **the door stands 8.6 cm from where the staff put it** |
+| ...the staff phone after an app restart (`--role staff --keep-map`, another AR session) | one clip recognised the room (2.0 s, 712 inliers), then the door was saved through that session's alignment (`alignment_used: "session_alignment"`); a visitor afterwards: 6 of 6 clips good, 0.90 deg, 6.1 cm, the door 8.7 cm from the stored place |
 | Server during these runs | no stall; no failed request |
 
 ---
@@ -473,7 +501,7 @@ automatically", which asks every address of the phone's own /24 network for
 
    ```
    [info] LAN address: http://192.168.1.50:8077   (Wi-Fi)
-   [ OK ] Server "MY-PC" is running on port 8077 (version 0.3.0, API v1, maps: room).
+   [ OK ] Server "MY-PC" is running on port 8077 (version 0.4.0, API v1, maps: room).
    [info] Network "CampusNet" on Wi-Fi: profile Public
    [FIX ] No firewall rule lets inbound TCP 8077 through on Public networks, ...
               New-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)" ...
@@ -603,9 +631,11 @@ format, nothing more). Expect the result to depend mostly on how the room was fi
 
 ## API reference
 
-Endpoints for the room recording, jobs, room plan and portal, and for the
+Endpoints for the room recording, jobs, room plan, **the door placed by the
+staff** (section 5), renaming and deleting a room (section 10), and for the
 device list and device log (`/devices`, section 9), are described in
-[`docs/api-v2.md`](docs/api-v2.md); everything below is v1 and unchanged.
+[`docs/api-v2.md`](docs/api-v2.md); everything below is v1 and still valid.
+Where both describe the door (`anchors/portal`), the API document is newer.
 
 All responses are JSON. Errors use HTTP status codes with `{"detail": "..."}`
 (404 unknown map/anchor, 413 upload too large, 422 bad input).
@@ -620,11 +650,11 @@ what the app's automatic search and its "connected" indicator call.
 {"status": "ok",
  "service": "arportal-localization-server",
  "api_version": 1,
- "api_revision": 2,
- "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui"],
- "server_version": "0.3.0",
+ "api_revision": 3,
+ "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"],
+ "server_version": "0.4.0",
  "server_name": "MY-PC",
- "version": "0.3.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
+ "version": "0.4.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
  "vram_mb": {"allocated": 56, "peak": 527},
  "models": {"extractor": "aliked-n16", "matcher": "lightglue-aliked", "max_keypoints": 2048},
  "maps": ["tum_room"], "maps_dir": "C:\\...\\data\\maps", "sessions": 0, "uptime_s": 12.3,
@@ -1260,6 +1290,17 @@ RGB-D SLAM Systems", IROS 2012.
 * **One room, one server.** Retrieval is a VLAD index held in memory; fine for
   a few hundred map images, not for a building. One localisation runs at a time
   (4 GB VRAM); requests queue.
+* **The two modes were run with simulated phones only.** Staff door, visitor
+  flow, the panel's role column: tests and `scripts/simulate_phone.py`. Not
+  verified: the real app in either mode, whether ARCore keeps its world still
+  between the end of the recording and the moment the staff saves the door
+  (the door is saved in that world without a new look at the room), and a
+  visit on another day.
+* **Staff and visitor are not told apart by the server.** `X-Device-Role` is a
+  label for the panel. Any device in the network can place or remove a door
+  and delete a room (deleted rooms go to `data\maps\.trash`, nothing is
+  erased). A staff PIN checked by the server is described as planned in
+  section 10 of the API document and is not built.
 * **No authentication, no TLS.** Intended for a trusted local network only
   (see "Connect a phone"). That includes the monitoring panel: anyone in the
   network who knows the address can open `/ui` and read the device logs.

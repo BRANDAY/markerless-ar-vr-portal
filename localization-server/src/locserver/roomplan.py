@@ -819,7 +819,7 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
         reason=None if len(walls) >= 2 else "fewer than two walls were found" + (
             f": {len(too_low)} more wall-like {'surface was' if len(too_low) == 1 else 'surfaces were'} seen over less than "
             f"{opts.wall_min_height_m:.1f} m of height (the longest: {max(t['length_m'] for t in too_low):.1f} m long, "
-            f"{max(too_low, key=lambda t: t['length_m'])['seen_height_m']:.1f} m of it seen) - scan again and tilt the phone up and down "
+            f"{max(too_low, key=lambda t: t['length_m'])['seen_height_m']:.2f} m of it seen) - scan again and tilt the phone up and down "
             "so that the walls are seen from the floor to the ceiling" if too_low else ""),
         floor={"level": round(floor, 4), "point": _v(P3(centre[0], centre[1], floor)), "normal": _v(up3),
                "outline": [_v(P3(p[0], p[1], floor)) for p in outline] if outline is not None else None, "confidence": conf_f},

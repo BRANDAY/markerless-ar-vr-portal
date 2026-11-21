@@ -25,7 +25,7 @@ from .capture import Frame, VideoCapture, rotate_image_cw, rotate_intrinsics_cw,
 from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
 from .jobs import JobManager
 from .localize import DeviceCalibrationStore, LocalizeOptions, Localizer
-from .mapstore import LocMap, check_id, list_map_dirs, load_map
+from .mapstore import LocMap, check_id, list_map_dirs, load_map, utc_now
 from .monitor import MAX_BATCH_BYTES, BatchTooLarge, LoopWatchdog, Monitor, usage_flow
 from .responses import (
     AlignOptions,
@@ -47,10 +47,10 @@ MAX_VIDEO_BYTES = 150 * 2**20
 SESSION_TTL_S = 30 * 60
 SESSION_MAX_OBS = 60
 MAX_MESH_BYTES = 200 * 2**20
-CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui"]
+CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"]
 UI_FILE = Path(__file__).parent / "ui" / "index.html"
 UNTRACKED_PREFIXES = ("/ui", "/monitor", "/favicon", "/docs", "/openapi")  # the panel itself is not a device
-API_REVISION = 2
+API_REVISION = 3
 
 
 class State:
@@ -158,13 +158,62 @@ def _anchor_json(lmap: LocMap, name: str) -> dict:
     return {"map_id": lmap.map_id, "name": name, "frame": "map", **a}
 
 
+def _check_vps(v) -> dict | None:
+    """The room's place at an external visual positioning service, as the app stored it (not used by this server)."""
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise ValueError("vps: an object or null")
+    unknown = set(v) - {"provider", "location_id", "door", "note"}
+    if unknown:
+        raise ValueError(f"vps: unknown field(s) {sorted(unknown)}")
+    out: dict = {"provider": str(v.get("provider") or "reactvision")[:40]}
+    loc = v.get("location_id")
+    if not isinstance(loc, str) or not 0 < len(loc.strip()) <= 128:
+        raise ValueError("vps.location_id: a text of 1 to 128 characters")
+    out["location_id"] = loc.strip()
+    door = v.get("door")
+    if door is not None:
+        pos = [float(x) for x in door["position"]]
+        quat = [float(x) for x in door["quaternion_xyzw"]]
+        if len(pos) != 3 or len(quat) != 4 or not np.isfinite(pos + quat).all() or abs(np.linalg.norm(quat) - 1) > 1e-2:
+            raise ValueError("vps.door: position [x, y, z] and a unit quaternion_xyzw are needed")
+        out["door"] = {"position": pos, "quaternion_xyzw": quat}
+        for k in ("width", "height"):
+            if door.get(k) is not None:
+                out["door"][k] = _door_size(door[k], k)
+    if v.get("note") is not None:
+        out["note"] = str(v["note"])[:200]
+    out["updated_utc"] = utc_now()
+    return out
+
+
+def _device_of(request: Request) -> str | None:
+    """The id of the device that sent the request (header X-Device-Id), if it sent a valid one."""
+    try:
+        return check_id((request.headers.get("x-device-id") or "").strip(), "device id")
+    except ValueError:
+        return None
+
+
+def _door_size(value, what: str) -> float:
+    x = float(value)
+    if not 0.3 <= x <= 6.0:
+        raise ValueError(f"{what} must be between 0.3 and 6 metres")
+    return x
+
+
 def _map_extras(m: LocMap) -> dict:
     room = m.room()
+    portal = resolve_portal(m)
     return {
         "label": m.meta.get("label"),
         "gravity_aligned": bool(m.meta.get("up")) or bool(room and room.get("status") != "unavailable"),
         "room_status": room.get("status", "unavailable") if room else "unavailable",
-        "portal_source": resolve_portal(m)["source"],
+        "portal_source": portal["source"],
+        "portal_confirmed": portal["confirmed"],
+        "portal_size": [portal["width"], portal["height"]] if portal["width"] and portal["height"] else None,
+        "vps": m.meta.get("vps"),
     }
 
 
@@ -231,7 +280,8 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             if not path.startswith(UNTRACKED_PREFIXES):
                 h = request.headers
                 st.monitor.touch(h.get("x-device-id"), request.client.host if request.client else None, request.method, path, status,
-                                 (time.perf_counter() - t0) * 1000, h.get("x-device-name"), h.get("x-session-id"), h.get("x-app-version"))
+                                 (time.perf_counter() - t0) * 1000, h.get("x-device-name"), h.get("x-session-id"), h.get("x-app-version"),
+                                 h.get("x-device-role"))
 
     @app.post("/devices/{device_id}/log")
     async def device_log_post(device_id: str, request: Request):
@@ -377,6 +427,53 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         m = st.get_map(map_id)
         return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
 
+    @app.patch("/maps/{map_id}")
+    def map_patch(map_id: str, body: dict = Body(...)):
+        """Rename a room (``label``) or attach its place at an external positioning service (``vps``)."""
+        m = st.get_map(map_id)
+        changes: dict = {}
+        try:
+            unknown = set(body) - {"label", "vps"}
+            if unknown or not body:
+                raise ValueError(f"only 'label' and 'vps' can be changed (got {sorted(body)})")
+            if "label" in body:
+                label = body["label"]
+                if label is not None and (not isinstance(label, str) or len(label.strip()) > 80):
+                    raise ValueError("label: a text of at most 80 characters, or null")
+                changes["label"] = (label or "").strip() or None
+            if "vps" in body:
+                changes["vps"] = _check_vps(body["vps"])
+        except (KeyError, ValueError, TypeError) as e:
+            raise HTTPException(422, f"bad room data: {e}")
+        m.set_meta(changes)
+        return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
+
+    @app.delete("/maps/{map_id}")
+    def map_delete(map_id: str):
+        """Remove a room. Its folder is moved to ``<maps>/.trash`` - nothing is erased."""
+        m = st.get_map(map_id)
+        active = st.jobs.active_for(m.map_id)
+        if active is not None:
+            raise HTTPException(409, f"a job for map {m.map_id!r} is {active.state}: cancel it first (job_id {active.job_id})")
+        trash = st.maps_dir / ".trash"
+        dest = trash / f"{m.map_id}-{time.strftime('%Y%m%d-%H%M%S')}"
+        try:
+            trash.mkdir(exist_ok=True)
+            for attempt in range(5):
+                try:
+                    m.path.rename(dest)
+                    break
+                except OSError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.3)
+        except OSError as e:
+            raise HTTPException(500, f"could not move the map folder away: {e}")
+        st.maps = {k: v for k, v in st.maps.items() if k != m.map_id}
+        for k in [k for k, s in st.sessions.items() if s["map_id"] == m.map_id]:
+            del st.sessions[k]
+        return {"deleted": m.map_id, "kept_as": f".trash/{dest.name}"}
+
     # ------------------------------------------- recording upload + jobs --- #
     @app.post("/maps/{map_id}/recording", status_code=202)
     def recording_upload(
@@ -389,6 +486,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         display_rotation_cw: int | None = Form(None),
         device_id: str | None = Form(None),
         label: str | None = Form(None),
+        session_id: str | None = Form(None, description="id of the AR session that recorded (the one later sent to /localize)"),
         max_frames: int = Form(200),
         detect_openings: bool = Form(True),
     ):
@@ -399,6 +497,8 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             check_id(map_id, "map id")
             if device_id:
                 check_id(device_id, "device_id")
+            if session_id:
+                check_id(session_id, "session_id")
         except ValueError as e:
             raise HTTPException(422, str(e))
         if map_id.startswith("."):
@@ -431,6 +531,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             if problem:  # say so now, not after minutes of reconstruction
                 raise HTTPException(422, problem[1], headers={"X-Error-Code": problem[0]})
             params = {"display_rotation_cw": display_rotation_cw, "device_id": device_id, "label": label,
+                      "recording_session_id": session_id,
                       "max_frames": max_frames, "detect_openings": detect_openings, "mesh": None, "mesh_format": mesh_format}
             if mesh is not None:
                 mpath = d / _mesh_name(mesh, mesh_format)
@@ -496,16 +597,29 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         return strip_private(resolve_portal(st.get_map(map_id)))
 
     @app.put("/maps/{map_id}/portal")
-    def portal_put(map_id: str, body: dict = Body(...)):
-        """Choose which opening carries the portal: ``{"opening_id": "o1"}``; ``null`` = automatic."""
+    def portal_put(map_id: str, request: Request, body: dict = Body(...)):
+        """The staff accepts a doorway of the room plan as the door: ``{"opening_id": "o1"}`` (``null`` = undo that).
+
+        The latest decision wins: accepting a doorway removes a door placed by hand before.
+        """
         m = st.get_map(map_id)
         if "opening_id" not in body:
             raise HTTPException(422, "body needs 'opening_id' (an id from the room plan, or null)")
         oid = body["opening_id"]
         if oid is not None and opening_by_id(m.room(), str(oid)) is None:
             raise HTTPException(404, f"the room plan of map {m.map_id!r} has no opening {oid!r}")
-        m.set_portal_selection(None if oid is None else str(oid))
+        m.set_portal_selection(None if oid is None else str(oid), _device_of(request))
+        if oid is not None:
+            m.delete_anchor("portal")
         return strip_private(resolve_portal(m))
+
+    @app.delete("/maps/{map_id}/portal")
+    def portal_delete(map_id: str):
+        """Remove the door, however it was set (placed by hand or an accepted doorway). The suggestion stays."""
+        m = st.get_map(map_id)
+        had = m.delete_anchor("portal") | (m.portal_selection() is not None)
+        m.set_portal_selection(None)
+        return {"deleted": bool(had), "portal": strip_private(resolve_portal(m))}
 
     @app.put("/maps/{map_id}/scale")
     def map_scale(map_id: str, body: dict = Body(...)):
@@ -526,8 +640,8 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         return _anchor_json(st.get_map(map_id), name)
 
     @app.put("/maps/{map_id}/anchors/{name}")
-    def anchor_put(map_id: str, name: str, body: dict = Body(...)):
-        """Store a named pose. Either in map coordinates::
+    def anchor_put(map_id: str, name: str, request: Request, body: dict = Body(...)):
+        """Store a named pose; the anchor ``portal`` is the door placed by the staff. Either in map coordinates::
 
             {"position": [x, y, z], "quaternion_xyzw": [..]}        (or "rotation_euler_deg")
 
@@ -535,8 +649,15 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
 
             {"ar_pose": {"position": [..], "rotation": [ex, ey, ez]},
              "T_arworld_from_map": [[4x4]]}                         (or "session_id": "...")
+
+        ``width`` and ``height`` (metres) describe the door.
+
+        With ``session_id`` the alignment of that session is used; in the AR session that recorded the
+        map (the upload carried the same ``session_id``) no ``/localize`` is needed: its world is the map.
         """
         m = st.get_map(map_id)
+        extra: dict = {}
+        used, scale = "map", 1.0
         try:
             check_id(name, "anchor name")
             if "ar_pose" in body:
@@ -548,17 +669,25 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 )
                 T_ar_from_anchor = g.make_T(R, ap["position"])
                 if "T_arworld_from_map" in body:
-                    sim = _sim3_from_matrix(body["T_arworld_from_map"])
+                    sim, used = _sim3_from_matrix(body["T_arworld_from_map"]), "matrix"
                 elif "session_id" in body:
-                    s = st.sessions.get(str(body["session_id"]))
-                    if not s or s["map_id"] != m.map_id or not s["observations"]:
-                        raise ValueError("unknown session_id or session without observations for this map")
-                    sim = compute_alignment(m, s["observations"], st.align_opts).get("_sim3")
+                    sid = str(body["session_id"])
+                    s = st.sessions.get(sid)
+                    sim = None
+                    if s and s["map_id"] == m.map_id and s["observations"]:
+                        sim, used = compute_alignment(m, s["observations"], st.align_opts).get("_sim3"), "session_alignment"
+                    if sim is None and m.meta.get("recording_session_id") == sid and m.metric:
+                        sim, used = g.Sim3(1.0, np.eye(3), np.zeros(3)), "recording_session"
                     if sim is None:
-                        raise ValueError("the session has no complete alignment yet (scale unknown)")
+                        raise ValueError(
+                            "this session has no accepted alignment with the map yet: call /localize with this session_id first "
+                            "(not needed in the AR session that recorded the map, when the upload carried the same session_id)")
                 else:
                     raise ValueError("ar_pose needs T_arworld_from_map or session_id")
                 T = sim.inverse().transform_pose(T_ar_from_anchor)
+                scale = sim.scale
+            elif "opening_id" in body and "position" not in body:
+                raise ValueError(f"to accept a doorway of the room plan send PUT /maps/{m.map_id}/portal with this opening_id")
             else:
                 R = (
                     g.quat_to_rotmat(body["quaternion_xyzw"])
@@ -568,10 +697,17 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 T = g.make_T(R, body["position"])
             if not np.isfinite(T).all():
                 raise ValueError("pose contains non-finite numbers")
-            m.set_anchor(name, T, body.get("note"))
+            for k in ("width", "height"):
+                if body.get(k) is not None:
+                    extra[k] = round(_door_size(body[k], k) / scale, 4)  # stored in map units, like the pose
+            extra["placed_by"] = _device_of(request)
+            m.set_anchor(name, T, body.get("note"), extra)
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(422, f"bad anchor: {e}")
-        return _anchor_json(m, name)
+        out = {**_anchor_json(m, name), "alignment_used": used}
+        if name == "portal":
+            out["portal"] = strip_private(resolve_portal(m))
+        return out
 
     @app.delete("/maps/{map_id}/anchors/{name}")
     def anchor_delete(map_id: str, name: str):
