@@ -10,5 +10,5 @@
     "rootDir": "src",
     "outDir": ".test-build"
   },
-  "include": ["src/server/core/**/*.ts", "src/localization/core/**/*.ts", "src/measure/core/**/*.ts", "src/i18n/**/*.ts", "src/brand.ts", "src/ui/core/**/*.ts", "src/room/roomNames.ts", "src/room/roomGeometry.ts", "src/room/roomGeometry.test.ts", "src/room/meshFormat.ts", "src/room/meshFormat.test.ts"]
+  "include": ["src/server/core/**/*.ts", "src/localization/core/**/*.ts", "src/door/core/**/*.ts", "src/measure/core/**/*.ts", "src/i18n/**/*.ts", "src/brand.ts", "src/ui/core/**/*.ts", "src/room/roomNames.ts", "src/room/roomGeometry.ts", "src/room/roomGeometry.test.ts", "src/room/meshFormat.ts", "src/room/meshFormat.test.ts"]
 }

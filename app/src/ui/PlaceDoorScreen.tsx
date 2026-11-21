@@ -36,10 +36,10 @@ const CAMERA_RETRY_MS = 300;
  * "Place the door" (`docs/product/ui-spec.md`, 5.14): the staff member puts the door
  * where it should stand and saves it to the server; visitors then get it from there.
  *
- * The room has to be found in this AR session first, because the server converts the
- * door's place through that (`roomStore.found`). The door that is being placed lives in
- * the room store (`doorDraft`), where the AR scene reads it; the steps themselves are in
- * `core/doorEdit.ts`, and what is shown when in `core/placeView.ts`.
+ * The room has to be found in this AR session first, because the door is written down in
+ * the room's frame through that (`roomStore.found`, set by the door layer). The door that
+ * is being placed lives in the room store (`doorDraft`), where the AR scene reads it; the
+ * steps themselves are in `core/doorEdit.ts`, and what is shown when in `core/placeView.ts`.
  */
 export function PlaceDoorScreen() {
   const insets = useInsets();

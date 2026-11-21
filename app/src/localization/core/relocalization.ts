@@ -147,6 +147,19 @@ function distance(a: readonly number[], b: readonly number[]): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
+/**
+ * Where a doorway's +Z points on the floor plan, degrees. Not simply the middle Euler
+ * angle: the server keeps that one within 90 degrees, so a heading of 110 arrives as
+ * [180, 70, 180].
+ */
+export function headingDeg(rotation: readonly number[]): number {
+  const rad = Math.PI / 180;
+  const [x, y, z] = [rotation[0] * rad, rotation[1] * rad, rotation[2] * rad];
+  const towardsX = Math.cos(x) * Math.sin(y) * Math.cos(z) + Math.sin(x) * Math.sin(z);
+  const towardsZ = Math.cos(x) * Math.cos(y);
+  return Math.atan2(towardsX, towardsZ) / rad;
+}
+
 /** Smallest angle between two headings, degrees. */
 export function yawDifferenceDeg(a: number, b: number): number {
   const d = Math.abs(a - b) % 360;
@@ -182,7 +195,7 @@ export function decide(
     return { action: 'place', door: candidate };
   }
   const distanceM = distance(shown.position, candidate.position);
-  const angleDeg = yawDifferenceDeg(shown.rotation[1], candidate.rotation[1]);
+  const angleDeg = yawDifferenceDeg(headingDeg(shown.rotation), headingDeg(candidate.rotation));
   if (distanceM <= SAME_POSE_DISTANCE_M && angleDeg <= SAME_POSE_ANGLE_DEG) {
     return { action: 'keep', distanceM };
   }

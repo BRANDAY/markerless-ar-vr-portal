@@ -1,3 +1,4 @@
+import { matrixFromYaw } from '../door/core/roomFrame';
 import { currentRoomId, vpsOfRoom } from '../room/roomsStore';
 import { roomActions, type ServerPlan } from '../room/roomStore';
 import type { ServerPortal } from '../server/core/roomPlan';
@@ -299,7 +300,8 @@ export class ReactVisionVpsProvider extends BaseProvider {
       this.published = map;
       roomActions.setFound({
         mapId: room.mapId,
-        sessionId: '',
+        frameId: '',
+        transform: matrixFromYaw(map.shift, map.yawDeg),
         strong: true,
         plan: planOf(room, doorHere),
         vps: { locationId: room.locationId, map },
@@ -428,6 +430,8 @@ function planOf(room: CloudRoom, doorHere: FlatPose | null): ServerPlan {
     openingId: null,
     position: doorHere ? doorHere.position : null,
     rotation: doorHere ? [0, doorHere.yawDeg, 0] : null,
+    quaternion: null,
+    frameId: '',
     width: doorHere ? room.width : null,
     height: doorHere ? room.height : null,
     confidence: null,

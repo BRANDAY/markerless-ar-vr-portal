@@ -15,10 +15,14 @@
  * `expected.json` with `expected_T_arworld_from_map` (the server's test recordings do),
  * the doorway of the answer is compared with the map's doorway moved by that transform.
  *
+ * The door is worked out the way the app's door layer does it (`door/core/placement.ts`):
+ * the answer of `/localize` says where the room is, the door record is read apart, and the
+ * sum is the app's own; it is compared with the door the server multiplied out itself.
+ *
  * After the localisation the run does what a staff member and a visitor do with the door
- * (`ui-spec.md`, 5.14): a door is saved as placed in the clip's AR session, a second
- * localisation in the same session must bring it back to the same place with its size, a
- * save without a found room must be refused, and the door is removed again. THE DOOR OF
+ * (`ui-spec.md`, 5.14): a door placed in the clip's AR session is saved in the room's
+ * frame, a second localisation in the same session must bring it back to the same place
+ * with its size, and the door is removed again. THE DOOR OF
  * THE MAP IS REPLACED AND THEN REMOVED, so with `--localize-only` (somebody else's map)
  * this part runs only when `--door` is given as well.
  *
@@ -28,6 +32,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { doorCandidate, doorRecordBody, portalInSession, settle } from '../../door/core/placement';
 import { decide } from '../../localization/core/relocalization';
 import {
   compactLine,
@@ -37,7 +42,7 @@ import {
   type MeasurementRecord,
   parseTrials,
 } from '../../measure/core/measurement';
-import { type DoorDraft, doorSaveBody, yawFromEuler } from '../../ui/core/doorEdit';
+import { type DoorDraft, yawFromEuler } from '../../ui/core/doorEdit';
 import { doorMayBeShown } from '../../ui/core/modes';
 import {
   getJob,
@@ -206,19 +211,32 @@ async function main(): Promise<number> {
     const outcome = located.value;
     console.log(`      quality ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}${outcome.reason ? `, reason ${outcome.reason}` : ''}`);
     check(outcome.alignmentStatus === 'ok', 'the map was placed in the session of the clip');
-    // As the app does it: a door is one that staff saved; a doorway the server only found is a suggestion.
-    const door =
-      outcome.portal && doorMayBeShown(outcome.portal.source) && outcome.portal.position && outcome.portal.rotation
-        ? { position: outcome.portal.position, rotation: outcome.portal.rotation }
-        : null;
-    if (outcome.portal?.suggested) {
-      console.log(`      the server suggests a doorway at ${fmt(outcome.portal.suggested.position)} (a suggestion, not a door)`);
+    // As the app's door layer does it: the server says where the room is, the door record
+    // is read apart, the sum is the app's. A door is one that staff saved; a doorway the
+    // server only found is a suggestion.
+    check(outcome.alignmentStatus !== 'ok' || outcome.transform !== null, 'the answer says where the room is (alignment.T_arworld_from_map)');
+    const settled =
+      outcome.transform && portal.ok ? settle(null, false, outcome.transform, portal.value, outcome.quality === 'good') : null;
+    const mine = settled?.portal ?? null;
+    const door = doorCandidate(mine, outcome.quality === 'good');
+    if (mine?.suggested) {
+      console.log(`      the server suggests a doorway at ${fmt(mine.suggested.position)} (a suggestion, not a door)`);
     }
-    const decision = decide(null, false, {
-      quality: outcome.quality,
-      alignmentStatus: outcome.alignmentStatus,
-      door,
-    });
+    const decision =
+      settled?.decision ?? decide(null, false, { quality: outcome.quality, alignmentStatus: outcome.alignmentStatus, door: null });
+    // The door the server multiplied out itself is still in the answer: the two sums must agree.
+    const theirs = outcome.portal?.position ? outcome.portal : (outcome.portal?.suggested ?? null);
+    const ours = outcome.portal?.position ? mine : (mine?.suggested ?? null);
+    if (theirs?.position && ours?.position && theirs.rotation && ours.rotation) {
+      const off = Math.hypot(ours.position[0] - theirs.position[0], ours.position[1] - theirs.position[1], ours.position[2] - theirs.position[2]);
+      const turn = Math.abs(((yawFromEuler(ours.rotation) - yawFromEuler(theirs.rotation) + 540) % 360) - 180);
+      check(
+        off < 0.005 && turn < 0.1,
+        `the app's own sum (room transform x door record) agrees with the door the server multiplied out: ${(off * 1000).toFixed(1)} mm, ${turn.toFixed(2)} deg`,
+      );
+    } else {
+      console.log('      nothing to compare the app\'s own sum with: the room has neither a door nor a suggested doorway');
+    }
     console.log(`      the app's decision for this answer: ${decision.action}`);
     if (outcome.alignmentStatus === 'ok') {
       if (room.ok && room.value.status !== 'unavailable') {
@@ -290,13 +308,14 @@ async function main(): Promise<number> {
     }
   }
 
-  // 6. the staff's door (`ui-spec.md`, 5.14): saved as placed in the AR session of the
-  //    clip, and what a visitor's phone gets back in that same frame.
+  // 6. the staff's door (`ui-spec.md`, 5.14): placed in the AR session of the clip, saved
+  //    in the room's frame through the room transform, and what a visitor's phone makes of
+  //    the record in that same session.
   if (!withDoor) {
     console.log(`SKIP  the staff's door: it would replace the door of "${mapId}" (add --door to run it)`);
   } else if (!caps.includes('staff_door')) {
     console.log('SKIP  the staff\'s door: the server does not announce staff_door');
-  } else if (!located.ok || located.value.alignmentStatus !== 'ok') {
+  } else if (!located.ok || located.value.alignmentStatus !== 'ok' || !located.value.transform) {
     check(false, 'the staff\'s door could not be tried: the room was not found in the clip\'s session');
   } else {
     const sized = caps.includes('door_size');
@@ -304,11 +323,10 @@ async function main(): Promise<number> {
     const placed: DoorDraft = { position: [0.4, Math.round(floorY * 1000) / 1000, -0.6], yaw: 35, width: 0.85, height: 2.05 };
     setClientRole('staff');
 
-    const stranger = await saveDoor(baseUrl, mapId, doorSaveBody(placed, `${identity.sessionId}-never-localized`, sized));
-    check(!stranger.ok && stranger.status === 422, `a door from a session that never found the room is refused with 422${stranger.ok ? ' - it was ACCEPTED' : `: ${stranger.reason}`}`);
-
-    const saved = await saveDoor(baseUrl, mapId, doorSaveBody(placed, arSession, sized));
-    check(saved.ok, `door saved${saved.ok ? ` (alignment used: ${saved.value.alignmentUsed || 'not named'})` : `: ${saved.reason}`}`);
+    const body = doorRecordBody(located.value.transform, placed, sized);
+    console.log(`      the door in the room's frame: ${fmt(body.position)}, quaternion ${fmt(body.quaternion_xyzw)}`);
+    const saved = await saveDoor(baseUrl, mapId, body);
+    check(saved.ok, `door saved in the room's frame${saved.ok ? ` (the server names the way: ${saved.value.alignmentUsed || 'not named'})` : `: ${saved.reason}`}`);
     if (saved.ok) {
       check(saved.value.portal?.source === 'manual' && saved.value.portal.confirmed === true, 'the answer shows the door as placed by hand and confirmed');
       const stored = await getPortal(baseUrl, mapId);
@@ -320,11 +338,22 @@ async function main(): Promise<number> {
       setClientRole('visitor');
       const back = await localize(baseUrl, makeClip());
       check(back.ok && back.value.alignmentStatus === 'ok', `a second localisation in that session${back.ok ? '' : `: ${back.reason}`}`);
-      const got = back.ok ? back.value.portal : null;
+      const record = await getPortal(baseUrl, mapId);
+      const got = back.ok && back.value.transform && record.ok ? portalInSession(back.value.transform, record.value) : null;
+      const theirs = back.ok ? back.value.portal : null;
+      if (got?.position && got.rotation && theirs?.position && theirs.rotation) {
+        // The server still multiplies the door out itself: the two sums must agree.
+        const off = Math.hypot(got.position[0] - theirs.position[0], got.position[1] - theirs.position[1], got.position[2] - theirs.position[2]);
+        const turn = Math.abs(((yawFromEuler(got.rotation) - yawFromEuler(theirs.rotation) + 540) % 360) - 180);
+        check(
+          off < 0.005 && turn < 0.1,
+          `the app's own sum (room transform x door record) agrees with the door the server multiplied out: ${(off * 1000).toFixed(1)} mm, ${turn.toFixed(2)} deg`,
+        );
+      }
       if (got && got.position && got.rotation) {
         const apart = Math.hypot(got.position[0] - placed.position[0], got.position[1] - placed.position[1], got.position[2] - placed.position[2]);
         const turned = Math.abs(((yawFromEuler(got.rotation) - placed.yaw + 540) % 360) - 180);
-        console.log(`      door back from /localize ${fmt(got.position)} yaw ${yawFromEuler(got.rotation).toFixed(1)} vs placed ${fmt(placed.position)} yaw ${placed.yaw}: ${(apart * 100).toFixed(1)} cm, ${turned.toFixed(1)} deg`);
+        console.log(`      door from the record and the new room transform ${fmt(got.position)} yaw ${yawFromEuler(got.rotation).toFixed(1)} vs placed ${fmt(placed.position)} yaw ${placed.yaw}: ${(apart * 100).toFixed(1)} cm, ${turned.toFixed(1)} deg`);
         check(got.confirmed && doorMayBeShown(got.source), 'the visitor is given the door (confirmed)');
         check(apart < 0.05 && turned < 3, 'the door comes back within 5 cm and 3 degrees of where it was placed');
         if (sized) {
@@ -339,7 +368,7 @@ async function main(): Promise<number> {
         });
         check(decision.action === 'place', "the visitor's app would place the door");
       } else {
-        check(false, 'the second localisation carries no door');
+        check(false, 'the second localisation gave no door');
       }
 
       setClientRole('staff');

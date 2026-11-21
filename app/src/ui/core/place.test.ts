@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { aimedSpot, doorInFront, doorSaveBody, draftFromServer, floorUnder, PLACING, putHere, yawFromEuler } from './doorEdit';
+import { aimedSpot, doorInFront, draftFromServer, floorUnder, PLACING, putHere, yawFromEuler } from './doorEdit';
 import { homeSituation } from './homeView';
 import { foundDoorways, placeCoach, type PlaceInput, placeScreen, placeStart, roomResultBody } from './placeView';
 import { planLayout } from './planLayout';
@@ -155,18 +155,6 @@ test('place the door: "Put it here" follows the aim, within reason', () => {
   assert.equal(aimedSpot([0, 0, 0], [0, -0.15, -1], -1.5), null); // about 10 m away
   // the door then goes two metres in front of the camera
   assert.deepEqual(putHere([0, 0, 0], [0, 0, -1], -1.5, SIZE)?.position, [0, -1.5, -2]);
-});
-
-test('place the door: what is sent to the server', () => {
-  const door = { position: [1, -1.3, -2] as [number, number, number], yaw: -35, width: 0.85, height: 2.05 };
-  assert.deepEqual(doorSaveBody(door, 'run-abc-w2', true), {
-    ar_pose: { position: [1, -1.3, -2], rotation: [0, -35, 0] },
-    session_id: 'run-abc-w2',
-    width: 0.85,
-    height: 2.05,
-  });
-  // a server that does not store sizes is not sent one
-  assert.deepEqual(Object.keys(doorSaveBody(door, 's', false)), ['ar_pose', 'session_id']);
 });
 
 test('home: a room without a saved door asks for one (5.4)', () => {

@@ -185,25 +185,6 @@ export function putHere(camera: V3, forward: V3, floorY: number | null, size: { 
   return spot ? doorAt(spot, camera, size) : doorInFront(camera, forward, floorY, size);
 }
 
-/** What the server is sent for a door placed in the running AR session (api-v2, section 5). */
-export function doorSaveBody(
-  door: DoorDraft,
-  sessionId: string,
-  withSize: boolean,
-): {
-  ar_pose: { position: [number, number, number]; rotation: [number, number, number] };
-  session_id: string;
-  width?: number;
-  height?: number;
-} {
-  const body = {
-    ar_pose: { position: [...door.position] as [number, number, number], rotation: [0, door.yaw, 0] as [number, number, number] },
-    session_id: sessionId,
-  };
-  // A server that does not store the size is not sent one: other phones draw 0.90 x 2.00 m.
-  return withSize ? { ...body, width: door.width, height: door.height } : body;
-}
-
 /** Whether two drafts are the same door (to know if there is something to save). */
 export function sameDoor(a: DoorDraft, b: DoorDraft): boolean {
   return (

@@ -232,7 +232,7 @@ describe('the door staff placed (api-v2, section 5)', () => {
     assert.equal(door?.confirmed, true);
     assert.deepEqual([door?.width, door?.height], [0.9, 2.05]);
     assert.equal(door?.updatedUtc, '2026-11-21T09:40:00Z');
-    assert.deepEqual(door?.suggested, { openingId: 'o0', position: [1, -1.3, -2], rotation: [0, 90, 0], width: 0.86, height: 2.02, confidence: 0.78 });
+    assert.deepEqual(door?.suggested, { openingId: 'o0', position: [1, -1.3, -2], rotation: [0, 90, 0], quaternion: null, width: 0.86, height: 2.02, confidence: 0.78 });
     // saved without a size: the app draws its default
     assert.equal(parsePortal({ ...MANUAL, width: null, height: null })?.width, null);
   });
@@ -357,8 +357,8 @@ describe('room-scan requests against a local mock', () => {
     assert.equal(odd.ok, false);
     assert.match(odd.ok ? '' : odd.reason, /expected shape/);
   });
-  test('the door: saved with the session that found the room, refused without one, removed', async () => {
-    const body = { ar_pose: { position: [1, -1.3, -2] as [number, number, number], rotation: [0, 35, 0] as [number, number, number] }, session_id: 'run-1-w0', width: 0.85, height: 2.05 };
+  test('the door: saved in the frame of the room, a refusal is passed on, removed', async () => {
+    const body = { position: [1, -1.3, -2] as [number, number, number], quaternion_xyzw: [0, 0.300706, 0, 0.953717] as [number, number, number, number], width: 0.85, height: 2.05 };
     setClientRole('staff');
     const saved = await saveDoor(baseUrl, 'room', body);
     setClientRole(null);
@@ -369,7 +369,7 @@ describe('room-scan requests against a local mock', () => {
     assert.equal(request?.role, 'staff'); // the mode goes with every request while it is set
 
     const refused = await saveDoor(baseUrl, 'lost', body);
-    assert.deepEqual(refused, { ok: false, status: 422, reason: 'HTTP 422: no accepted alignment for this session' });
+    assert.equal(!refused.ok && refused.status, 422);
 
     const removed = await removeDoor(baseUrl, 'room');
     assert.equal(removed.ok, true);

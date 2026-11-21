@@ -106,7 +106,16 @@ test('decision: a good answer elsewhere moves the door, a weak one does not move
 
   const turned = decide(SHOWN, true, answer({ yaw: 50 }));
   assert.equal(turned.action, 'move', 'same place, other heading');
-  assert.equal((turned as { angleDeg: number }).angleDeg, 20);
+  assert.ok(Math.abs((turned as { angleDeg: number }).angleDeg - 20) < 1e-9);
+  // the server keeps the middle Euler angle within 90 degrees: headings of 100 and 80
+  // arrive as [180, 80, 180] and [0, 80, 0] - 20 degrees apart, not the same door
+  const flipped = decide({ position: [0, 0, 0], rotation: [0, 80, 0], strong: true }, true, {
+    quality: 'good',
+    alignmentStatus: 'ok',
+    door: { position: [0, 0, 0], rotation: [180, 80, 180] },
+  });
+  assert.equal(flipped.action, 'move');
+  assert.ok(Math.abs((flipped as { angleDeg: number }).angleDeg - 20) < 1e-9);
 
   const ignored = decide(SHOWN, true, answer({ at: [1.5, 0, -2], quality: 'weak' }));
   assert.equal(ignored.action, 'ignore');

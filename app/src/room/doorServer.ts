@@ -3,12 +3,14 @@
  * `localization-server/docs/api-v2.md`, section 5): saving the door that was placed in
  * the running AR session, and removing a saved door.
  */
+import { doorRecordBody } from '../door/core/placement';
 import { quaternionFromYaw, toMap } from '../localization/core/vpsAlignment';
 import { patchRoomVps, removeDoor, type RoomVpsBody, saveDoor } from '../server/core/client';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
-import { type DoorDraft, doorSaveBody, sizeLabel } from '../ui/core/doorEdit';
-import { getRoomScanState, roomActions } from './roomStore';
+import { type DoorDraft, sizeLabel } from '../ui/core/doorEdit';
+import { noteDoorRecord } from '../door/doorRecords';
+import { getRoomScanState } from './roomStore';
 import { roomsActions, usesCloud, vpsOfRoom } from './roomsStore';
 
 const log = (text: string) => appActions.log(`door: ${text}`);
@@ -106,8 +108,9 @@ export async function saveRoomLocation(mapId: string, locationId: string): Promi
 }
 
 /**
- * "Save door": the door as it stands in this AR session, with the session id whose
- * `/localize` found the room - the server converts the place through that alignment.
+ * "Save door": the door as it stands in this AR session goes into the room's frame through
+ * the transform the room was recognised with (`roomStore.found`), and becomes the room's
+ * one door record on the server. The same for every way of recognising the room.
  */
 export async function saveDoorDraft(draft: DoorDraft): Promise<DoorSaveResult> {
   const baseUrl = serverConnection.getBaseUrl();
@@ -124,22 +127,19 @@ export async function saveDoorDraft(draft: DoorDraft): Promise<DoorSaveResult> {
     return saveCloudDoor(baseUrl, found.mapId, found.vps, draft);
   }
   const withSize = serverKeepsDoorSize();
-  const answer = await saveDoor(baseUrl, found.mapId, doorSaveBody(draft, found.sessionId, withSize));
+  const answer = await saveDoor(baseUrl, found.mapId, doorRecordBody(found.transform, draft, withSize));
   if (!answer.ok) {
     log(`not saved: ${answer.reason}`);
-    if (answer.status === 422) {
-      // The server has no accepted alignment for this session (it was restarted, or the
-      // session is not the one it knows): the room has to be found again before a new try.
-      roomActions.setFound(null);
-      appActions.requestRelocalize();
-    }
-    return { ok: false, why: answer.status === null ? 'no-answer' : answer.status === 422 ? 'no-room' : 'refused' };
+    return { ok: false, why: answer.status === null ? 'no-answer' : 'refused' };
   }
   const saved = answer.value.portal;
+  if (saved) {
+    noteDoorRecord(found.mapId, saved); // what every phone gets from now on
+  }
   log(
-    `saved in "${found.mapId}" (${answer.value.alignmentUsed || 'alignment not named'}` +
-      `${found.strong ? '' : ', weak match'}), ${withSize ? sizeLabel(draft) : 'size not stored by this server'}` +
-      (saved && saved.position ? `; in the map at ${saved.position.map((n) => n.toFixed(2)).join(', ')}` : ''),
+    `saved in "${found.mapId}"${found.strong ? '' : ' (weak match)'}, ` +
+      `${withSize ? sizeLabel(draft) : 'size not stored by this server'}` +
+      (saved && saved.position ? `; in the room's frame at ${saved.position.map((n) => n.toFixed(2)).join(', ')}` : ''),
   );
   // Before the answer: what follows (Home, the visitor screen) asks which rooms have a door.
   await roomsActions.refresh();

@@ -6,13 +6,23 @@
  * parts, so a server that adds fields - or sends something odd - cannot crash the app.
  */
 
+import { matrixFromRows } from '../../door/core/roomFrame';
+
 export type V3 = [number, number, number];
+/** A turn as a quaternion `[x, y, z, w]`. */
+export type Quat = [number, number, number, number];
 
 function asV3(value: unknown): V3 | null {
   return Array.isArray(value) &&
     value.length === 3 &&
     value.every((n) => typeof n === 'number' && Number.isFinite(n))
     ? (value as V3)
+    : null;
+}
+
+function asQuat(value: unknown): Quat | null {
+  return Array.isArray(value) && value.length === 4 && value.every((n) => typeof n === 'number' && Number.isFinite(n))
+    ? (value as Quat)
     : null;
 }
 
@@ -286,6 +296,8 @@ export interface SuggestedDoor {
   openingId: string | null;
   position: V3;
   rotation: V3;
+  /** The same turn as `[x, y, z, w]`; null when the server sent none. */
+  quaternion: Quat | null;
   width: number | null;
   height: number | null;
   confidence: number | null;
@@ -303,6 +315,13 @@ export interface ServerPortal {
   /** Doorway frame; null when `source` is "none". */
   position: V3 | null;
   rotation: V3 | null;
+  /** The same turn as `[x, y, z, w]`; null when the server sent none. */
+  quaternion: Quat | null;
+  /**
+   * The name of the room's frame the record belongs to (api-v2, section 5); it changes
+   * when the room is scanned again. Empty from a server that does not name its frames.
+   */
+  frameId: string;
   /** Size of the door, metres; null for a door saved without one. */
   width: number | null;
   height: number | null;
@@ -325,6 +344,7 @@ function parseSuggested(value: unknown): SuggestedDoor | null {
     openingId: typeof json.opening_id === 'string' ? json.opening_id : null,
     position,
     rotation,
+    quaternion: asQuat(json.quaternion_xyzw),
     width: asNumber(json.width),
     height: asNumber(json.height),
     confidence: asNumber(json.confidence),
@@ -347,6 +367,8 @@ export function parsePortal(body: unknown): ServerPortal | null {
       openingId: null,
       position: null,
       rotation: null,
+      quaternion: null,
+      frameId: asString(json.frame_id),
       width: null,
       height: null,
       confidence: null,
@@ -364,6 +386,8 @@ export function parsePortal(body: unknown): ServerPortal | null {
     openingId: typeof json.opening_id === 'string' ? json.opening_id : null,
     position,
     rotation,
+    quaternion: asQuat(json.quaternion_xyzw),
+    frameId: asString(json.frame_id),
     width: asNumber(json.width),
     height: asNumber(json.height),
     confidence: asNumber(json.confidence),
@@ -404,7 +428,20 @@ export interface LocalizeOutcome {
   numInliers: number;
   /** "ok" when the map could be placed in the current AR session. */
   alignmentStatus: string;
+  /**
+   * The server's answer to "where is the room": the room's frame in this AR session
+   * (`alignment.T_arworld_from_map`), 16 numbers in column-major order. Null unless the
+   * alignment is complete.
+   */
+  transform: number[] | null;
+  /** The frame that matrix refers to; empty from a server that does not name its frames. */
+  frameId: string;
+  /**
+   * The door already multiplied out by the server. The app does that sum itself
+   * (`door/core/placement.ts`); this is kept to check the one against the other.
+   */
   portal: ServerPortal | null;
+  /** The room plan in this AR session's frame. */
   room: ServerRoom | null;
 }
 
@@ -420,6 +457,8 @@ export function parseLocalize(body: unknown): LocalizeOutcome | null {
     reason: asString(json.reason),
     numInliers: asNumber(json.num_inliers) ?? 0,
     alignmentStatus: asString(alignment?.status) || 'none',
+    transform: ok ? matrixFromRows(alignment?.T_arworld_from_map) : null,
+    frameId: asString(json.frame_id),
     portal: ok ? parsePortal(alignment?.portal) : null,
     room: ok ? parseRoom(alignment?.room) : null,
   };

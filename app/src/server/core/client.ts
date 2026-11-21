@@ -10,6 +10,7 @@
  * unchanged in React Native and in Node (tests use a local mock server). Uploads use
  * `XMLHttpRequest` where it exists (React Native), because `fetch` reports no progress.
  */
+import type { DoorRecordBody } from '../../door/core/placement';
 import { type ClientIdentity, identityHeaders, type LogReceipt, parseLogReceipt } from './deviceLog';
 import { type ServerInfo, validateHealth } from './health';
 import {
@@ -345,20 +346,12 @@ export function getPortal(baseUrl: string, mapId: string, options?: RequestOptio
   return requestJson(`${baseUrl}/maps/${enc(mapId)}/portal`, { method: 'GET' }, parsePortal, options);
 }
 
-/** What `PUT /maps/{map_id}/anchors/portal` takes for a door placed in the running AR session. */
-export interface DoorSaveBody {
-  ar_pose: { position: [number, number, number]; rotation: [number, number, number] };
-  /** The id of the AR session whose `/localize` found the room. */
-  session_id: string;
-  width?: number;
-  height?: number;
-}
-
 /**
- * `PUT /maps/{map_id}/anchors/portal`: the door a staff member placed. `422` when the
- * server has no accepted alignment for the session.
+ * `PUT /maps/{map_id}/anchors/portal`: the door a staff member placed, written down in the
+ * room's frame (`door/core/placement.ts` does the sum) - the one door record of the room,
+ * whatever way the room was recognised through.
  */
-export function saveDoor(baseUrl: string, mapId: string, body: DoorSaveBody, options?: RequestOptions): Promise<ApiResult<SavedDoor>> {
+export function saveDoor(baseUrl: string, mapId: string, body: DoorRecordBody, options?: RequestOptions): Promise<ApiResult<SavedDoor>> {
   return requestJson(
     `${baseUrl}/maps/${enc(mapId)}/anchors/portal`,
     { method: 'PUT', body: JSON.stringify(body) },

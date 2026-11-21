@@ -1,17 +1,17 @@
+import { IDENTITY } from '../door/core/roomFrame';
+import { DoorPlacer, type Placement } from '../door/DoorPlacer';
+import { noteDoorRecord } from '../door/doorRecords';
 import { localizeWithClip } from '../room/roomServer';
 import { currentRoomId } from '../room/roomsStore';
-import { getRoomScanState, roomActions, subscribeRoomScan, type ServerPlan } from '../room/roomStore';
+import { getRoomScanState, subscribeRoomScan, type ServerPlan } from '../room/roomStore';
 import { formatAddress } from '../server/core/address';
 import type { ConnectionSnapshot } from '../server/core/connectionMachine';
-import type { ServerPortal } from '../server/core/roomPlan';
 import { SESSION_ID } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
-import { doorMayBeShown } from '../ui/core/modes';
 import { BaseProvider } from './BaseProvider';
 import {
   decide,
   type Decision,
-  type DoorCandidate,
   type EpisodeReason,
   INTERRUPTION_GRACE_MS,
   MAX_ATTEMPTS,
@@ -49,31 +49,25 @@ let nextWorldFrame = 0;
 const HOW_TO_LOOK = 'Look at a part of the room that was scanned (not a bare wall) and press "Re-localize"';
 
 /**
- * Self-hosted localization server on the local network: the door stands where a staff
- * member saved it in the scanned room. A doorway the server found by itself is only a
- * suggestion for the placing screen (`ui-spec.md`, 5.14) and is never shown as a door.
+ * Self-hosted localization server on the local network: one of the ways to recognise the
+ * room. It answers one question - WHERE THE ROOM'S FRAME LIES IN THIS AR SESSION - and
+ * hands that to the door layer (`door/DoorPlacer.ts`), which reads the room's door record
+ * and puts the door there, the same for every way. This provider knows nothing about the
+ * door; it only hears back what the answer meant for it, to decide whether to look again.
  *
- * Two ways to a doorway pose in the current AR session:
- *  - the room was scanned and built in this very session: the server's plan is already in
- *    this session's frame (`roomStore.serverPlan`, set after a build);
+ * Two ways to the room's frame:
+ *  - the room was scanned and built in this very session: the map frame IS this session's
+ *    frame (`roomStore.serverPlan` of origin `build`, set after a build);
  *  - otherwise a short clip with camera poses goes to `POST /localize`, and the answer
- *    carries the plan and the doorway transformed into this session's frame.
+ *    says where the map lies in the session (`alignment.T_arworld_from_map`).
  *
  * Looking for the room happens in EPISODES (session start, tracking came back, the user
  * pressed "Re-localize", a weak answer is being confirmed). An episode makes a limited
- * number of attempts with growing pauses and then tells the user what to do. What each
- * answer means for the door on screen is decided by `core/relocalization.ts`:
- * the door is placed, kept, moved (with a log line saying by how much) - never moved
- * silently and never removed.
+ * number of attempts with growing pauses and then tells the user what to do.
  *
- * When tracking is interrupted the door stays where it is but is no longer trusted, the
- * status says so, and the room is looked for again as soon as tracking is back. The
+ * When tracking is interrupted the door layer is told so (the door stays, unbelieved),
+ * the status says so, and the room is looked for again as soon as tracking is back. The
  * server-side session id changes then, because the AR world frame may have changed.
- *
- * If the room has no saved door, nothing is placed and the status says so; there is no
- * fallback position. Whenever the server could place its map in this AR session, the
- * provider says so in the room store (`found`): that is what the placing screen saves a
- * door through.
  */
 export class SelfHostedServerProvider extends BaseProvider {
   readonly id: ProviderId = 'self-hosted';
@@ -92,15 +86,16 @@ export class SelfHostedServerProvider extends BaseProvider {
    * provider instances of an app run.
    */
   private worldEpoch = 0;
-  /** A doorway pose of this provider run has been trusted at least once. */
-  private everTrusted = false;
   /** Changes whenever running work becomes void (stop, interruption, a new episode). */
   private generation = 0;
 
-  /** The door on screen, and whether its pose is believed. */
-  private shown: DoorCandidate | null = null;
-  private trusted = false;
-  /** The plan this provider has dealt with last (so that the store's echo is ignored). */
+  /** Where the answers go: the one place that puts the door (and knows whether one stands). */
+  private readonly door = new DoorPlacer({
+    emitPose: (update) => this.emitPose(update),
+    setStatus: (status, detail, meta) => this.setStatus(status, detail, meta),
+    log: (text) => this.context?.log(`self-hosted: ${text}`),
+  });
+  /** The build's plan this provider has dealt with last. */
   private handledPlan: ServerPlan | null = null;
 
   private episode: Episode | null = null;
@@ -118,15 +113,12 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.connected = false;
     this.watch = new TrackingWatch();
     this.interrupted = false;
-    this.shown = null;
-    this.trusted = false;
-    this.everTrusted = false;
+    this.door.reset();
     this.worldEpoch = nextWorldFrame++;
     this.handledPlan = null;
     this.episode = null;
     this.busy = false;
     this.generation++;
-    roomActions.setFound(null);
     this.watch.onState(context.getTrackingState(), Date.now());
     this.subscriptions = [
       serverConnection.subscribe((view) => this.follow(view.connection)),
@@ -142,7 +134,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.generation++;
     this.clearTimers();
     this.episode = null;
-    roomActions.setFound(null);
+    this.door.reset();
     this.subscriptions.forEach((off) => off());
     this.subscriptions = [];
   }
@@ -169,7 +161,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       // The connection reports every heartbeat; only the change to "connected" matters
       // here, otherwise a status such as "room not recognised" would be overwritten.
       if (!wasConnected) {
-        if (!this.shown && !this.episode) {
+        if (!this.door.shown && !this.episode) {
           this.setStatus('connected', 'connected to the server');
           this.begin('start');
         } else if (this.episode && !this.busy) {
@@ -178,7 +170,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       }
       return;
     }
-    if (this.shown) {
+    if (this.door.shown) {
       // A door that is placed needs no server; only say that looking again is not possible.
       if (wasConnected) {
         this.context?.log('self-hosted: server connection lost - the doorway stays where it is');
@@ -204,29 +196,53 @@ export class SelfHostedServerProvider extends BaseProvider {
     }
   }
 
-  /** A plan that appeared in the store after a map build: it is in this session's frame. */
+  /**
+   * A plan that appeared in the store after a map build. The recording was made in this
+   * session, so the room's frame is this session's frame: the room transform is the identity.
+   */
   private onStorePlan(): void {
     const plan = getRoomScanState().serverPlan;
-    if (this.stopped || !plan || plan === this.handledPlan || plan.origin !== 'build') {
+    if (this.stopped || !plan || plan === this.handledPlan || this.door.wrote(plan) || plan.origin !== 'build') {
       return;
     }
     this.handledPlan = plan;
     this.cancelEpisode();
-    const door = candidateFrom(plan.portal, true);
-    const server = {
-      quality: 'build',
-      inliers: null,
-      source: plan.portal?.source ?? null,
-      confidence: plan.portal?.confidence ?? null,
-    };
-    if (!door) {
-      this.reportNoDoorway(plan);
-      this.report('no-doorway', null, server);
-      return;
+    if (plan.portal) {
+      noteDoorRecord(plan.mapId, plan.portal); // read from the server a moment ago, with the plan
     }
-    // Built from a recording of a frame that has been interrupted since: show, do not trust.
-    this.place(door, plan, !this.interrupted, 'this scan');
-    this.report('placed', null, server);
+    const generation = this.generation;
+    void this.door
+      .roomRecognised(
+        {
+          mapId: plan.mapId,
+          frameId: plan.portal?.frameId ?? '',
+          transform: IDENTITY,
+          // Built from a recording of a frame that has been interrupted since: show, do not trust.
+          strong: !this.interrupted,
+          room: plan.room,
+          how: 'this scan',
+          fromRecording: true,
+        },
+        { requested: true, always: true },
+      )
+      .then((placed) => {
+        if (!placed || this.stopped || generation !== this.generation) {
+          return;
+        }
+        const server = {
+          quality: 'build',
+          inliers: null,
+          source: placed.portal?.source ?? null,
+          confidence: placed.portal?.confidence ?? null,
+        };
+        if (placed.decision.action === 'place') {
+          this.report('placed', null, server);
+        } else if (placed.decision.action === 'no-doorway') {
+          this.report('no-doorway', null, server);
+        } else if (placed.decision.action === 'retry') {
+          this.context?.log(`self-hosted: the door of this scan was not placed - ${placed.decision.why}`);
+        }
+      });
   }
 
   private onTracking(state: TrackingState): void {
@@ -234,7 +250,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     const event = this.watch.onState(state, now);
     if (state === 'normal' && !event) {
       // First NORMAL of the session (or nothing had happened): start if there is nothing yet.
-      if (this.connected && !this.shown && !this.episode) {
+      if (this.connected && !this.door.shown && !this.episode) {
         this.begin('start');
       } else if (this.episode && !this.busy) {
         this.scheduleAttempt(0);
@@ -269,7 +285,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.worldEpoch = nextWorldFrame++;
     this.context?.log(
       `self-hosted: tracking is back after ${(event.gapMs / 1000).toFixed(1)} s - ` +
-        (this.shown ? 'checking the doorway position' : 'looking for the room'),
+        (this.door.shown ? 'checking the doorway position' : 'looking for the room'),
     );
     this.begin('recovery');
   }
@@ -279,14 +295,13 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     this.interrupted = true;
-    this.trusted = false;
-    roomActions.setFound(null); // the alignment belonged to the frame that was interrupted
+    this.door.distrust(); // the room transform belonged to the frame that was interrupted
     this.generation++; // a clip recorded across the interruption is worthless
     this.clearRetryTimer();
     this.context?.log('self-hosted: tracking lost');
     this.setStatus(
       'lost',
-      this.shown
+      this.door.shown
         ? 'tracking lost - the doorway stays where it was, but it may be off. Move the phone slowly over a part of the room with detail'
         : 'tracking lost - move the phone slowly over a part of the room with detail',
       { code: 'tracking-lost' },
@@ -327,7 +342,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     // What has to be there before a clip can be sent. The episode waits; the input
     // handlers above start it again when the missing thing arrives.
     if (!this.connected) {
-      if (!this.shown) {
+      if (!this.door.shown) {
         this.setStatus('waiting-for-server', 'the server is not connected', { code: 'server-offline' });
       }
       return;
@@ -354,16 +369,16 @@ export class SelfHostedServerProvider extends BaseProvider {
     const of = `attempt ${episode.attempt} of ${MAX_ATTEMPTS[episode.reason]}`;
     this.setStatus(
       'localizing',
-      this.shown
+      this.door.shown
         ? `checking the doorway position (${of}): hold the phone still for 3 seconds`
         : `looking for the room (${of}): hold the phone still for 3 seconds, pointed at a part of the room with detail`,
       this.searchMeta(episode, episode.attempt),
     );
     const generation = this.generation;
     this.busy = true;
-    const result = await localizeWithClip(roomId, sessionId);
+    const placed = await this.look(episode, roomId, sessionId, generation);
     this.busy = false;
-    if (this.stopped || generation !== this.generation || this.episode !== episode) {
+    if (this.stopped || generation !== this.generation || this.episode !== episode || !placed) {
       // Stopped, interrupted or superseded while the clip was on its way: the answer is
       // dropped. An episode that started meanwhile could not run while this one was busy.
       if (!this.stopped && this.episode && this.retryTimer === null) {
@@ -371,71 +386,76 @@ export class SelfHostedServerProvider extends BaseProvider {
       }
       return;
     }
-
-    if (result.kind === 'failed') {
-      this.afterDecision(episode, { action: 'retry', why: result.reason }, null);
-      return;
-    }
-    const { outcome, plan } = result;
-    if (outcome.alignmentStatus === 'ok' && outcome.quality !== 'failed') {
-      roomActions.setFound({ mapId: roomId, sessionId, strong: outcome.quality === 'good', plan });
-    }
-    episode.scaleUnknown = outcome.alignmentStatus === 'scale_unknown';
-    episode.server = {
-      quality: outcome.quality,
-      inliers: outcome.numInliers,
-      source: outcome.portal?.source ?? null,
-      confidence: outcome.portal?.confidence ?? null,
-    };
-    const door = outcome.alignmentStatus === 'ok' ? candidateFrom(outcome.portal, outcome.quality === 'good') : null;
-    const decision = decide(this.shown, this.trusted, {
-      quality: outcome.quality,
-      alignmentStatus: outcome.alignmentStatus,
-      door: door ? { position: door.position, rotation: door.rotation } : null,
-    });
-    this.afterDecision(episode, decision, plan);
+    this.afterDecision(episode, placed.decision);
   }
 
-  private afterDecision(episode: Episode, decision: Decision, plan: ServerPlan | null): void {
-    const log = (text: string) => this.context?.log(`self-hosted: ${text}`);
+  /**
+   * One look: a clip to the server, its answer to "where is the room" to the door layer.
+   * Null when the answer was overtaken on its way.
+   */
+  private async look(episode: Episode, roomId: string, sessionId: string, generation: number): Promise<Placement | null> {
+    const result = await localizeWithClip(roomId, sessionId);
+    if (this.stopped || generation !== this.generation) {
+      return null;
+    }
+    if (result.kind === 'failed') {
+      return { decision: { action: 'retry', why: result.reason }, portal: null };
+    }
+    const { outcome } = result;
+    episode.scaleUnknown = outcome.alignmentStatus === 'scale_unknown';
+    episode.server = { quality: outcome.quality, inliers: outcome.numInliers, source: null, confidence: null };
+    if (outcome.alignmentStatus !== 'ok' || outcome.quality === 'failed') {
+      // No room transform in this answer; `decide` words the reason.
+      const decision = decide(null, false, { quality: outcome.quality, alignmentStatus: outcome.alignmentStatus, door: null });
+      return { decision, portal: null };
+    }
+    if (!outcome.transform) {
+      return { decision: { action: 'retry', why: 'the server did not say where the room is (no T_arworld_from_map)' }, portal: null };
+    }
+    const placed = await this.door.roomRecognised(
+      {
+        mapId: roomId,
+        frameId: outcome.frameId,
+        transform: outcome.transform,
+        strong: outcome.quality === 'good',
+        room: outcome.room,
+        how: 'recognised room',
+      },
+      // A move nobody asked for waits while the user is inside the space.
+      { requested: episode.reason === 'manual' },
+    );
+    if (placed) {
+      episode.server = {
+        ...episode.server,
+        source: placed.portal?.source ?? null,
+        confidence: placed.portal?.confidence ?? null,
+      };
+    }
+    return placed;
+  }
+
+  /** What the door layer made of an answer decides whether the search goes on. */
+  private afterDecision(episode: Episode, decision: Decision): void {
     switch (decision.action) {
       case 'retry':
         episode.lastWhy = decision.why;
-        log(`attempt ${episode.attempt}: ${decision.why}`);
+        this.context?.log(`self-hosted: attempt ${episode.attempt}: ${decision.why}`);
         break;
       case 'no-doorway':
         this.episode = null;
-        if (plan) {
-          this.reportNoDoorway(plan);
-        }
         this.report('no-doorway', episode);
         return;
       case 'place':
-        if (plan) {
-          this.place(decision.door, plan, decision.door.strong, 'recognised room');
-          this.report('placed', episode);
-        }
+        this.report('placed', episode);
         break;
       case 'move':
-        log(
-          `doorway moved by ${decision.distanceM.toFixed(2)} m and ${decision.angleDeg.toFixed(0)} deg ` +
-            `after re-localisation (${decision.door.strong ? 'good' : 'weak'} match)`,
-        );
-        if (plan) {
-          this.place(decision.door, plan, decision.door.strong, 'recognised room, corrected', episode.reason !== 'manual');
-          this.report('moved', episode);
-        }
+        this.report('moved', episode);
         break;
       case 'keep':
-        this.trusted = true;
-        log(`doorway confirmed: the new answer is ${(decision.distanceM * 100).toFixed(0)} cm from the shown one`);
-        this.everTrusted = true;
-        this.setStatus('localized', 'doorway confirmed by a second look');
         this.report('confirmed', episode);
         break;
       case 'ignore':
         episode.lastWhy = 'only weak matches that disagree with the doorway shown';
-        log(`weak answer ${decision.distanceM.toFixed(2)} m away from the trusted doorway ignored`);
         break;
     }
 
@@ -478,12 +498,12 @@ export class SelfHostedServerProvider extends BaseProvider {
   private giveUp(episode: Episode): void {
     this.episode = null;
     const why = episode.lastWhy ? ` (${episode.lastWhy})` : '';
-    if (this.shown && this.trusted) {
+    if (this.door.shown && this.door.trusted) {
       this.setStatus('localized', 'doorway kept: the new look did not give a better position');
       this.report('kept', episode);
       return;
     }
-    if (this.shown) {
+    if (this.door.shown) {
       this.setStatus(
         'lost',
         `the doorway is shown where it was, but its position could not be confirmed${why}. ${HOW_TO_LOOK}`,
@@ -509,7 +529,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       reason: episode ? episode.origin : 'build',
       attempts: episode ? episode.earlier + episode.attempt : 0,
       elapsedMs: episode ? Date.now() - episode.startedAt : null,
-      trusted: this.trusted,
+      trusted: this.door.trusted,
       server,
     });
   }
@@ -522,56 +542,8 @@ export class SelfHostedServerProvider extends BaseProvider {
       attempt: episode.earlier + attempt,
       attempts: episode.earlier + MAX_ATTEMPTS[episode.reason],
       code: episode.scaleUnknown ? 'scale-unknown' : undefined,
-      pending: this.shown !== null && !this.trusted && !this.everTrusted,
+      pending: this.door.shown !== null && !this.door.trusted && !this.door.everTrusted,
     };
-  }
-
-  private place(door: DoorCandidate, plan: ServerPlan, trusted: boolean, origin: string, automatic = false): void {
-    this.shown = door;
-    this.trusted = trusted;
-    if (trusted) {
-      this.everTrusted = true;
-    }
-    this.handledPlan = plan;
-    if (getRoomScanState().serverPlan !== plan) {
-      roomActions.setServerPlan(plan); // the room plan is drawn from the same answer as the door
-    }
-    const portal = plan.portal;
-    const width = portal?.width ?? null;
-    const height = portal?.height ?? null;
-    const sized = width !== null && height !== null && width > 0 && height > 0;
-    const confidence = portal?.confidence ?? null;
-    this.emitPose({
-      pose: { position: door.position, rotation: door.rotation },
-      opening: sized ? { width, height } : undefined,
-      automatic,
-      quality: {
-        confidence: confidence ?? undefined,
-        note: `server ${portal?.source ?? '?'}${confidence === null ? '' : `, confidence ${confidence.toFixed(2)}`}${trusted ? '' : ', not confirmed'}`,
-      },
-    });
-    this.setStatus(
-      'localized',
-      `doorway from the server (${portal?.source ?? '?'}` +
-        (sized ? `, ${width.toFixed(2)} x ${height.toFixed(2)} m` : '') +
-        `, ${origin})${trusted ? '' : ' - weak match, checking again'}`,
-      { pending: !trusted && !this.everTrusted },
-    );
-  }
-
-  private reportNoDoorway(plan: ServerPlan): void {
-    this.handledPlan = plan;
-    if (getRoomScanState().serverPlan !== plan) {
-      roomActions.setServerPlan(plan); // the walls are still worth drawing
-    }
-    const found = plan.portal?.suggested ? 'the server found a doorway, which is only a suggestion' : 'the server found no doorway either';
-    this.setStatus(
-      'error',
-      `no door has been saved in map "${plan.mapId}" (${found}). ` +
-        (this.shown ? 'The door shown is an earlier one. ' : 'Nothing was placed: ') +
-        'place the door and save it ("Place the door" on Home)',
-      { code: 'no-doorway' },
-    );
   }
 
   private clearRetryTimer(): void {
@@ -588,13 +560,4 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.graceTimer = null;
     }
   }
-}
-
-/** The doorway of a server answer as a candidate pose, or null when there is none. */
-function candidateFrom(portal: ServerPortal | null, strong: boolean): DoorCandidate | null {
-  // A door stands only where a staff member saved one (`ui-spec.md`, 4.3 and 5.9).
-  if (!portal || !doorMayBeShown(portal.source) || !portal.position || !portal.rotation) {
-    return null;
-  }
-  return { position: portal.position, rotation: portal.rotation, strong };
 }

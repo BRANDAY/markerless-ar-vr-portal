@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (184 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (193 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -314,23 +314,21 @@ the staff AR menu) opens the camera and first finds the room, like the AR screen
   in steps of 5 cm, **Use the found doorway** (each tap goes to the next doorway the
   server found). Holding a step button repeats the step. The door always stands on the
   floor;
-- **Save door** sends the door as it stands in this AR session:
-  `PUT /maps/{id}/anchors/portal` with `ar_pose` (position, `[0, yaw, 0]`), the
-  `session_id` under which `/localize` found the room, and `width` and `height`. The
-  server converts the place into the room's map through its alignment of that session.
+- **Save door** writes the door down in the room's frame and sends it as the room's one
+  door record: `PUT /maps/{id}/anchors/portal` with `position`, `quaternion_xyzw`,
+  `width` and `height` (see [One door, whatever recognises the room](#one-door-whatever-recognises-the-room)).
   Then "Door saved", with **See it as a visitor** (switches to visitor mode) and
   **Done** (Home). If it fails: "The door wasn't saved", **Try again**. Closing after a
   change asks "Leave without saving?".
 
-What decides when a door can be saved: the server must have placed the room's map in the
-running AR session. The provider records that in the room store (`found`: room, session
-id, the plan and the doorways of that answer in this session's coordinates) with every
-`/localize` answer whose alignment is complete, and drops it as soon as tracking is
-interrupted, because the session's coordinates may have changed; the room is then found
-again before **Save door** is enabled ("Finding your room…"). If the server answers 422
-(it has no alignment for the session, e.g. after its restart), the app looks for the room
-again. The session id changes with every new AR view and after every interruption of
-tracking, as the server's contract asks.
+What decides when a door can be saved: the room must be recognised in the running AR
+session. The door layer records that in the room store (`found`: room, the room's frame
+in this session, the plan and the doorways in this session's coordinates) with every
+answer that says where the room is, and drops it as soon as tracking is interrupted,
+because the session's coordinates may have changed; the room is then found again before
+**Save door** is enabled ("Finding your room…"). The session id sent with `/localize`
+changes with every new AR view and after every interruption of tracking, as the server's
+contract asks.
 
 Details that are choices of the app, not of the spec:
 
@@ -489,7 +487,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | Inside the space: only "Door is behind you" and the info button | the close button stays as well | a way out that does not depend on Android's back button |
 | AR screen, room without a saved door: "go to Place the door" (5.9) and a sheet "This room has no door yet" (7.3) | the sheet, whose button opens the placing screen | the two places of the spec differ; the sheet says why the screen changes |
 | **Save door** is enabled once the room is found | for a door that is already saved it stays disabled until something was changed | saving an unchanged door through a new alignment would move it by that alignment's error |
-| "The door wasn't saved": "The server did not answer…" | the same sheet when the server answered and refused (e.g. 422: it has no alignment for this session; the room is then looked for again) | the spec has one failure sheet |
+| "The door wasn't saved": "The server did not answer…" | the same sheet when the server answered and refused | the spec has one failure sheet |
 | **Put it here** moves the door to the aimed spot | when the phone is not aimed at the floor, the door goes two metres in front of the camera | the spec has no text for "aim at the floor" |
 | Coach lines once the room is found | shown until a control is used, and hidden while the adjust panel is open | they would cover the door that is being placed |
 | The door "as it will look to visitors" | the same, but it cannot be walked through while it is being placed | walking into a space that is still being moved |
@@ -740,7 +738,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 184 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 193 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -809,10 +807,48 @@ the room has **no saved door**, nothing is placed and the status says so; a door
 server found by itself is only offered on the placing screen. The app never substitutes
 a position of its own.
 
+### One door, whatever recognises the room
+
+The owner's decision of 2026-11-21: one approach to the door for every way of recognising
+the room, so that switching between the venue's server and ReactVision Advanced VPS is
+seamless (`localization-server/docs/api-v2.md`, section 5).
+
+- **One door record per room**: its pose in the room's frame, width, height. It is kept
+  by the venue's server and does not depend on how a phone finds the room.
+- **A way of recognising the room answers one question**: where is the room's frame in
+  this AR session (`RoomFix` in `src/localization/types.ts`: a 4x4 transform, whether
+  the way calls its answer weak, the name of the frame). It knows nothing about the door.
+  The `self-hosted` provider reads the transform from `/localize`
+  (`alignment.T_arworld_from_map`); for a room scanned in this very session it is the
+  identity.
+- **One place puts the door**: `src/door/DoorPlacer.ts`. It reads the door record
+  (`GET /maps/{id}/portal`; the copy read last when the server does not answer), does
+  the sum
+
+  ```
+  door in the session = room in the session x door in the room
+  ```
+
+  (`src/door/core/placement.ts`, `roomFrame.ts`: pure, unit-tested) and applies the
+  rules of [Keeping the doorway in place](#keeping-the-doorway-in-place): place, keep,
+  move, ignore. It also tells the placing screen that the room is found.
+- **Saving is the same sum backwards**: the door placed in the session goes into the
+  room's frame through the transform the room was recognised with, and becomes the
+  record. Nothing in the placing screen depends on the way.
+
+The server still multiplies the door out itself (`alignment.portal`); the app no longer
+reads it. `npm run e2e:server` compares the two sums on a real server.
+
+One thing changed with this for the better: whether two answers mean "the same door" used
+to compare the middle Euler angle of the two poses, which the server keeps within 90
+degrees (a heading of 110 arrives as `[180, 70, 180]`); it now compares headings.
+
 ### Keeping the doorway in place
 
 The rules are in `src/localization/core/relocalization.ts` (pure, unit-tested) and are
-applied by the `self-hosted` provider. **None of this has been tried on a device.**
+applied by the door layer (`src/door/DoorPlacer.ts`) to the answers of whatever way
+recognises the room; the search itself (attempts, pauses, tracking loss) is the
+provider's. **None of this has been tried on a device.**
 
 - **Tracking loss.** Tracking that is away for less than 1.5 s is a hiccup and changes
   nothing (switching the scan mode causes one of about half a second). Longer than that
@@ -859,17 +895,21 @@ npm run e2e:server -- http://127.0.0.1:8077 <folder with video.mp4 and session.j
 runs the app's own client code and decision rules against a real server from the PC
 (`src/server/core/server.e2e.ts`): health, device log, upload, following the build, room
 plan, door, a localisation with the recording used as the clip, and then what a staff
-member and a visitor do with the door: a door is saved as placed in the clip's AR
-session, a second localisation in that session has to bring it back, a save from a
-session that never found the room has to be refused, and the door is removed again. The
+member and a visitor do with the door: a door placed in the clip's AR session is saved in
+the room's frame, a second localisation in that session has to bring it back, and the
+door is removed again. The door is worked out the way the app's door layer does it (room
+transform of the answer x door record), and compared with the door the server multiplies
+out itself. The
 map id defaults to `app_e2e` and is replaced on the server. With `--localize-only`
 nothing is uploaded and an existing map is used; the door part **replaces and then
 removes the map's door**, so with `--localize-only` it runs only when `--door` is given
 too.
 
-Result of the last runs: server 0.4.0 on the development PC (GTX 1050 Ti), 2026-11-21,
-with the server project's test recording of 30 frames from the public TUM room sequence
-(not a phone recording). Logs: `E:\VR-FESB\device-tests\2026-11-21\e2e\`.
+Result of the last runs on the development PC (GTX 1050 Ti), 2026-11-21, with the server
+project's test recording of 30 frames from the public TUM room sequence (not a phone
+recording). The upload and the build were run against server 0.4.0; everything from the
+localisation on was run again against server 0.5.0 after the door layer was introduced
+(`run4`, `run5`). Logs: `E:\VR-FESB\device-tests\2026-11-21\e2e\`.
 
 | Step | Result |
 | --- | --- |
@@ -877,17 +917,17 @@ with the server project's test recording of 30 frames from the public TUM room s
 | Device log: batch accepted, a repeated batch counted as duplicates | ok |
 | Upload accepted, build followed to its end | ok, 293 s |
 | Room plan and door of the new map parsed | 2 walls, 1 corner, 1 door opening; no door (`source: none`), and no suggestion: the server did not consider the opening sure enough |
-| Localisation with the recording as the clip | answered in 2.7 s, "good", 741 inliers; the app's decision: **no saved door, nothing placed** |
-| A door saved with a session id that never found the room | refused with 422, as the app expects |
-| A door saved as placed in the clip's session (0.85 × 2.05 m, turned by 35 degrees) | accepted (`alignment_used: session_alignment`); the server shows it as `manual`, confirmed, with its size; `GET /maps` lists the room as one with a door for visitors |
-| A second localisation in that session, as a visitor | the door comes back **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
+| Localisation with the recording as the clip | answered in 2.1 s, "good", 740 inliers, with the room transform (`alignment.T_arworld_from_map`); the app's decision: **no saved door, nothing placed** |
+| A door placed in the clip's session (0.85 × 2.05 m, turned by 35 degrees), saved in the room's frame | accepted (`alignment_used: map`); the server shows it as `manual`, confirmed, with its size; `GET /maps` lists the room as one with a door for visitors |
+| A second localisation in that session, as a visitor: the app's own sum, room transform x door record | the door stands **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
+| The app's own sum against the door the server multiplied out for the same answer | **0.0 mm, 0.00 degrees** apart, on both rooms |
 | The door removed | ok; the room has no door for visitors again |
-| The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.0 s, "good", 1074 inliers; the app's decision: **place**; the door came back **2.3 cm** from where the recording's known transform puts it |
+| The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.5 s, "good", 1075 inliers; the app's decision: **place**; the door stands **2.3 cm** from where the recording's known transform puts it |
 
 The zero in the second localisation is expected and says less than it seems: the door
-was saved and read back through the same alignment of the same session, so it shows that
-the app's request and the server's conversion agree in both directions, not how well a
-room is found again. The 2.3 cm of the last row is the figure for that, on a test
+was written into the room's frame and read back through the same room transform, so it
+shows that the app's sum is right in both directions and agrees with the server's, not
+how well a room is found again. The 2.3 cm of the last row is the figure for that, on a test
 recording. A first run on 2026-11-20 was cut off when the server was restarted; the
 app's client reported the job as failed with the server's reason.
 
@@ -964,7 +1004,7 @@ src/
     types.ts                  LocalizationProvider interface, pose types, conventions
     BaseProvider.ts           listener bookkeeping shared by providers
     ManualPlacementProvider.ts  stage-1 stand-in
-    SelfHostedServerProvider.ts door in the opening the server found; episodes of looking for the room
+    SelfHostedServerProvider.ts where the room is, from the venue's server; episodes of looking for the room
     core/relocalization.ts    rules: tracking loss, retries, what an answer does to the door (unit-tested)
     ReactVisionVpsProvider.ts ReactVision Advanced VPS: the door from the place's map in the vendor's cloud (never run)
     vpsBridge.ts              between that provider and the library's tracker; "does this build have keys?"
@@ -972,6 +1012,11 @@ src/
     stubs.ts                  ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
+  door/
+    DoorPlacer.ts             THE place that puts the door: room transform x door record, the rules, "room found"
+    doorRecords.ts            reading the room's door record (and plan) from the venue's server
+    core/roomFrame.ts         pure: 4x4 transforms, a pose into the session and back into the room's frame
+    core/placement.ts         pure: record and plan in the session, what an answer does to the door, the body of a save
   environments/               worlds behind the portal and the door casing (maintained separately):
                               SponzaAtrium.tsx, DoorCasing.tsx
   measure/
@@ -984,7 +1029,7 @@ src/
     scanController.ts         world mesh, session recording, capture folders
     meshFormat.ts             the engine's mesh file (RVWM) and its conversion to PLY (unit-tested)
     roomServer.ts             upload, build progress, room plan, localisation by clip
-    doorServer.ts             saving the door staff placed, removing a saved door
+    doorServer.ts             saving the door staff placed (in the room's frame), removing a saved door
   server/
     core/                     pure, unit-tested: address, subnet, health, client, discovery, phone network,
                               state machine, room plan, device log; server.e2e.ts = run against a real server
@@ -1074,7 +1119,7 @@ Providers:
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
 | `ReactVisionVpsProvider` | Implemented, **never run** (no account yet): [The second connection method](#the-second-connection-method-reactvision-advanced-vps). In a build without keys it reports "not set up". |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
-| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. The door stands where staff saved it in the room: the place comes with the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, straight from the plan after a build in the same session). It also tells the placing screen when the room is found, so that a door can be saved. Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
+| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. Says where the room is: from the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, the identity after a build in the same session). The door layer puts the door there ([One door, whatever recognises the room](#one-door-whatever-recognises-the-room)). Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
 Without a key file the ViroReact plugin is configured with `provider: "none"` and
 `telemetry: false` (no anchor back-end, no usage ping), and no API keys or accounts are

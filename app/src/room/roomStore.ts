@@ -38,18 +38,21 @@ export interface ServerPlan {
 }
 
 /**
- * The server has placed a room's map in the running AR session (`/localize` answered with
- * a complete alignment). A door placed now can be saved: the server converts its place
- * through this alignment, which it keeps under `sessionId`. Gone as soon as tracking is
- * interrupted, because the session's frame may have changed.
+ * The room has been recognised in the running AR session, by whatever way: its frame lies
+ * in the session as `transform` says. A door placed now can be saved - it is written down
+ * in the room's frame through this transform (`door/core/placement.ts`). Written by the
+ * door layer (`door/DoorPlacer.ts`); gone as soon as tracking is interrupted, because the
+ * session's frame may have changed.
  */
 export interface FoundRoom {
   mapId: string;
-  /** The id `/localize` was called with; `PUT .../anchors/portal` takes the same one. */
-  sessionId: string;
-  /** False when the server called its own match weak. */
+  /** The name of the room's frame the transform refers to, or empty. */
+  frameId: string;
+  /** Room to this AR session, `p_session = T x p_room`: 16 numbers, column-major. */
+  transform: number[];
+  /** False when the way that recognised the room called its own answer weak. */
   strong: boolean;
-  /** Plan, door and suggested doorway of that answer, in this session's frame. */
+  /** The room plan, the door and the suggested doorway, in this session's frame. */
   plan: ServerPlan;
   /**
    * Set when the room was found through ReactVision Advanced VPS instead: how that

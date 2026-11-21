@@ -18,6 +18,8 @@
  *    (where the user stands before walking in), the virtual room extends to -Z.
  */
 
+import type { ServerRoom } from '../server/core/roomPlan';
+
 export type Vec3 = [number, number, number];
 
 export interface Pose {
@@ -119,6 +121,38 @@ export interface PoseUpdate {
   source: ProviderId;
   /** `Date.now()` at the moment the pose was computed. */
   timestampMs: number;
+}
+
+/**
+ * What a way of recognising the room answers: WHERE THE ROOM'S FRAME LIES IN THIS AR
+ * SESSION, and how sure it is. Nothing about the door - the door is one record per room,
+ * and `door/DoorPlacer.ts` puts it there for every way alike
+ * (`localization-server/docs/api-v2.md`, section 5).
+ */
+export interface RoomFix {
+  mapId: string;
+  /**
+   * The name of the room's frame the transform refers to; it changes when the room is
+   * scanned again. Empty when the way does not report it.
+   */
+  frameId: string;
+  /** Room to AR world of this session, `p_session = T x p_room`: 16 numbers, column-major. */
+  transform: number[];
+  /** False when the way calls its own answer weak: the door is shown as an outline and checked again. */
+  strong: boolean;
+  /**
+   * The room plan in this session's frame, when the way hands it out with its answer
+   * (null: the room has none). Left out: the door layer reads the plan itself.
+   */
+  room?: ServerRoom | null;
+  /** How the room was recognised, in words for the status line and the log. */
+  how: string;
+  /**
+   * True when the frame is known only because this very AR session recorded the room. It
+   * shows the door; a door is not saved through it - the placing screen has the room
+   * recognised first.
+   */
+  fromRecording?: boolean;
 }
 
 export type ProviderId =
