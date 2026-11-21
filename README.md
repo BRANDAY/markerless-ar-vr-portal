@@ -52,12 +52,15 @@ reliably.
 | Virtual space behind the door: atrium of the Sponza Palace (Dubrovnik) with a wooden door casing | Implemented; the models load on the phone without errors, the look has not been reviewed on the device yet |
 | Phone ↔ server connection over Wi-Fi | Done, checked on the phone: automatic search and reconnection work; typing the address by hand has not been confirmed on the device |
 | Localisation server: map building, `/localize`, evaluation | Done and tested on a public indoor dataset (TUM RGB-D `freiburg1_room`) |
-| Room scan in the app (planes, depth mesh, recording, upload with progress) | Implemented; on the phone the depth mesh, the recording and the upload work, a full room scan has not been made yet |
-| Room plan on the server (floor, walls, corners, door openings) and automatic doorway placement | Implemented and covered by tests on dataset and synthetic data; not yet run on a recording of a real room |
+| Room scan in the app (guided scan, depth mesh, recording, upload with progress) | Implemented; on the phone the depth mesh, the recording and the upload work, a full room scan has not been made yet |
+| Two modes: staff (scan the room, place and save the door) and visitor (open the app, the door comes from the server) | Implemented and run end to end against the server with a phone simulator; not checked on the phone |
+| Door stored once per room on the server and restored by recognition on any phone | Implemented; on the simulator a second "device" got the door 8.6 cm from where it was placed; not checked on the phone |
+| Room plan on the server (floor, walls, corners) and a suggested door opening | Implemented; on the recordings tried so far the plan is often partial and no opening was found reliably, so it is only a suggestion to the staff member |
 | Keeping the doorway in place (tracking loss, repeated localisation) | Implemented, not checked on the phone |
-| Server monitoring panel and phone simulator | In progress |
-| Ready-made localisation services | Not implemented (interface only) |
-| Persistence tests (restart, angles, lighting, tracking loss) | Not started |
+| Server monitoring panel and phone simulator | Done |
+| Ready-made localisation services (ReactVision Advanced VPS, ARCore Cloud Anchors) | Studied from the documentation; provider code is written but was never run against the services (no paid account), and is not part of the main path |
+| Full pass on a real phone in a real room (scan → map → door → restart → door in place) | Not done yet |
+| Persistence tests (restart, angles, lighting, tracking loss) | Protocol written ([`app/docs/test-protocol.md`](app/docs/test-protocol.md)), tests not run yet |
 
 ## Quick start
 
