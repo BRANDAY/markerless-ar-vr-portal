@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { t } from '../i18n';
 import { useRoomHealth } from '../room/roomAdmin';
 import { roomsActions } from '../room/roomsStore';
+import type { LinkVerdict } from '../server/core/linkQuality';
 import { serverConnection } from '../server/ServerConnection';
+import { type CheckFailure, type CheckStep, checkBeforeCamera } from '../server/visitorCheck';
 import { getPhoneNetworkState } from '../server/wifiRoute';
 import { spaceInfo } from '../spaces/spaces';
 import { appActions, useAppState } from '../state/appStore';
-import { prefsActions, usePrefs } from '../state/prefs';
+import { getPrefs, prefsActions, usePrefs } from '../state/prefs';
 import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
 import { sessionMissed } from './core/roomsView';
 import { type VisitorSheet, visitorSheetText, visitorView } from './core/visitorView';
@@ -28,9 +30,14 @@ type Permission = 'pending' | 'granted' | 'denied' | 'blocked';
 
 /**
  * The whole of visitor mode (`docs/product/ui-spec.md`, 5.13): a welcome panel on the
- * first launch, then the camera, one instruction at a time and the door. Nothing can be
- * set up here; when something does not work, a sheet says so in plain words. The lock on
- * the welcome panel leads to staff mode, behind the staff PIN.
+ * first launch, then the check of the server (`server/visitorCheck.ts`), then the camera,
+ * one instruction at a time and the door. Nothing can be set up here; when something
+ * does not work, a panel or a sheet says so in plain words. The lock on the panels leads
+ * to staff mode, behind the staff PIN.
+ *
+ * The camera opens only after the check has passed (the owner's decision of 2026-11-21):
+ * server reached, connection good, a room with a saved door on the server. The spec has
+ * the camera first; this is a divergence from it, reported to the product side.
  */
 export function VisitorScreen(props: { permission: Permission; permissionChecked: boolean; onAllow: () => void }) {
   const { permission, onAllow } = props;
@@ -40,36 +47,56 @@ export function VisitorScreen(props: { permission: Permission; permissionChecked
   const [wantStart, setWantStart] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
   /** The search for a server that this screen started has ended. */
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched] = useState(true);
+  /** The check before the camera: not run yet, at a step, passed, or failed (and why). */
+  const [check, setCheck] = useState<{ state: 'idle' | 'running' | 'passed' | 'failed'; step?: CheckStep; why?: CheckFailure; verdict?: LinkVerdict }>({
+    state: 'idle',
+  });
+  const checkRun = useRef(0);
 
   const search = useCallback(() => {
     setSearched(false);
     void serverConnection.findAutomatically().finally(() => setSearched(true));
   }, []);
 
-  // A visitor's door comes from the server and from nowhere else. Without a known server
-  // the Wi-Fi is searched at once, so that the venue's name is there before "Start".
+  const runCheck = useCallback(() => {
+    const run = ++checkRun.current;
+    setCheck({ state: 'running', step: 'connecting' });
+    void checkBeforeCamera((step) => {
+      if (run === checkRun.current) {
+        setCheck({ state: 'running', step });
+      }
+    }).then((result) => {
+      if (run !== checkRun.current) {
+        return; // a newer check is running, or the screen is gone
+      }
+      setCheck(result.ok ? { state: 'passed', verdict: result.verdict } : { state: 'failed', why: result.why, verdict: result.verdict });
+    });
+  }, []);
+
+  // A visitor's door comes from the server and from nowhere else. On a later launch the
+  // check of the server starts by itself; on the first one, with "Start".
   useEffect(() => {
     appActions.setProvider(roomProvider());
-    void roomsActions.refresh(); // which rooms have a saved door
-    if (serverConnection.getView().connection.state === 'not-configured') {
-      search();
-    } else {
-      setSearched(true);
+    if (getPrefs().visitorWelcomeDone) {
+      runCheck();
     }
-    return () => appActions.setVisitorStarted(false);
-  }, [search]);
+    return () => {
+      checkRun.current++;
+      appActions.setVisitorStarted(false);
+    };
+  }, [runCheck]);
 
-  // Later launches open the camera at once; the first one after "Start".
+  // The camera opens once the check has passed and the camera is allowed.
   useEffect(() => {
-    if (!started && permission === 'granted' && (welcomeDone || wantStart)) {
+    if (!started && check.state === 'passed' && permission === 'granted' && (welcomeDone || wantStart)) {
       if (!welcomeDone) {
         prefsActions.set({ visitorWelcomeDone: true });
       }
       setWantStart(false);
       appActions.setVisitorStarted(true);
     }
-  }, [started, permission, welcomeDone, wantStart]);
+  }, [started, check.state, permission, welcomeDone, wantStart]);
 
   // Android's back button closes the help panel before it leaves the app.
   useEffect(() => {
@@ -87,17 +114,31 @@ export function VisitorScreen(props: { permission: Permission; permissionChecked
   const start = () => {
     if (help) {
       setHelp(false);
-    } else if (permission === 'granted') {
-      prefsActions.set({ visitorWelcomeDone: true });
-      appActions.setVisitorStarted(true);
-    } else {
-      setWantStart(true);
+      return;
+    }
+    // "Start": the server first, then (if need be) the question about the camera.
+    setWantStart(true);
+    if (check.state !== 'passed' && check.state !== 'running') {
+      runCheck();
+    }
+    if (permission !== 'granted') {
       onAllow();
     }
   };
 
   if (!started && !help && welcomeDone && !props.permissionChecked) {
     return null; // a later launch: the camera opens in a moment, without the panel flashing by
+  }
+  // Before the camera, once "Start" was pressed (or on a later launch): the check of the
+  // server, as a panel of its own - its step, or what is wrong and "Try again".
+  const checking = !help && (welcomeDone || wantStart) && (check.state === 'running' || check.state === 'failed');
+  if (!started && checking) {
+    return (
+      <>
+        <CheckPanel check={check} onRetry={runCheck} onLock={() => setPinOpen(true)} />
+        {pinOpen ? <PinSheet purpose="unlock" onClose={() => setPinOpen(false)} onDone={enterStaffMode} /> : null}
+      </>
+    );
   }
   if (!started || help) {
     return (
@@ -111,6 +152,63 @@ export function VisitorScreen(props: { permission: Permission; permissionChecked
     );
   }
   return <OverCamera searched={searched} onSearch={search} onHelp={() => setHelp(true)} />;
+}
+
+const STEP_TEXT: Record<CheckStep, 'visitor.check.connecting' | 'visitor.check.searching' | 'visitor.check.link' | 'visitor.check.door'> = {
+  connecting: 'visitor.check.connecting',
+  searching: 'visitor.check.searching',
+  link: 'visitor.check.link',
+  door: 'visitor.check.door',
+};
+
+/**
+ * The check of the server before the camera: one line saying what is being checked, or
+ * what is wrong in a visitor's words, the line for staff, and "Try again".
+ */
+function CheckPanel(props: {
+  check: { state: string; step?: CheckStep; why?: CheckFailure; verdict?: LinkVerdict };
+  onRetry: () => void;
+  onLock: () => void;
+}) {
+  const theme = useTheme();
+  const venue = useServerView().connection.info?.serverName ?? '';
+  const { check } = props;
+  const failed = check.state === 'failed' && check.why ? visitorSheetText(check.why) : null;
+  const verdict = check.verdict;
+  return (
+    <View style={styles.cover}>
+      <ScreenFrame footer={failed ? <AppButton label={t('visitor.tryAgain')} onPress={props.onRetry} /> : undefined}>
+        <View style={styles.head}>
+          <Text style={[TYPE.rowTitle, styles.venue, { color: theme.ink2 }]} numberOfLines={1}>
+            {venue}
+          </Text>
+          <Pressable onPress={props.onLock} hitSlop={8} style={styles.lock} accessibilityRole="button" accessibilityLabel={t('visitor.staff')}>
+            <Icon name="lock" color={theme.ink2} size={18} />
+          </Pressable>
+        </View>
+        <View style={styles.drawing}>
+          <View style={[styles.door, { backgroundColor: failed ? theme.surface : theme.amberSoft }]}>
+            <Icon name={failed ? 'wifi' : 'door'} color={failed ? theme.ink2 : theme.amberText} size={56} />
+          </View>
+        </View>
+        {failed ? (
+          <>
+            <Title>{t(failed.title)}</Title>
+            <Body dim>{t(failed.body)}</Body>
+            {failed.reason ? <Small>{t(failed.reason)}</Small> : null}
+            {check.why === 'slow' && verdict ? (
+              <Small>{t('visitor.reason.slow', { ms: verdict.medianMs ?? '—', lost: verdict.lost, n: verdict.probes })}</Small>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Title>{t('visitor.coach.moment.1')}</Title>
+            <Body dim>{t(STEP_TEXT[check.step ?? 'connecting'])}</Body>
+          </>
+        )}
+      </ScreenFrame>
+    </View>
+  );
 }
 
 /** The welcome panel: what will happen, and one button. */

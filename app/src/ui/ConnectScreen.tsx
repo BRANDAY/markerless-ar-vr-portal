@@ -25,10 +25,18 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
   const [addressOpen, setAddressOpen] = useState(false);
 
   useEffect(() => {
-    const state = serverConnection.getView().connection.state;
-    if (auto && (state === 'not-configured' || state === 'unreachable')) {
-      searchForServer();
-    }
+    // Not before the saved address has been read and tried: a search started earlier
+    // pushed that address aside (`ServerConnection.ready`).
+    let live = true;
+    void serverConnection.ready.then(() => {
+      const state = serverConnection.getView().connection.state;
+      if (live && auto && (state === 'not-configured' || state === 'unreachable')) {
+        searchForServer();
+      }
+    });
+    return () => {
+      live = false;
+    };
     // Only on entry: a search that ends without a server must not start itself again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -35,16 +35,22 @@ test('ReactVision as the connection method: its problems lead to their own scree
   assert.deepEqual([standing.situation, standing.leave], ['door', null]);
 });
 
-test('finding the room: the coach line follows the attempt (5.9)', () => {
-  const line = (attempt: number, code?: string) =>
-    arView(input({ meta: { attempt, attempts: 5, code } })).coach?.line1;
+test('finding the room: where to look, and what the look is doing', () => {
+  const coach = (meta: Record<string, unknown>) => arView(input({ meta: { attempt: 1, ...meta } })).coach;
   assert.equal(arView(input({ status: 'waiting-for-tracking' })).coach?.line1, 'ar.coach.ready.1');
-  assert.equal(line(1), 'ar.coach.find.1');
-  assert.equal(line(2), 'ar.coach.another.1');
-  assert.equal(line(3), 'ar.coach.another.1');
-  assert.equal(line(4), 'ar.coach.still.1');
-  assert.equal(line(5), 'ar.coach.still.1');
-  assert.equal(line(2, 'scale-unknown'), 'ar.coach.sideways.1');
+  // the same advice at every attempt: look at the room, not at the floor
+  assert.deepEqual(coach({}), { line1: 'ar.coach.look.1', line2: 'ar.coach.look.recording' });
+  assert.deepEqual(coach({ attempt: 7, stage: 'recording' }), { line1: 'ar.coach.look.1', line2: 'ar.coach.look.recording' });
+  assert.equal(coach({ stage: 'sending' })?.line2, 'ar.coach.look.sending');
+  assert.equal(coach({ stage: 'thinking' })?.line2, 'ar.coach.look.thinking');
+  // a server that is long in answering is busy, not gone: the screen stays and says so
+  const busy = arView(input({ meta: { attempt: 3, stage: 'busy' }, connection: 'connected' }));
+  assert.equal(busy.coach?.line2, 'ar.coach.look.busy');
+  assert.equal(busy.leave, null);
+  assert.equal(coach({ attempt: 2, code: 'scale-unknown' })?.line1, 'ar.coach.sideways.1');
+  // a search without an end has no "of five"; the other-room button still comes with the fourth attempt
+  assert.equal(arView(input({ meta: { attempt: 3 } })).offerOtherRoom, false);
+  assert.equal(arView(input({ meta: { attempt: 9 } })).offerOtherRoom, true);
 });
 
 test('finding the room: "This is a different room" from the fourth attempt', () => {
@@ -69,7 +75,7 @@ test('a first pose that is being checked: outline, the line says so, no door sit
   assert.equal(placed.coach?.line2, 'ar.coach.checking.2');
   const checking = arView(input({ status: 'localizing', hasDoor: true, meta: { pending: true, attempt: 2 } }));
   assert.equal(checking.outline, true);
-  assert.equal(checking.coach?.line1, 'ar.coach.another.1');
+  assert.equal(checking.coach?.line1, 'ar.coach.look.1');
   assert.equal(checking.coach?.line2, 'ar.coach.checking.2');
 });
 

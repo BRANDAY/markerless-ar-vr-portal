@@ -20,6 +20,8 @@ export type VisitorSheet =
   | 'notRecognised'
   /** ReactVision as the connection method: the service is not reachable, or the room is not set up there. */
   | 'cloud'
+  /** Before the camera: the connection to the server is too slow or loses requests. */
+  | 'slow'
   /** The camera was refused. */
   | 'camera'
   /** The phone cannot run AR. */
@@ -125,6 +127,9 @@ export function visitorSheetText(sheet: VisitorSheet): VisitorSheetText {
       return { title: 'visitor.notReady.title', body: 'visitor.askStaff', reason: 'visitor.reason.cloud', button: 'retry' };
     case 'notRecognised':
       return { title: 'visitor.cantFind.title', body: 'visitor.cantFind.body', reason: 'visitor.reason.notRecognised', button: 'retry' };
+    case 'slow':
+      // The line for staff carries the numbers; the screen adds it itself.
+      return { title: 'visitor.slow.title', body: 'visitor.slow.body', reason: null, button: 'retry' };
     case 'camera':
       return { title: 'problem.camera.title', body: 'visitor.camera.body', reason: null, button: 'settings' };
     case 'device':

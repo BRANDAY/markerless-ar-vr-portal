@@ -58,12 +58,12 @@ test('place the door: the screen is the search until the room is found, then the
   // finding the room: the texts of the AR screen, attempt by attempt
   assert.deepEqual(placeScreen(input({})), {
     ready: false,
-    coach: { line1: 'ar.coach.find.1', line2: 'ar.coach.find.2' },
+    coach: { line1: 'ar.coach.look.1', line2: 'ar.coach.look.recording' },
     lostBanner: false,
     sheet: null,
     leave: null,
   });
-  assert.equal(placeScreen(input({ meta: { attempt: 4, attempts: 5 } })).coach?.line1, 'ar.coach.still.1');
+  assert.equal(placeScreen(input({ meta: { attempt: 4, stage: 'busy' } })).coach?.line2, 'ar.coach.look.busy');
   assert.equal(placeScreen(input({ tracking: 'limited', trackingReason: 'excessive motion' })).coach?.line1, 'ar.coach.motion.1');
 
   // found, no saved door: the provider says "no door" and the placing screen is ready
@@ -87,7 +87,7 @@ test('place the door: the screen is the search until the room is found, then the
   const lost = placeScreen(input({ status: 'lost', meta: { code: 'tracking-lost' }, hasDoor: true, found: false }));
   assert.deepEqual([lost.ready, lost.lostBanner, lost.coach], [false, true, null]);
   // found again after a loss, the saved door still on screen: the search is explained
-  assert.equal(placeScreen(input({ status: 'localizing', meta: { attempt: 1 }, hasDoor: true })).coach?.line1, 'ar.coach.find.1');
+  assert.equal(placeScreen(input({ status: 'localizing', meta: { attempt: 1 }, hasDoor: true })).coach?.line1, 'ar.coach.look.1');
 
   // not recognised, no room, no server
   assert.equal(placeScreen(input({ status: 'lost', meta: { code: 'not-recognised' } })).sheet, 'unknown');
@@ -95,7 +95,7 @@ test('place the door: the screen is the search until the room is found, then the
   assert.equal(placeScreen(input({ status: 'waiting-for-server', meta: { code: 'server-offline' }, connection: 'unreachable' })).leave, 'server');
   // after a save the server refused for want of an alignment: "no door" is not a sheet here
   const again = placeScreen(input({ status: 'error', meta: { code: 'no-doorway' }, found: false }));
-  assert.deepEqual([again.ready, again.sheet, again.coach?.line1], [false, null, 'ar.coach.find.1']);
+  assert.deepEqual([again.ready, again.sheet, again.coach?.line1], [false, null, 'ar.coach.look.1']);
 });
 
 test('place the door: the found doorways, the suggested one first', () => {

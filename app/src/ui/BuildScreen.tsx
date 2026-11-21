@@ -13,6 +13,7 @@ import {
   currentStep,
   duration,
   percentOf,
+  qualityLines,
   timeLine,
 } from './core/buildView';
 import { homeScreen, openGuidedScan, searchForServer, seeRoom } from './flows';
@@ -109,11 +110,15 @@ export function BuildScreen() {
   if (build.phase === 'done') {
     const took = duration(build.seconds ?? 0);
     const time = t(took.key, took.params);
+    // What the server thinks of the scan; nothing is drawn when it said nothing.
+    const quality = qualityLines(build.quality);
     return (
       <ScreenFrame title={name} right={<CloseButton onPress={dismiss} />} footer={<AppButton label={t('build.done.see')} onPress={seeRoom} />}>
         <IconTile icon="check" tone="teal" size={56} />
         <Title>{t('build.done.title')}</Title>
         <Body dim>{build.frames !== null ? t('build.done.line', { time, n: build.frames }) : t('build.done.line.noFrames', { time })}</Body>
+        {quality.summary ? <Body>{t(quality.summary.key, quality.summary.params)}</Body> : null}
+        {quality.advice ? <Notice>{quality.advice}</Notice> : null}
       </ScreenFrame>
     );
   }

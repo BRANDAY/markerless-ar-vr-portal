@@ -85,10 +85,10 @@ function visitor(over: Partial<VisitorInput>): VisitorInput {
 }
 
 test('visitor: coach lines in a visitor’s words (5.13)', () => {
-  const line = (attempt: number) => visitorView(visitor({ meta: { attempt, attempts: 5 } })).coach;
-  assert.deepEqual(line(1), { line1: 'ar.coach.find.1', line2: 'visitor.coach.find.2' });
-  assert.deepEqual(line(2), { line1: 'ar.coach.another.1', line2: 'ar.coach.another.2' });
-  assert.deepEqual(line(4), { line1: 'ar.coach.still.1', line2: 'visitor.coach.still.2' });
+  const line = (attempt: number, stage?: 'thinking' | 'busy') => visitorView(visitor({ meta: { attempt, stage } })).coach;
+  assert.deepEqual(line(1), { line1: 'ar.coach.look.1', line2: 'ar.coach.look.recording' });
+  assert.deepEqual(line(2, 'thinking'), { line1: 'ar.coach.look.1', line2: 'ar.coach.look.thinking' });
+  assert.deepEqual(line(6, 'busy'), { line1: 'ar.coach.look.1', line2: 'ar.coach.look.busy' });
   assert.equal(visitorView(visitor({ status: 'waiting-for-tracking' })).coach?.line1, 'ar.coach.ready.1');
   // looking for the server, loading the room
   const connecting = visitorView(visitor({ status: 'waiting-for-server', meta: { code: 'connecting' } }));

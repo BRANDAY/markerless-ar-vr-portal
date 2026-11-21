@@ -125,7 +125,11 @@ export function afterSession(missed: unknown, mapId: string, found: boolean): Re
  * A search without one answer (no clip recorded, requests failed) says nothing about the
  * room, and neither does any other trouble.
  */
-export function sessionMissed(status: string, meta: { code?: string; unanswered?: boolean }): boolean {
+export function sessionMissed(status: string, meta: { code?: string; unanswered?: boolean; missed?: boolean }): boolean {
+  // A search that goes on for as long as the screen is open says so itself (`missed`).
+  if (status === 'localizing' && meta.missed === true) {
+    return true;
+  }
   return status === 'lost' && meta.code === 'not-recognised' && meta.unanswered !== true;
 }
 

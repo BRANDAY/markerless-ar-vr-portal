@@ -136,7 +136,7 @@ export function placeScreen(input: PlaceInput): PlaceScreen {
   return {
     ready: false,
     // A door that is shown has no coach line on the AR screen; here the search still has to be explained.
-    coach: search.lostBanner || stopped ? null : (search.coach ?? { line1: 'ar.coach.find.1', line2: 'ar.coach.find.2' }),
+    coach: search.lostBanner || stopped ? null : (search.coach ?? { line1: 'ar.coach.look.1', line2: 'ar.coach.look.recording' }),
     lostBanner: search.lostBanner,
     sheet: search.sheet === 'unknown' ? 'unknown' : null,
     leave: search.leave,

@@ -5,7 +5,7 @@ import { t } from '../i18n';
 import { useRoomScan } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, useAppState } from '../state/appStore';
-import { addToPath, buttonLabel, clock, scanView } from './core/scanFlow';
+import { addToCoverage, buttonLabel, clock, describeCoverage, NO_COVERAGE, scanView } from './core/scanFlow';
 import { beginBuild, leaveScan } from './flows';
 import { AppButton, Body, CoachCard, Dot, HudButton, Sheet, SheetTitle } from './kit';
 import { HUD, RADIUS, TYPE, useInsets } from './theme';
@@ -27,6 +27,7 @@ export function ScanScreen() {
   const trackingReason = useAppState((s) => s.trackingReason);
   const floorFound = useAppState((s) => s.floorY !== null);
   const cameraPosition = useAppState((s) => s.cameraPosition);
+  const cameraForward = useAppState((s) => s.cameraForward);
   const recording = useRoomScan((s) => s.recording);
   const recordingSince = useRoomScan((s) => s.recordingSince);
   const walls = useRoomScan((s) => s.room.wallCount);
@@ -34,13 +35,13 @@ export function ScanScreen() {
   const [now, setNow] = useState(() => Date.now());
   const [doorwayShown, setDoorwayShown] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmSpot, setConfirmSpot] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tries, setTries] = useState(0);
-  const [metres, setMetres] = useState(0);
+  const [coverage, setCoverage] = useState(NO_COVERAGE);
   const startedRef = useRef(false);
   const startingRef = useRef(false);
   const leavingRef = useRef(false);
-  const pathRef = useRef<{ total: number; from: readonly number[] | null }>({ total: 0, from: null });
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -78,50 +79,64 @@ export function ScanScreen() {
     [],
   );
 
-  // The way walked, from the camera positions.
+  // Where the phone has been and how it was tilted, from the camera samples. Positions
+  // from a camera that has lost the room are not counted: they drift.
   useEffect(() => {
-    if (recording !== 'recording' || !cameraPosition) {
+    if (recording !== 'recording' || tracking !== 'normal' || !cameraPosition || recordingSince === null) {
       return;
     }
-    const next = addToPath(pathRef.current.total, pathRef.current.from, cameraPosition);
-    pathRef.current = next;
-    setMetres(next.total);
-  }, [cameraPosition, recording]);
+    const t = Math.max(0, (Date.now() - recordingSince) / 1000);
+    setCoverage((before) => addToCoverage(before, cameraPosition, cameraForward, t));
+  }, [cameraPosition, cameraForward, recording, tracking, recordingSince]);
 
   const seconds = recordingSince !== null ? Math.max(0, (now - recordingSince) / 1000) : 0;
-  // For the log line of `finish`, which is made once and must see the latest numbers.
-  const scanAtRef = useRef({ seconds: 0, metres: 0, walls: 0, floorFound: false, doorwayShown: false });
-  scanAtRef.current = { seconds, metres, walls, floorFound, doorwayShown };
   const view = scanView({
     recording: recording === 'recording',
     seconds,
     floorFound,
     walls,
-    metres,
+    coverage,
     doorwayShown,
     tracking,
     trackingReason,
   });
+  // For the log line of `finish`, which is made once and must see the latest numbers.
+  const scanAtRef = useRef({ seconds: 0, coverage, oneSpot: false, walls: 0, floorFound: false, doorwayShown: false });
+  scanAtRef.current = { seconds, coverage, oneSpot: view.oneSpot, walls, floorFound, doorwayShown };
 
-  const finish = useCallback(() => {
+  /** `by`: the button, the "Send anyway" of the one-spot question, or the three minutes being up. */
+  const finish = useCallback((by: 'button' | 'anyway' | 'time') => {
     if (leavingRef.current) {
       return;
     }
     leavingRef.current = true;
     const at = scanAtRef.current;
+    const spot = !at.oneSpot ? '' : by === 'anyway' ? ', made from one spot - sent anyway' : ', made from one spot - the time was up, sent without asking';
     appActions.log(
-      `scan: finishing after ${at.seconds.toFixed(0)} s, ${at.metres.toFixed(1)} m walked, ${at.walls} wall(s), ` +
-        `floor ${at.floorFound ? 'found' : 'NOT found'}, the place of the door ${at.doorwayShown ? 'shown' : 'not confirmed as shown'}`,
+      `scan: finishing after ${at.seconds.toFixed(0)} s, ${describeCoverage(at.coverage)}, ${at.walls} wall(s), ` +
+        `floor ${at.floorFound ? 'found' : 'NOT found'}, the place of the door ${at.doorwayShown ? 'shown' : 'not confirmed as shown'}${spot}`,
     );
+    setConfirmSpot(false);
     setSaving(true);
     void scanController.stopRecording().then(beginBuild);
   }, []);
+
+  /** "Finish scan": a scan made from one spot is asked about first; the recording goes on meanwhile. */
+  const pressFinish = useCallback(() => {
+    const at = scanAtRef.current;
+    if (at.oneSpot) {
+      appActions.log(`scan: asking before sending - made from one spot (${describeCoverage(at.coverage)})`);
+      setConfirmSpot(true);
+    } else {
+      finish('button');
+    }
+  }, [finish]);
 
   // After three minutes the scan finishes by itself.
   const finishNow = view.finishNow;
   useEffect(() => {
     if (finishNow) {
-      finish();
+      finish('time');
     }
   }, [finishNow, finish]);
 
@@ -168,14 +183,21 @@ export function ScanScreen() {
           {view.showWalls ? (
             <Counter text={walls === 1 ? t('scan.count.walls.one') : t('scan.count.walls', { n: walls })} dim={walls === 0} />
           ) : null}
-          <Counter text={t('scan.count.walked', { d: metres.toFixed(metres < 10 ? 1 : 0) })} dim={metres < 0.5} />
+          <Counter
+            text={t('scan.count.area', { a: coverage.long.toFixed(1), b: coverage.short.toFixed(1) })}
+            dim={!view.areaEnough}
+          />
+          <Counter
+            text={t('scan.count.tilt', { d: mark(view.tilt.down), l: mark(view.tilt.level), u: mark(view.tilt.up) })}
+            dim={!(view.tilt.down && view.tilt.level && view.tilt.up)}
+          />
         </View>
         <AppButton
           label={t(label.key, label.params)}
           kind={view.button.kind === 'finish' ? 'primary' : 'ghost'}
           onCamera
           disabled={view.button.kind === 'wait' || saving}
-          onPress={view.button.kind === 'showed' ? () => setDoorwayShown(true) : finish}
+          onPress={view.button.kind === 'showed' ? () => setDoorwayShown(true) : pressFinish}
         />
       </View>
 
@@ -187,6 +209,14 @@ export function ScanScreen() {
           <AppButton kind="text" label={t('scan.stop.stop')} onPress={stop} />
         </Sheet>
       ) : null}
+      {confirmSpot && !confirmStop && !saving ? (
+        <Sheet onClose={() => setConfirmSpot(false)}>
+          <SheetTitle>{t('scan.spot.title')}</SheetTitle>
+          <Body dim>{t('scan.spot.body')}</Body>
+          <AppButton label={t('scan.stop.keep')} onPress={() => setConfirmSpot(false)} />
+          <AppButton kind="text" label={t('scan.spot.send')} onPress={() => finish('anyway')} />
+        </Sheet>
+      ) : null}
       {cantStart && !confirmStop ? (
         <Sheet onClose={stop}>
           <SheetTitle>{t('scan.cantStart.title')}</SheetTitle>
@@ -196,6 +226,11 @@ export function ScanScreen() {
       ) : null}
     </View>
   );
+}
+
+/** A part of the tilt counter: done, or still to do. */
+function mark(done: boolean): string {
+  return done ? '✓' : '–';
 }
 
 function Counter({ text, dim }: { text: string; dim: boolean }) {

@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
-import type { ServerPortal, ServerRoom } from '../server/core/roomPlan';
+import type { ScanQuality, ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import type { BuildFailure } from '../ui/core/buildView';
 import type { DoorDraft } from '../ui/core/doorEdit';
 import { buildRoom, EMPTY_ROOM, type PlaneAnchorData, type RoomModel } from './roomGeometry';
@@ -97,6 +97,11 @@ export interface BuildProgress {
   /** Of a finished build: frames used and seconds taken (null when not known). */
   frames: number | null;
   seconds: number | null;
+  /**
+   * Of a finished build: what the server thinks of the scan (`ServerJob.result.scanQuality`),
+   * null when it said nothing. Shown under "The map is ready".
+   */
+  quality: ScanQuality | null;
 }
 
 export const NO_BUILD: BuildProgress = {
@@ -111,6 +116,7 @@ export const NO_BUILD: BuildProgress = {
   failure: null,
   frames: null,
   seconds: null,
+  quality: null,
 };
 
 /** A scan is being sent or its map is being built. */

@@ -16,6 +16,7 @@ import {
   parsePortal,
   parseRoom,
   parseSavedDoor,
+  parseScanQuality,
 } from './roomPlan';
 
 const JOB = {
@@ -125,6 +126,29 @@ describe('parseJob / describeJob', () => {
     assert.match(describeJobError('whatever', 'disk full'), /disk full/);
     const cancelled = parseJob({ ...JOB, state: 'cancelled' });
     assert.equal(cancelled && describeJob(cancelled), 'cancelled');
+  });
+  test('the scan quality of a finished build is kept as far as it is well-formed (placeholder contract)', () => {
+    const result = { room: { status: 'ok' }, portal: { source: 'none' }, warnings: [] };
+    const done = (scan_quality: unknown) => parseJob({ ...JOB, state: 'succeeded', progress: 1, result: { ...result, scan_quality } });
+    // a server that says nothing about the scan, as every server does today
+    assert.equal(parseJob({ ...JOB, state: 'succeeded', result })?.result?.scanQuality, null);
+    assert.deepEqual(done({ score: 0.42, verdict: ' made from one spot ', advice: ['Walk round the room.', 7, '  ', 'Look up.'] })?.result?.scanQuality, {
+      score: 0.42,
+      verdict: 'made from one spot',
+      advice: ['Walk round the room.', 'Look up.'],
+    });
+    // any one of the three is enough
+    assert.deepEqual(done({ score: 1 })?.result?.scanQuality, { score: 1, verdict: '', advice: [] });
+    assert.deepEqual(done({ verdict: 'good' })?.result?.scanQuality, { score: null, verdict: 'good', advice: [] });
+    assert.deepEqual(done({ advice: ['Scan again.'] })?.result?.scanQuality, { score: null, verdict: '', advice: ['Scan again.'] });
+    // a score that is not 0..1 is not guessed at; odd shapes are nothing
+    assert.deepEqual(done({ score: 85, verdict: 'good' })?.result?.scanQuality, { score: null, verdict: 'good', advice: [] });
+    assert.equal(done({ score: 'high', advice: 'walk' })?.result?.scanQuality, null);
+    assert.equal(done('good')?.result?.scanQuality, null);
+    assert.equal(done([0.5])?.result?.scanQuality, null);
+    assert.equal(parseScanQuality(null), null);
+    // the job itself is read whatever the field holds
+    assert.equal(done({ score: {} })?.state, 'succeeded');
   });
   test('rejects what is not a job; clamps progress', () => {
     assert.equal(parseJob(null), null);

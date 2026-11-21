@@ -105,9 +105,10 @@ export function StatusPanel() {
   // How the recognition of the room is going: the attempt that is running, and how the
   // latest search ended (the server's quality and inliers, attempts, seconds to the door).
   const attempt =
-    providerMeta.attempt !== undefined && providerMeta.attempts !== undefined
-      ? `attempt ${providerMeta.attempt} of ${providerMeta.attempts}`
-      : null;
+    providerMeta.attempt === undefined
+      ? null
+      : `attempt ${providerMeta.attempt}${providerMeta.attempts === undefined ? '' : ` of ${providerMeta.attempts}`}` +
+        (providerMeta.stage ? ` (${providerMeta.stage})` : '');
 
   return (
     <View style={styles.panel} pointerEvents="none">

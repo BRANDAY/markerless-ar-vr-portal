@@ -43,7 +43,18 @@ const JOB_POLL_TIMEOUT_MS = 8000;
 const MAX_FAILED_POLLS = 12;
 /** How often a build that was lost sight of is asked for again. */
 const FOLLOW_UP_INTERVAL_MS = 5000;
-const CLIP_SECONDS = 2.5;
+/**
+ * Length of the clip a look for the room sends. 2.5 s until the first pass on a phone
+ * (2026-11-21): there the server recognised the room from almost every frame of a clip
+ * that looked at it, so most of the clip was waiting. The server takes three frames.
+ */
+const CLIP_SECONDS = 1.2;
+/**
+ * How long the server may take over one clip. On a loaded PC an answer has taken 39 s;
+ * the health checks are held meanwhile (`serverConnection.hold`), so this is what ends
+ * the waiting when the server is really gone.
+ */
+const LOCALIZE_TIMEOUT_MS = 60_000;
 
 const log = (text: string) => appActions.log(`server: ${text}`);
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -167,6 +178,7 @@ async function finishBuild(baseUrl: string, target: ScanTarget, job: ServerJob, 
     jobProgress: 1,
     frames: job.result?.numImages ?? null,
     seconds: job.result?.buildSeconds ?? (Date.now() - startedAt) / 1000,
+    quality: job.result?.scanQuality ?? null,
   });
   roomActions.setUpload({ phase: 'done', text: describeJob(job), progress: 1 });
   log(`build ${describeJob(job)}`);
@@ -255,18 +267,21 @@ export async function sendCapture(target: ScanTarget, dir: Directory | null): Pr
   const accepted = await uploadRecording(baseUrl, target.mapId, form, {
     signal: abort.signal,
     onProgress: (sent, all) => {
-      const fraction = all > 0 ? sent / all : 0;
+      // The platform has been seen to report a total smaller than what is sent (the log
+      // of the first pass counted up to 175 %): the size of the files is the floor.
+      const whole = Math.max(all, total);
+      const fraction = whole > 0 ? Math.min(1, sent / whole) : 0;
       const percent = Math.round(fraction * 100);
       if (percent !== lastPercent) {
         lastPercent = percent;
         roomActions.setBuild({ uploadFraction: fraction });
-        roomActions.setUpload({ phase: 'uploading', text: `sending ${percent} % of ${megabytes(all)}`, progress: fraction });
+        roomActions.setUpload({ phase: 'uploading', text: `sending ${percent} % of ${megabytes(whole)}`, progress: fraction });
       }
       // In the log a line per quarter: a transfer that stalls shows as a missing one.
       const quarter = Math.floor(percent / 25);
       if (quarter > lastQuarter) {
         lastQuarter = quarter;
-        log(`upload ${quarter * 25} % of ${megabytes(all)} after ${((Date.now() - uploadStarted) / 1000).toFixed(0)} s`);
+        log(`upload ${quarter * 25} % of ${megabytes(whole)} after ${((Date.now() - uploadStarted) / 1000).toFixed(0)} s`);
       }
     },
   });
@@ -502,15 +517,23 @@ function removeQuietly(dir: Directory): void {
  * `sessionId` groups the observations of one AR world frame on the server; it has to
  * change whenever tracking was interrupted, because the frame may have changed.
  */
-export async function localizeWithClip(mapId: string, sessionId: string): Promise<LocalizeResult> {
+export async function localizeWithClip(
+  mapId: string,
+  sessionId: string,
+  /** Told what the look is doing, for the screen: recording, sending, waiting for the answer. */
+  onStage: (stage: 'recording' | 'sending' | 'thinking') => void = () => undefined,
+): Promise<LocalizeResult> {
   const baseUrl = serverConnection.getBaseUrl();
   if (!baseUrl) {
     return { kind: 'failed', reason: 'the server is not connected' };
   }
+  onStage('recording');
   const clip = await recordClip(CLIP_SECONDS);
   if ('error' in clip) {
     return { kind: 'failed', reason: clip.error };
   }
+  // From here to the answer the server may be too busy for health checks: it is not gone.
+  const release = serverConnection.hold();
   try {
     const video = new File(clip.dir, 'video.mp4');
     const session = new File(clip.dir, 'session.jsonl');
@@ -524,7 +547,17 @@ export async function localizeWithClip(mapId: string, sessionId: string): Promis
     form.append('session_id', sessionId);
     form.append('device_id', getDeviceId());
     form.append('include_room', 'true');
-    const answer = await localize(baseUrl, form);
+    onStage('sending');
+    let sent = false;
+    const answer = await localize(baseUrl, form, {
+      timeoutMs: LOCALIZE_TIMEOUT_MS,
+      onProgress: (bytes, all) => {
+        if (!sent && all > 0 && bytes >= all) {
+          sent = true;
+          onStage('thinking');
+        }
+      },
+    });
     if (!answer.ok) {
       return { kind: 'failed', reason: answer.reason };
     }
@@ -539,6 +572,7 @@ export async function localizeWithClip(mapId: string, sessionId: string): Promis
       plan: { mapId, origin: 'localize', room: outcome.room, portal: outcome.portal },
     };
   } finally {
+    release();
     removeQuietly(clip.dir);
   }
 }

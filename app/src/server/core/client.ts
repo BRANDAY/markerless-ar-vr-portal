@@ -144,6 +144,8 @@ export interface UploadOptions {
   signal?: AbortSignal;
   /** Bytes handed to the network so far, and the total. Only where the platform reports it. */
   onProgress?: (sentBytes: number, totalBytes: number) => void;
+  /** Give up after this long without an answer (from the start of the request). None: wait for ever. */
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -272,10 +274,26 @@ async function postMultipart<T>(
   return new Promise((resolve) => {
     const xhr = new Xhr();
     const onOuterAbort = () => xhr.abort();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let done = false;
     const finish = (result: ApiResult<T>) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
       options.signal?.removeEventListener('abort', onOuterAbort);
       resolve(result);
     };
+    if (options.timeoutMs !== undefined) {
+      const timeoutMs = options.timeoutMs;
+      timer = setTimeout(() => {
+        finish({ ok: false, status: null, reason: `no answer within ${timeoutMs} ms` });
+        xhr.abort();
+      }, timeoutMs);
+    }
     xhr.open('POST', url);
     for (const [name, value] of Object.entries(baseHeaders())) {
       xhr.setRequestHeader(name, value);

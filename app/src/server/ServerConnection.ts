@@ -103,6 +103,35 @@ class ServerConnection {
 
   // ---- life cycle ----------------------------------------------------------------------
 
+  private markReady: () => void = () => undefined;
+  /**
+   * Resolved once the saved address has been read and is being tried. A screen that
+   * would search the network when no server is known waits for this first: a search
+   * started earlier pushed the saved address aside, and every launch then spent 17 s
+   * walking the network for a server whose address it had (first pass, 2026-11-21).
+   */
+  readonly ready: Promise<void> = new Promise((resolve) => {
+    this.markReady = resolve;
+  });
+
+  private held = 0;
+  /**
+   * While a long request to the server is on its way (a clip being recognised), the
+   * server may be too busy to answer the health checks; it is not gone. Between `hold()`
+   * and the call of the function it returns no check is made, so none can be missed.
+   * The request has its own time limit.
+   */
+  hold(): () => void {
+    this.held++;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.held = Math.max(0, this.held - 1);
+      }
+    };
+  }
+
   /** Call once at app start. Tries the address saved after the last successful connection. */
   async start(log: (message: string) => void): Promise<void> {
     if (this.started) {
@@ -126,6 +155,7 @@ class ServerConnection {
       log('server: no address saved yet - open the server settings to connect');
     }
     this.updateHeartbeat();
+    this.markReady();
   }
 
   private onAppState(next: string | null | undefined): void {
@@ -188,7 +218,7 @@ class ServerConnection {
   /** One `GET /health` to the configured address; the result goes into the state machine. */
   private async probeNow(timeoutMs: number): Promise<ProbeResult | null> {
     const { address, state } = this.view.connection;
-    if (!address || state === 'searching' || this.probeInFlight) {
+    if (!address || state === 'searching' || this.probeInFlight || this.held > 0) {
       return null;
     }
     const generation = this.generation;
@@ -203,6 +233,27 @@ class ServerConnection {
     } finally {
       this.probeInFlight = false;
     }
+  }
+
+  /**
+   * How fast the connected server answers: `probes` health requests one after another,
+   * `gapMs` apart. One entry per request, null for one without an answer in `timeoutMs`.
+   * Judged by `core/linkQuality.ts`. These requests do not go into the connection state.
+   */
+  async measureLink(probes: number, gapMs: number, timeoutMs: number): Promise<(number | null)[]> {
+    const address = this.view.connection.address;
+    if (!address) {
+      return [];
+    }
+    const latencies: (number | null)[] = [];
+    for (let i = 0; i < probes; i++) {
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, gapMs));
+      }
+      const result = await probeHealth(toBaseUrl(address), { timeoutMs });
+      latencies.push(result.kind === 'ok' ? result.latencyMs : null);
+    }
+    return latencies;
   }
 
   /**

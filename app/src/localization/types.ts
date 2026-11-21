@@ -94,6 +94,17 @@ export interface StatusMeta {
    * could be recorded, or the requests failed). That says nothing about the room.
    */
   unanswered?: boolean;
+  /**
+   * What a look for the room is doing right now, so that the interface can show it:
+   * recording the clip, sending it, waiting for the server's answer - and `busy` when
+   * that answer has been long in coming (the server is busy, not gone).
+   */
+  stage?: 'recording' | 'sending' | 'thinking' | 'busy';
+  /**
+   * The search goes on, but the server has by now compared several views with the room
+   * and recognised none: this AR session counts against the room (`roomsView.sessionMissed`).
+   */
+  missed?: boolean;
 }
 
 export interface PoseQuality {

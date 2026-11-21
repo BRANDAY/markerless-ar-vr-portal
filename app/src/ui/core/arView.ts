@@ -6,9 +6,12 @@
 import type { TextKey } from '../../i18n';
 
 /** The parts of `localization/types.ts` and of the stores this depends on, as plain strings. */
+/** What a look for the room is doing (`StatusMeta.stage`). */
+export type LookStage = 'recording' | 'sending' | 'thinking' | 'busy';
+
 export interface ArInput {
   status: string;
-  meta: { attempt?: number; attempts?: number; code?: string; pending?: boolean };
+  meta: { attempt?: number; attempts?: number; code?: string; pending?: boolean; stage?: LookStage };
   hasDoor: boolean;
   /** 'VR' while the user is inside the space. */
   mode: 'AR' | 'VR';
@@ -69,18 +72,25 @@ export function trackingWarning(tracking: ArInput['tracking'], reason: string): 
   return READY;
 }
 
-/** The coach lines of a search, by the number of the attempt (1 = first). */
-function searchLines(attempt: number, scaleUnknown: boolean): CoachLines {
+/**
+ * The coach lines of a search. The first line says the one thing that decides whether
+ * the room is recognised - look at the room, not at the floor (every refusal of the
+ * first pass on a phone was a look at the floor, a table top or another room) - and
+ * the second what the look is doing: recording, sending, waiting for the server.
+ */
+function searchLines(stage: LookStage | undefined, scaleUnknown: boolean): CoachLines {
   if (scaleUnknown) {
     return { line1: 'ar.coach.sideways.1', line2: 'ar.coach.sideways.2' };
   }
-  if (attempt <= 1) {
-    return { line1: 'ar.coach.find.1', line2: 'ar.coach.find.2' };
-  }
-  if (attempt <= 3) {
-    return { line1: 'ar.coach.another.1', line2: 'ar.coach.another.2' };
-  }
-  return { line1: 'ar.coach.still.1', line2: 'ar.coach.still.2' };
+  const line2: TextKey =
+    stage === 'sending'
+      ? 'ar.coach.look.sending'
+      : stage === 'thinking'
+        ? 'ar.coach.look.thinking'
+        : stage === 'busy'
+          ? 'ar.coach.look.busy'
+          : 'ar.coach.look.recording';
+  return { line1: 'ar.coach.look.1', line2 };
 }
 
 export function arView(input: ArInput): ArView {
@@ -110,7 +120,7 @@ export function arView(input: ArInput): ArView {
   // A first pose that is still being checked: the outline, and one line saying so.
   if (hasDoor && meta.pending) {
     view.outline = true;
-    const lines = searching ? searchLines(attempt, meta.code === 'scale-unknown') : searchLines(1, false);
+    const lines = searching ? searchLines(meta.stage, meta.code === 'scale-unknown') : searchLines(undefined, false);
     view.coach = warning ?? { line1: lines.line1, line2: 'ar.coach.checking.2' };
     return view;
   }
@@ -155,7 +165,7 @@ export function arView(input: ArInput): ArView {
     case 'lost':
       if (meta.code === 'not-recognised') {
         view.sheet = 'unknown';
-        view.coach = warning ?? searchLines(5, false);
+        view.coach = warning ?? searchLines(undefined, false);
       } else {
         view.coach = warning ?? READY; // tracking lost before any door: the banner says the rest
       }
@@ -166,7 +176,7 @@ export function arView(input: ArInput): ArView {
         view.coach = warning ?? READY;
         return view;
       }
-      view.coach = warning ?? searchLines(attempt, meta.code === 'scale-unknown');
+      view.coach = warning ?? searchLines(meta.stage, meta.code === 'scale-unknown');
       view.offerOtherRoom = attempt >= 4;
       return view;
     default:

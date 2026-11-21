@@ -180,6 +180,11 @@ function setState(patch: Partial<AppState>): void {
   listeners.forEach((listener) => listener());
 }
 
+/** For code outside React that has to follow the state (a provider watching the mode). */
+export function subscribeAppState(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

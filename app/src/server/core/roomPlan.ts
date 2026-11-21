@@ -46,6 +46,38 @@ function asList(value: unknown): unknown[] {
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+/**
+ * What the server thinks of the scan a map was built from.
+ *
+ * PLACEHOLDER CONTRACT (2026-11-21): the server does not send this yet and the field names
+ * are a guess - `result.scan_quality` with `score`, `verdict`, `advice`. To be made to
+ * match what the server announces; until then nothing arrives and nothing is shown.
+ */
+export interface ScanQuality {
+  /** 0..1, or null when the server gave no usable number. */
+  score: number | null;
+  /** The server's word or sentence for the scan, or empty. */
+  verdict: string;
+  /** What to do better next time, in the server's words. */
+  advice: string[];
+}
+
+/** Keeps whatever of a `scan_quality` object is well-formed; null when nothing is. */
+export function parseScanQuality(value: unknown): ScanQuality | null {
+  const json = asObject(value);
+  if (!json) {
+    return null;
+  }
+  const number = asNumber(json.score);
+  const score = number !== null && number >= 0 && number <= 1 ? number : null;
+  const verdict = asString(json.verdict).trim();
+  const advice = asList(json.advice)
+    .filter((line): line is string => typeof line === 'string')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return score === null && !verdict && advice.length === 0 ? null : { score, verdict, advice };
+}
+
 export interface ServerJob {
   jobId: string;
   kind: string;
@@ -72,6 +104,8 @@ export interface ServerJob {
     numImages: number | null;
     /** How long the build took, in seconds; null when the server did not say. */
     buildSeconds: number | null;
+    /** The server's opinion of the scan; null when it gave none (see `ScanQuality`). */
+    scanQuality: ScanQuality | null;
   } | null;
 }
 
@@ -115,6 +149,7 @@ export function parseJob(body: unknown): ServerJob | null {
           warnings: asList(result.warnings).filter((w): w is string => typeof w === 'string'),
           numImages: asNumber(result.num_images),
           buildSeconds: asNumber(result.build_time_s),
+          scanQuality: parseScanQuality(result.scan_quality),
         }
       : null,
   };

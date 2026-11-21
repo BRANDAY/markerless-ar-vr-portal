@@ -262,8 +262,8 @@ function DiagnosticsLine() {
   const placement = useMeasure((s) => s.placement);
   const meta = useAppState((s) => s.providerMeta);
   const parts = [tracking.toUpperCase(), `${providerId}: ${status}`];
-  if (meta.attempt !== undefined && meta.attempts !== undefined) {
-    parts.push(`attempt ${meta.attempt}/${meta.attempts}`);
+  if (meta.attempt !== undefined) {
+    parts.push(`attempt ${meta.attempt}${meta.attempts === undefined ? '' : `/${meta.attempts}`}${meta.stage ? ` ${meta.stage}` : ''}`);
   }
   if (placement) {
     parts.push(`${placement.quality ?? placement.reason}${placement.inliers === null ? '' : ` ${placement.inliers}`}`);

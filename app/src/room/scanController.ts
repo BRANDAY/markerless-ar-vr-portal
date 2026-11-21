@@ -118,14 +118,19 @@ async function pollMesh(): Promise<void> {
   }
 }
 
-/** The app's own model of the room: the detected planes, in the AR world frame. */
-function writePlanes(dir: Directory): void {
+/**
+ * The app's own model of the room: the detected planes, in the AR world frame.
+ *
+ * Writing and copying a file are asynchronous in expo-file-system (`write`, `copy`): every
+ * one is awaited here, so that a capture folder is complete when it is handed on.
+ */
+async function writePlanes(dir: Directory): Promise<void> {
   const { room } = getRoomScanState();
   const file = new File(dir, 'planes.json');
   if (!file.exists) {
     file.create();
   }
-  file.write(
+  await file.write(
     JSON.stringify({
       format: 'arportal-planes',
       version: CAPTURE_FORMAT_VERSION,
@@ -160,15 +165,21 @@ async function snapshotMeshInto(dir: Directory): Promise<string> {
   }
   const result = await navigator.snapshotWorldMeshToFile(IDENTITY_TRANSFORM);
   if (!result.success || !result.filePath) {
-    return `failed: ${result.error ?? 'no file path returned'}`;
+    return `not saved: ${result.error ?? 'no file path returned'}`;
   }
   const source = new File(result.filePath.startsWith('file://') ? result.filePath : `file://${result.filePath}`);
+  if (!source.exists || !(Number(source.size ?? 0) > 0)) {
+    return 'not saved: the engine wrote no mesh (the file it named is missing or empty)';
+  }
   const extension = /\.([A-Za-z0-9]+)$/.exec(result.filePath)?.[1] ?? 'bin';
   const target = new File(dir, `world_mesh.${extension}`);
   if (target.exists) {
     target.delete();
   }
-  source.copy(target);
+  // Awaited: the copy runs on another thread. Not waiting for it was why the guided scan
+  // of 2026-11-21 saved "world_mesh.bin (0 kB)" - the source below was deleted, and the
+  // copy measured and read, before a byte had been copied.
+  await source.copy(target);
   try {
     source.delete(); // the engine writes every snapshot to a new file in the cache
   } catch {
@@ -185,7 +196,7 @@ async function snapshotMeshInto(dir: Directory): Promise<string> {
         ply.delete();
       }
       ply.create();
-      ply.write(meshToPly(mesh));
+      await ply.write(meshToPly(mesh));
       note += ` and world_mesh.ply (${kB(ply)}): ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles`;
     } else {
       note += '; not converted to PLY: the file is not an RVWM version 1 mesh';
@@ -301,7 +312,7 @@ export const scanController = {
   async snapshot(): Promise<void> {
     try {
       const dir = newCaptureDir();
-      writePlanes(dir);
+      await writePlanes(dir);
       log(`mesh snapshot: ${await snapshotMeshInto(dir)}`);
       log(`${dir.name}: ${describeFiles(dir)}`);
     } catch (error) {
@@ -437,14 +448,15 @@ async function stopRecording(): Promise<CaptureSummary | null> {
       summary = { dir, seconds: Number(result.durationSec ?? 0), frames: typeof result.frames === 'number' ? result.frames : null };
     }
     if (dir) {
-      writePlanes(dir);
-      const meshNote = await snapshotMeshInto(dir).catch((error) => `failed: ${String(error)}`);
+      await writePlanes(dir);
+      // The mesh is an extra for the server's room plan: a scan without it is still sent.
+      const meshNote = await snapshotMeshInto(dir).catch((error) => `not saved: ${String(error)}`);
       log(`mesh snapshot: ${meshNote}`);
       const meta = new File(dir, 'capture.json');
       if (!meta.exists) {
         meta.create();
       }
-      meta.write(
+      await meta.write(
         JSON.stringify({
           format: 'arportal-capture',
           version: CAPTURE_FORMAT_VERSION,

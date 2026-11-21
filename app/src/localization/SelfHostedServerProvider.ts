@@ -8,6 +8,7 @@ import { formatAddress } from '../server/core/address';
 import type { ConnectionSnapshot } from '../server/core/connectionMachine';
 import { SESSION_ID } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
+import { getAppState, subscribeAppState } from '../state/appStore';
 import { BaseProvider } from './BaseProvider';
 import {
   decide,
@@ -25,6 +26,24 @@ import type { LocalizationContext, LocalizationReport, ProviderId, StatusMeta, T
 const RECORDER_BUSY_RETRY_MS = 2000;
 /** Pause before a weak pose is checked again. */
 const CONFIRM_DELAY_MS = 3000;
+/**
+ * While there is no door on screen the search does not stop and does not pause: a look
+ * the server answered with "not recognised" is followed by the next one at once (the
+ * user is told to look at the room, not at the floor; waiting 1.5-10 s and stopping
+ * after five only added to the wait - first pass on a phone, 2026-11-21). A look that
+ * did not get to the server (no clip, no connection) waits this long, so as not to spin.
+ */
+const FAILED_LOOK_PAUSE_MS = 1000;
+/** The answer has been this long in coming: the screen says that the server is busy. */
+const BUSY_AFTER_MS = 6000;
+/** This many answered looks in a row that recognised nothing: the session counts against the room. */
+const MISSED_AFTER = 5;
+/**
+ * Behind the door there is no map: the camera sees what the scan never saw. So the
+ * place of the door is not checked from inside the space, nor for this long after the
+ * way out (the user is still turning round to the room).
+ */
+const CHECK_AFTER_EXIT_MS = 6000;
 
 /** One search for the room: a limited number of attempts for one reason. */
 interface Episode {
@@ -41,6 +60,10 @@ interface Episode {
   server?: LocalizationReport['server'];
   /** The latest answer could not be used because the scale of the map is not known yet. */
   scaleUnknown?: boolean;
+  /** The server answered the look that has just ended. */
+  answered?: boolean;
+  /** Answered looks in a row in which the room was not recognised. */
+  refused?: number;
 }
 
 /** See `worldEpoch`. */
@@ -102,6 +125,12 @@ export class SelfHostedServerProvider extends BaseProvider {
   private busy = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private busyTimer: ReturnType<typeof setTimeout> | null = null;
+  private exitTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The place of the door is to be checked once the user is back in the room. */
+  private checkAfterExit = false;
+  private lastMode: 'AR' | 'VR' = 'AR';
+  private exitedAt = 0;
 
   /** `http://host:port` of the connected server, or null. */
   getBaseUrl(): string | null {
@@ -118,9 +147,13 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.handledPlan = null;
     this.episode = null;
     this.busy = false;
+    this.checkAfterExit = false;
+    this.lastMode = getAppState().mode;
+    this.exitedAt = 0;
     this.generation++;
     this.watch.onState(context.getTrackingState(), Date.now());
     this.subscriptions = [
+      subscribeAppState(() => this.onMode()),
       serverConnection.subscribe((view) => this.follow(view.connection)),
       subscribeRoomScan(() => this.onStorePlan()),
       context.onTrackingState((state) => this.onTracking(state)),
@@ -168,6 +201,11 @@ export class SelfHostedServerProvider extends BaseProvider {
           this.scheduleAttempt(0); // an episode that was waiting for the server
         }
       }
+      return;
+    }
+    if (this.busy) {
+      // A look is on its way. Its own end says what became of it; a server that is busy
+      // with the clip may miss a health check, and that must not end the search.
       return;
     }
     if (this.door.shown) {
@@ -283,11 +321,69 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.markInterrupted();
     this.interrupted = false;
     this.worldEpoch = nextWorldFrame++;
+    const inside = getAppState().mode === 'VR';
+    const sinceExit = Date.now() - this.exitedAt;
+    if (this.door.shown && (inside || sinceExit < CHECK_AFTER_EXIT_MS)) {
+      // No look from inside the space or on the way out of it (`CHECK_AFTER_EXIT_MS`):
+      // it could only fail, and the door would be called doubtful for no reason.
+      this.checkAfterExit = true;
+      this.context?.log(
+        `self-hosted: tracking is back after ${(event.gapMs / 1000).toFixed(1)} s ${inside ? 'inside the space' : 'on the way out of the space'} - ` +
+          'the doorway is kept, its place is checked once the user is back in the room',
+      );
+      this.setStatus('localized', 'doorway kept while the user is in the space');
+      if (!inside) {
+        this.scheduleExitCheck(CHECK_AFTER_EXIT_MS - sinceExit);
+      }
+      return;
+    }
     this.context?.log(
       `self-hosted: tracking is back after ${(event.gapMs / 1000).toFixed(1)} s - ` +
         (this.door.shown ? 'checking the doorway position' : 'looking for the room'),
     );
     this.begin('recovery');
+  }
+
+  /** The user walked into the space or out of it. */
+  private onMode(): void {
+    const mode = getAppState().mode;
+    if (mode === this.lastMode) {
+      return; // the store reports every change of anything
+    }
+    this.lastMode = mode;
+    if (this.stopped) {
+      return;
+    }
+    if (mode === 'VR') {
+      this.clearExitTimer();
+      return;
+    }
+    this.exitedAt = Date.now();
+    if (this.checkAfterExit) {
+      this.scheduleExitCheck(CHECK_AFTER_EXIT_MS);
+    }
+  }
+
+  private scheduleExitCheck(delayMs: number): void {
+    this.clearExitTimer();
+    this.exitTimer = setTimeout(() => {
+      this.exitTimer = null;
+      if (this.stopped || !this.checkAfterExit || getAppState().mode === 'VR') {
+        return;
+      }
+      this.checkAfterExit = false;
+      if (this.door.shown && !this.episode && !this.interrupted) {
+        this.context?.log('self-hosted: back in the room - checking the doorway position');
+        this.begin('recovery');
+      }
+    }, Math.max(0, delayMs));
+  }
+
+  private clearExitTimer(): void {
+    if (this.exitTimer !== null) {
+      clearTimeout(this.exitTimer);
+      this.exitTimer = null;
+    }
   }
 
   private markInterrupted(): void {
@@ -364,20 +460,22 @@ export class SelfHostedServerProvider extends BaseProvider {
       this.scheduleAttempt(RECORDER_BUSY_RETRY_MS); // a scan is being recorded
       return;
     }
+    if (this.door.shown && episode.reason !== 'manual' && getAppState().mode === 'VR') {
+      // Nobody asked for this check, and from inside the space it can only fail.
+      this.episode = null;
+      this.checkAfterExit = true;
+      this.setStatus('localized', 'doorway kept while the user is in the space');
+      return;
+    }
 
     episode.attempt++;
-    const of = `attempt ${episode.attempt} of ${MAX_ATTEMPTS[episode.reason]}`;
-    this.setStatus(
-      'localizing',
-      this.door.shown
-        ? `checking the doorway position (${of}): hold the phone still for 3 seconds`
-        : `looking for the room (${of}): hold the phone still for 3 seconds, pointed at a part of the room with detail`,
-      this.searchMeta(episode, episode.attempt),
-    );
+    episode.answered = false;
+    this.showLook(episode, 'recording');
     const generation = this.generation;
     this.busy = true;
     const placed = await this.look(episode, roomId, sessionId, generation);
     this.busy = false;
+    this.clearBusyTimer();
     if (this.stopped || generation !== this.generation || this.episode !== episode || !placed) {
       // Stopped, interrupted or superseded while the clip was on its way: the answer is
       // dropped. An episode that started meanwhile could not run while this one was busy.
@@ -394,7 +492,21 @@ export class SelfHostedServerProvider extends BaseProvider {
    * Null when the answer was overtaken on its way.
    */
   private async look(episode: Episode, roomId: string, sessionId: string, generation: number): Promise<Placement | null> {
-    const result = await localizeWithClip(roomId, sessionId);
+    const result = await localizeWithClip(roomId, sessionId, (stage) => {
+      if (this.stopped || generation !== this.generation || this.episode !== episode) {
+        return;
+      }
+      this.clearBusyTimer();
+      this.showLook(episode, stage);
+      if (stage === 'thinking') {
+        this.busyTimer = setTimeout(() => {
+          this.busyTimer = null;
+          if (!this.stopped && generation === this.generation && this.episode === episode && this.busy) {
+            this.showLook(episode, 'busy');
+          }
+        }, BUSY_AFTER_MS);
+      }
+    });
     if (this.stopped || generation !== this.generation) {
       return null;
     }
@@ -402,6 +514,7 @@ export class SelfHostedServerProvider extends BaseProvider {
       return { decision: { action: 'retry', why: result.reason }, portal: null };
     }
     const { outcome } = result;
+    episode.answered = true;
     episode.scaleUnknown = outcome.alignmentStatus === 'scale_unknown';
     episode.server = { quality: outcome.quality, inliers: outcome.numInliers, source: null, confidence: null };
     if (outcome.alignmentStatus !== 'ok' || outcome.quality === 'failed') {
@@ -440,6 +553,9 @@ export class SelfHostedServerProvider extends BaseProvider {
     switch (decision.action) {
       case 'retry':
         episode.lastWhy = decision.why;
+        if (episode.answered) {
+          episode.refused = (episode.refused ?? 0) + 1;
+        }
         this.context?.log(`self-hosted: attempt ${episode.attempt}: ${decision.why}`);
         break;
       case 'no-doorway':
@@ -478,17 +594,25 @@ export class SelfHostedServerProvider extends BaseProvider {
       };
       this.episode = current;
     }
-    if (current.attempt >= MAX_ATTEMPTS[current.reason]) {
+    const bounded = this.bounded(current);
+    if (bounded && current.attempt >= MAX_ATTEMPTS[current.reason]) {
       this.giveUp(current);
       return;
     }
-    const pause = current.reason === 'confirm' ? CONFIRM_DELAY_MS : retryDelayMs(current.attempt + 1);
+    let pause: number;
+    if (current.reason === 'confirm') {
+      pause = CONFIRM_DELAY_MS;
+    } else if (bounded) {
+      pause = retryDelayMs(current.attempt + 1);
+    } else {
+      pause = current.answered ? 0 : FAILED_LOOK_PAUSE_MS; // see `FAILED_LOOK_PAUSE_MS`
+    }
     if (decision.action === 'retry' || decision.action === 'ignore') {
       // Tell the interface at once that another look follows, and why this one failed:
       // the user should move before the next clip is recorded, not after.
       this.setStatus(
         'localizing',
-        `attempt ${current.attempt} gave nothing (${current.lastWhy}); looking again in ${(pause / 1000).toFixed(1)} s`,
+        `attempt ${current.attempt} gave nothing (${current.lastWhy}); looking again` + (pause > 0 ? ` in ${(pause / 1000).toFixed(1)} s` : ''),
         this.searchMeta(current, current.attempt + 1),
       );
     }
@@ -539,14 +663,47 @@ export class SelfHostedServerProvider extends BaseProvider {
 
   // ---- outputs --------------------------------------------------------------------------
 
+  /**
+   * A search with a door on screen (a check of its place) has a limited number of
+   * attempts; a search for a room that is not found yet goes on while the screen is open.
+   */
+  private bounded(episode: Episode): boolean {
+    return this.door.shown !== null || episode.reason === 'confirm';
+  }
+
   /** What the interface needs to know about a search: which attempt, and why the last one failed. */
   private searchMeta(episode: Episode, attempt: number): StatusMeta {
+    const bounded = this.bounded(episode);
     return {
       attempt: episode.earlier + attempt,
-      attempts: episode.earlier + MAX_ATTEMPTS[episode.reason],
+      attempts: bounded ? episode.earlier + MAX_ATTEMPTS[episode.reason] : undefined,
       code: episode.scaleUnknown ? 'scale-unknown' : undefined,
       pending: this.door.shown !== null && !this.door.trusted && !this.door.everTrusted,
+      missed: !bounded && (episode.refused ?? 0) >= MISSED_AFTER ? true : undefined,
     };
+  }
+
+  /** Says what the look that is running is doing: the screen shows it, the log keeps it. */
+  private showLook(episode: Episode, stage: NonNullable<StatusMeta['stage']>): void {
+    const what = {
+      recording: 'recording a clip',
+      sending: 'sending the clip',
+      thinking: 'the server is comparing it with the room',
+      busy: 'the server is busy - waiting for its answer',
+    }[stage];
+    const n = episode.earlier + episode.attempt;
+    this.setStatus(
+      'localizing',
+      `${this.door.shown ? 'checking the doorway position' : 'looking for the room'} (attempt ${n}): ${what}`,
+      { ...this.searchMeta(episode, episode.attempt), stage },
+    );
+  }
+
+  private clearBusyTimer(): void {
+    if (this.busyTimer !== null) {
+      clearTimeout(this.busyTimer);
+      this.busyTimer = null;
+    }
   }
 
   private clearRetryTimer(): void {
@@ -558,6 +715,8 @@ export class SelfHostedServerProvider extends BaseProvider {
 
   private clearTimers(): void {
     this.clearRetryTimer();
+    this.clearBusyTimer();
+    this.clearExitTimer();
     if (this.graceTimer !== null) {
       clearTimeout(this.graceTimer);
       this.graceTimer = null;

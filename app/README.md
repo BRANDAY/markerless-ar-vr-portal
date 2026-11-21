@@ -20,6 +20,12 @@ tracking loss. The details are in [Verified on a device](#verified-on-a-device) 
 The product screens added on 2026-11-21 ([The interface](#the-interface)) have not been
 on a phone at all.
 
+**First full pass on a phone, 2026-11-21 (build `5e28ed7`).** The owner scanned a room,
+the server built its map (12 min), the door was saved, and after a restart the visitor's
+phone put the door back in 48.5 s (8.7 s at best). What did not work, and what was
+changed for it, is in [After the first pass on a phone](#after-the-first-pass-on-a-phone);
+none of those changes has been on a phone yet.
+
 New here? Go through [Setup on Windows](#setup-on-windows), then
 [The scenario, step by step](#the-scenario-step-by-step).
 
@@ -367,9 +373,13 @@ One flow in place of the buttons **Scan room**, **Record** and **Upload** of the
    again** replaces the map of the room it is for.
 2. **Scanning**, over the camera. The room mesh is switched on before the AR view starts
    and the recording begins by itself once tracking is ready. A coach card says what to do,
-   three counters show floor, walls and metres walked, and there is one button:
-   - step 1, "Walk slowly along the walls": the button counts down from 60 s and stays
-     disabled until a minute has passed, a floor has been found and 6 m have been walked;
+   counters show floor, walls, the area walked over and the three tilts (down, level,
+   up), and there is one button:
+   - step 1, "Walk in a circle along the walls": the button counts down from 60 s and stays
+     disabled until a minute has passed, a floor has been found, the area walked over is at
+     least 1.5 x 0.5 m and the phone has been held down, level and up long enough (see
+     [After the first pass on a phone](#after-the-first-pass-on-a-phone)); the coach asks
+     for the first thing still missing;
    - step 2, "Now show where the door will be", with amber corner brackets as an aiming
      aid: **Done, I showed it**;
    - step 3, "That's enough": **Finish scan**. From 150 s on the scan can be finished in any
@@ -454,7 +464,7 @@ Details that are choices of the app, not of the spec:
 - The server can also take a door **without `/localize`, in the AR session that recorded
   the room**. The app does not use that: the AR view is closed while the map is built, so
   the session that recorded the room no longer exists when the door is placed. One
-  `/localize` (a 2.5 s clip) comes first, as after any restart.
+  `/localize` (a 1.2 s clip) comes first, as after any restart.
 - A door is always saved as "placed by hand" (`manual`), also when it stands exactly in a
   found doorway; the server's "accept the suggested doorway" call is not used.
 
@@ -684,6 +694,42 @@ Kept as a list for the product side; nothing here was decided silently.
 | ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys, or the room has no location id or is not linked (in practice rare: such a room is found through the server instead); a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
 | ReactVision: cloud scan, "Also build in the cloud", tags in Rooms, privacy lines of the cloud column | not built | they need a token endpoint on the server, the Rooms screen and the owner's account |
 
+## After the first pass on a phone
+
+On 2026-11-21 the owner went through the whole path on the phone with build `5e28ed7`
+(scan, map, door, restart, visitor). The analysis is in the shared notes of the project
+(`debrief_first_pass.md`); this is what the app changed for it. **None of it has been seen
+on a phone yet.**
+
+| What happened | What the app does now | Where |
+| --- | --- | --- |
+| Through the doorway only the wood was seen, no world; the space appeared after walking in | The portal's only child is one flat window that samples the transparent texels of `door_frame.png` - the arrangement seen working on build `9cb8a8b`. The wood of the casing is drawn beside the portal as plain objects. Seen from inside the space, the wood shows only through the opening. If the world is still missing: developer option **Door frame** → `simple` | `src/ar/DoorPortal.tsx`, `src/ar/CasingWood.tsx`, `scripts/generate-assets.mjs` |
+| A visitor looked around with the camera while the server was not reached; every launch searched the network for 17 s although the address was saved | Visitor mode checks the server **before the camera opens**: the saved address first (the network is searched only when it does not answer), then the quality of the connection, then that the server has a room with a saved door. A failed check is a panel with **Try again**; no look for the room is made. The 17 s were a search started before the saved address had been read | `src/server/visitorCheck.ts`, `src/server/core/linkQuality.ts`, `src/ui/VisitorScreen.tsx` |
+| A look was with the busy server for 39 s; after 33 s the app said the server was gone and left the screen | While a clip is with the server no health check is made, so none can be missed; the request itself is given 60 s. After 6 s of waiting the screen says "The server is busy. Waiting for its answer…" | `ServerConnection.hold`, `src/room/roomServer.ts`, `SelfHostedServerProvider.ts` |
+| Refusals: the phone looked at the floor, a table top, another room; the screen said "hold still"; after a refusal the app waited 1.5-10 s and stopped after five | One advice at every attempt: "Lift the phone and look around the room slowly" / "Furniture and walls, not the floor." with what the look is doing (looking, sending, the server is checking). While no door is on screen the next look follows at once and the search does not stop; after five answered refusals the session counts against the room. A check of a door that already stands keeps its limits | `SelfHostedServerProvider.ts`, `src/ui/core/arView.ts` |
+| A look took about 9 s at best | The clip is 1.2 s instead of 2.5 s | `src/room/roomServer.ts` |
+| After walking through the door the place of the door was "checked" from a corridor the map does not know: two refusals, 45 s, the door called doubtful | No check from inside the space or within 6 s after the way out; the door is kept, and its place is checked once, 6 s after the user is back in the room | `SelfHostedServerProvider.ts` |
+| The upload counted up to 175 % | The size of the files is the floor of the total; never above 100 % | `src/room/roomServer.ts` |
+| The scan was made turning on the spot (1.0 x 1.0 m in 100 s), the phone held level; the guidance counted metres walked, which turning also gives | The guidance counts the **area walked over** (smallest rectangle round the phone's positions) and **time at three tilts** (down, level, up). Coach: walk in a circle along the walls; after 20 s on one spot "turning on the spot is not enough"; one round level, corners floor to ceiling, one round tilted down; "don't stand in one place" after 8 s standing. Finishing a scan made from one spot asks first ("Send anyway" / "Keep scanning") | `src/ui/core/scanFlow.ts`, `src/ui/ScanScreen.tsx` |
+| Nothing told how good the scan was | "The map is ready" has a place for the server's verdict on the scan (score, verdict, up to two advice lines); it stays empty until the server sends `result.scan_quality` (field names are a placeholder) | `src/server/core/roomPlan.ts`, `src/ui/BuildScreen.tsx` |
+| The world mesh was saved as `world_mesh.bin (0 kB)` and then not found | The copy of the engine's file was not awaited (`File.copy` returns a promise in expo-file-system 58); the source was deleted before it was copied. All writes are awaited now; the mesh goes to the server as `world_mesh.ply` again. A missing mesh is a quiet `not saved: ...` line and does not stop the upload | `src/room/scanController.ts` |
+
+**The connection check, in numbers** (`src/server/core/linkQuality.ts`, our choice): five
+health requests 250 ms apart, each given 1.5 s. The connection is **bad** when two or more
+stay unanswered or when the median answer takes longer than 500 ms (a server on the same
+Wi-Fi answers in 5-40 ms). The log has the line `visitor check: link good|BAD: median N ms,
+k of 5 unanswered`.
+
+**The scan, in numbers** (`SCAN` in `src/ui/core/scanFlow.ts`, our choice, from the
+first pass: the bad scan covered 1.0 x 1.0 m and was held at -15°): the walked area must be
+at least **1.5 m** long and **0.5 m** wide; below that the scan counts as made from one spot.
+Tilt bands: down from -25° to -60° (steeper is the floor under the feet and does not
+count), up from +20°, level in between; needed: level 15 s, down 8 s, up 3 s. Standing
+within 0.6 m for 8 s (15 s while showing the door) brings the "don't stand" advice. The
+time limits are unchanged (60 s minimum, finish offered at 150 s, automatic finish at 180 s;
+the automatic finish sends a one-spot scan without asking and logs it). The log line at
+the end: `scan: finishing after N s, area A x B m, tilt a..b deg (down/level/up seconds), ...`.
+
 ## Using the developer tools
 
 This section and the next describe the developer tools (see above for how to open them).
@@ -770,7 +816,7 @@ tools and sends its recording as the room `room`.
    yet", put the door where it should stand and save it
    ([Placing the door](#placing-the-door)). Open the door from Home and walk through.
 6. **Next session.** Start the app in the same room, connect, choose **Provider:
-   self-hosted**. Once tracking is NORMAL the app records a 2.5 s clip, sends it to the
+   self-hosted**. Once tracking is NORMAL the app records a 1.2 s clip, sends it to the
    server and places plan and door from the answer; the banner shows the attempts. Hold
    the phone still, pointed at a part of the room with detail (not a bare wall).
 7. **If it goes wrong.** "Room not recognised": look at another part of the room and
@@ -1123,7 +1169,7 @@ recording. A first run on 2026-11-20 was cut off when the server was restarted; 
 app's client reported the job as failed with the server's reason.
 
 What it cannot cover, because it needs React Native or a camera: how the phone encodes
-the upload from file paths, the upload progress, the recorder, the 2.5 s clip, and
+the upload from file paths, the upload progress, the recorder, the 1.2 s clip, and
 everything that is drawn.
 
 ### Measuring where the door stands
@@ -1180,7 +1226,8 @@ scripts/
   generate-assets.mjs         generates all textures and the door-frame OBJ
   mock-server.mjs             stand-in server answering GET /health (connection tests)
 assets/
-  models/door_frame.obj       generated door frame (frame + transparent "tunnel")
+  models/door_frame.obj       generated door frame (frame + one flat transparent window)
+  models/portal_window.obj    generated window alone (a unit quad), for the wooden casing
   textures/*.png              generated textures
 src/
   ar/
@@ -1326,7 +1373,7 @@ Providers:
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
 | `ReactVisionVpsProvider` | Implemented, **never run** (no account yet): [The second connection method](#the-second-connection-method-reactvision-advanced-vps). Says where the room is, through the room's bridge; the door layer puts the same door there. In a build without keys it reports "not set up". |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
-| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. Says where the room is: from the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, the identity after a build in the same session). The door layer puts the door there ([One door, whatever recognises the room](#one-door-whatever-recognises-the-room)). Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
+| `SelfHostedServerProvider` | Implemented, **not yet run on a device**. Says where the room is: from the answer to a 1.2 s clip sent to `/localize` (or, in the developer tools, the identity after a build in the same session). The door layer puts the door there ([One door, whatever recognises the room](#one-door-whatever-recognises-the-room)). Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
 Without a key file the ViroReact plugin is configured with `provider: "none"` and
 `telemetry: false` (no anchor back-end, no usage ping), and no API keys or accounts are
@@ -1344,8 +1391,9 @@ ViroARScene
   [ViroNode  ← door pose]                 only in attach mode "parent"
     ViroPortalScene passable              origin = centre of the opening
       ViroPortal
-        DoorCasing                        frame "casing": six wooden parts + transparent "tunnel"
-        | Viro3DObject door_frame.obj     frame "simple": one model, frame + "tunnel"
+        Viro3DObject portal_window.obj    frame "casing": ONE flat transparent window, the portal's only child
+        | Viro3DObject door_frame.obj     frame "simple": one model, frame + one flat window
+    CasingWood (beside the portal scene)  frame "casing": six wooden parts, plain objects of the AR scene
       ViroSkyBox (colour)                 background of the inner world
       ViroNode (down to floor level)
         SponzaAtrium | VirtualRoom        the world; the test room has its own lights
@@ -1398,16 +1446,16 @@ rendered frame is already past the quad — or within the near clip distance of 
 the switch happens; the upper part of the view then no longer contains the quad, so no
 portal content is drawn there.
 
-Mitigation in the current model: the transparent part is a **tunnel** through the frame
-instead of one quad — the window in the crossing plane, a second window 14 cm further
-at the back of the frame, and four side walls hidden inside the frame. A camera that has
-overshot the first window still looks at transparent faces in every direction, so the
-room stays on screen until the switch. The frame was made deeper on the room side
-(6 cm in front of the plane, 14 cm behind it) to give the tunnel that length, and the
-room's front wall sits 1 cm behind the frame. All tunnel faces are wound towards the AR
-side / the tunnel axis, because after the switch the renderer draws only back faces into
-the stencil and a face seen from within the tunnel must not act as the way out.
-**This mitigation has not been tested on the phone yet.** If a flash remains, the next
+A mitigation was tried and **taken back**: the transparent part as a **tunnel** through
+the frame (a second window at the back of the frame and four side walls), so that a
+camera that had overshot the first window would still look at transparent faces. With
+it - and with the wooden casing's own window, a separate box with a fully transparent
+texture - the doorway showed **no world at all** on the first full pass on a phone
+(2026-11-21): only the wood, the space appeared after walking in. The cause was not
+found (the phone was not at hand); the window is again what has been seen working on
+build `9cb8a8b` - one flat face in the crossing plane, see
+[After the first pass on a phone](#after-the-first-pass-on-a-phone). The frame keeps its
+depth (6 cm in front of the plane, 14 cm behind it). So the flash may be back. If it is, the next
 lever is in native code (the 4 cm constant in `VROPortalTraversalListener.cpp`), which
 means a custom build of the renderer.
 
@@ -1541,7 +1589,7 @@ has never been installed.
 - **a map built from a real room recording**: a one-to-two-minute recording, its upload
   (size, time, progress), the build, the server's room plan drawn in the session, the
   door casing in the real door opening at the opening's size;
-- **finding the room again**: the 2.5 s clip recorded while the portal is shown,
+- **finding the room again**: the 1.2 s clip recorded while the portal is shown,
   `/localize`, the door in the same opening after a restart, the banner texts,
   **Re-localize**;
 - **tracking loss**: that a loss longer than 1.5 s is noticed, that the door stays, that

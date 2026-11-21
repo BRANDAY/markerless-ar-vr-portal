@@ -4,6 +4,7 @@
  * fails. Pure.
  */
 import type { TextKey } from '../../i18n';
+import type { ScanQuality } from '../../server/core/roomPlan';
 
 /** The upload is the first 8 % of the whole. */
 const UPLOAD_SHARE = 8;
@@ -162,6 +163,34 @@ export function failureFromUpload(status: number | null, code?: string | null): 
     return 'bad_recording';
   }
   return 'internal';
+}
+
+/** No more than this many of the server's advice lines are shown. */
+const MAX_ADVICE_LINES = 2;
+
+/**
+ * The server's opinion of the scan under "The map is ready": one line with its verdict
+ * and score, one with its advice (in the server's own words). Both null when the server
+ * said nothing - as every server does today (`ScanQuality` is a placeholder contract).
+ */
+export function qualityLines(quality: ScanQuality | null): {
+  summary: { key: TextKey; params: Record<string, string | number> } | null;
+  advice: string | null;
+} {
+  if (!quality) {
+    return { summary: null, advice: null };
+  }
+  const p = quality.score === null ? null : Math.round(clamp01(quality.score) * 100);
+  const verdict = quality.verdict;
+  let summary: { key: TextKey; params: Record<string, string | number> } | null = null;
+  if (verdict && p !== null) {
+    summary = { key: 'build.done.quality.both', params: { verdict, p } };
+  } else if (verdict) {
+    summary = { key: 'build.done.quality.verdict', params: { verdict } };
+  } else if (p !== null) {
+    summary = { key: 'build.done.quality.score', params: { p } };
+  }
+  return { summary, advice: quality.advice.slice(0, MAX_ADVICE_LINES).join(' ') || null };
 }
 
 /** "4 min", "50 s": how long a build took. */

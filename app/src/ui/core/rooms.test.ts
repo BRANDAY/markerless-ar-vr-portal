@@ -82,6 +82,9 @@ test('rooms: which stays on a camera screen count against a room', () => {
   assert.equal(sessionMissed('error', {}), false);
   assert.equal(sessionMissed('error', { code: 'no-doorway' }), false);
   assert.equal(sessionMissed('localizing', { code: 'not-recognised' }), false);
+  // a search that does not stop says itself when the server has refused enough views
+  assert.equal(sessionMissed('localizing', { missed: true }), true);
+  assert.equal(sessionMissed('localizing', {}), false);
 });
 
 test('rooms: a name as typed', () => {
