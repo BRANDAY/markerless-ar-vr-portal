@@ -113,12 +113,23 @@ export function BuildScreen() {
     // What the server thinks of the scan; nothing is drawn when it said nothing.
     const quality = qualityLines(build.quality);
     return (
-      <ScreenFrame title={name} right={<CloseButton onPress={dismiss} />} footer={<AppButton label={t('build.done.see')} onPress={seeRoom} />}>
+      <ScreenFrame
+        title={name}
+        right={<CloseButton onPress={dismiss} />}
+        footer={
+          <>
+            <AppButton label={t('build.done.see')} onPress={seeRoom} />
+            {quality.offerRescan ? <AppButton kind="text" label={t('build.scanAgain')} onPress={() => act('scan-again')} /> : null}
+          </>
+        }
+      >
         <IconTile icon="check" tone="teal" size={56} />
         <Title>{t('build.done.title')}</Title>
         <Body dim>{build.frames !== null ? t('build.done.line', { time, n: build.frames }) : t('build.done.line.noFrames', { time })}</Body>
-        {quality.summary ? <Body>{t(quality.summary.key, quality.summary.params)}</Body> : null}
-        {quality.advice ? <Notice>{quality.advice}</Notice> : null}
+        {quality.verdict ? <Body>{t(quality.verdict)}</Body> : null}
+        {quality.issues.map((issue, index) => (
+          <Notice key={index}>{'key' in issue ? t(issue.key) : issue.text}</Notice>
+        ))}
       </ScreenFrame>
     );
   }

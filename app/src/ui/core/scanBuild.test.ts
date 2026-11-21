@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import { en } from '../../i18n/en';
 import { newRoomId, nextRoomNumber } from '../../room/roomNames';
+import type { ScanQuality } from '../../server/core/roomPlan';
 import {
   BUILD_STEPS,
   buildPercent,
@@ -375,18 +376,34 @@ test('build: server answers are sorted into the failures', () => {
   assert.deepEqual(duration(791.2), { key: 'build.took.minutes', params: { m: 13 } });
 });
 
-test('build: the opinion the server has of the scan is one line and its advice (placeholder contract)', () => {
-  // nothing came: nothing is shown
-  assert.deepEqual(qualityLines(null), { summary: null, advice: null });
-  assert.deepEqual(qualityLines({ score: 0.42, verdict: 'made from one spot', advice: ['Walk round the room.', 'Look up and down.', 'A third line.'] }), {
-    summary: { key: 'build.done.quality.both', params: { verdict: 'made from one spot', p: 42 } },
-    advice: 'Walk round the room. Look up and down.',
+test('build: the server verdict on the scan, two issues in the app own words, a new scan offered for rescan', () => {
+  const quality = (patch: Partial<ScanQuality>): ScanQuality => ({
+    verdict: null,
+    summary: '',
+    issues: [],
+    footprintM: null,
+    highestPitchDeg: null,
+    repeatedShare: null,
+    ...patch,
   });
-  assert.deepEqual(qualityLines({ score: 0.9, verdict: '', advice: [] }), { summary: { key: 'build.done.quality.score', params: { p: 90 } }, advice: null });
-  assert.deepEqual(qualityLines({ score: null, verdict: 'good', advice: [] }).summary, { key: 'build.done.quality.verdict', params: { verdict: 'good' } });
-  assert.deepEqual(qualityLines({ score: null, verdict: '', advice: ['Scan again.'] }), { summary: null, advice: 'Scan again.' });
-  for (const key of ['build.done.quality.both', 'build.done.quality.score', 'build.done.quality.verdict'] as const) {
-    assert.ok(en[key]);
+  const issue = (code: string, todo = '', text = '') => ({ code, value: null, limit: null, text, todo });
+  // nothing came (an older server): nothing is shown
+  assert.deepEqual(qualityLines(null), { verdict: null, issues: [], offerRescan: false });
+  // the owner's first recording
+  assert.deepEqual(qualityLines(quality({ verdict: 'rescan', issues: [issue('one_spot'), issue('never_looked_up'), issue('repeated_views')] })), {
+    verdict: 'build.done.quality.rescan',
+    issues: [{ key: 'build.issue.one_spot' }, { key: 'build.issue.never_looked_up' }],
+    offerRescan: true,
+  });
+  // an unknown code: the server's own words, what to do first
+  assert.deepEqual(qualityLines(quality({ verdict: 'limited', issues: [issue('too_dark', 'Turn on the light.', 'Dark.'), issue('odd', '', 'Odd.'), issue('mute')] })), {
+    verdict: 'build.done.quality.limited',
+    issues: [{ text: 'Turn on the light.' }, { text: 'Odd.' }],
+    offerRescan: false,
+  });
+  assert.equal(qualityLines(quality({ verdict: 'good' })).verdict, 'build.done.quality.good');
+  for (const code of ['one_spot', 'never_looked_down', 'never_looked_up', 'repeated_views', 'not_all_around', 'walls_poorly_seen', 'frames_lost']) {
+    assert.deepEqual(qualityLines(quality({ issues: [issue(code)] })).issues, [{ key: `build.issue.${code}` }]);
   }
 });
 

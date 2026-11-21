@@ -165,32 +165,53 @@ export function failureFromUpload(status: number | null, code?: string | null): 
   return 'internal';
 }
 
-/** No more than this many of the server's advice lines are shown. */
-const MAX_ADVICE_LINES = 2;
+/** No more than this many of the server's issues are shown. */
+const MAX_ISSUES = 2;
+
+const ISSUE_KEYS: Record<string, TextKey> = {
+  one_spot: 'build.issue.one_spot',
+  never_looked_down: 'build.issue.never_looked_down',
+  never_looked_up: 'build.issue.never_looked_up',
+  repeated_views: 'build.issue.repeated_views',
+  not_all_around: 'build.issue.not_all_around',
+  walls_poorly_seen: 'build.issue.walls_poorly_seen',
+  frames_lost: 'build.issue.frames_lost',
+};
+
+/** One issue line: the app's own words for a known code, else the server's English. */
+export type IssueLine = { key: TextKey } | { text: string };
 
 /**
- * The server's opinion of the scan under "The map is ready": one line with its verdict
- * and score, one with its advice (in the server's own words). Both null when the server
- * said nothing - as every server does today (`ScanQuality` is a placeholder contract).
+ * The server's opinion of the scan under "The map is ready" (server 0.8.0, `scan_quality`):
+ * one line for its verdict, up to two issues with what to do, and whether to offer a new
+ * scan at once. Nothing when the server said nothing (an older server).
  */
 export function qualityLines(quality: ScanQuality | null): {
-  summary: { key: TextKey; params: Record<string, string | number> } | null;
-  advice: string | null;
+  verdict: TextKey | null;
+  issues: IssueLine[];
+  offerRescan: boolean;
 } {
   if (!quality) {
-    return { summary: null, advice: null };
+    return { verdict: null, issues: [], offerRescan: false };
   }
-  const p = quality.score === null ? null : Math.round(clamp01(quality.score) * 100);
-  const verdict = quality.verdict;
-  let summary: { key: TextKey; params: Record<string, string | number> } | null = null;
-  if (verdict && p !== null) {
-    summary = { key: 'build.done.quality.both', params: { verdict, p } };
-  } else if (verdict) {
-    summary = { key: 'build.done.quality.verdict', params: { verdict } };
-  } else if (p !== null) {
-    summary = { key: 'build.done.quality.score', params: { p } };
+  const issues: IssueLine[] = [];
+  for (const issue of quality.issues) {
+    if (issues.length >= MAX_ISSUES) {
+      break;
+    }
+    const key = ISSUE_KEYS[issue.code];
+    const text = issue.todo || issue.text;
+    if (key) {
+      issues.push({ key });
+    } else if (text) {
+      issues.push({ text });
+    }
   }
-  return { summary, advice: quality.advice.slice(0, MAX_ADVICE_LINES).join(' ') || null };
+  return {
+    verdict: quality.verdict ? (`build.done.quality.${quality.verdict}` as const) : null,
+    issues,
+    offerRescan: quality.verdict === 'rescan',
+  };
 }
 
 /** "4 min", "50 s": how long a build took. */

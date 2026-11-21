@@ -46,20 +46,41 @@ function asList(value: unknown): unknown[] {
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+/** The server's word for a scan: good; usable with limits; scan again. */
+export type ScanVerdict = 'good' | 'limited' | 'rescan';
+const SCAN_VERDICTS: readonly ScanVerdict[] = ['good', 'limited', 'rescan'];
+
 /**
- * What the server thinks of the scan a map was built from.
- *
- * PLACEHOLDER CONTRACT (2026-11-21): the server does not send this yet and the field names
- * are a guess - `result.scan_quality` with `score`, `verdict`, `advice`. To be made to
- * match what the server announces; until then nothing arrives and nothing is shown.
+ * One thing the server found wrong with a scan. Codes known on 2026-11-21 (server 0.8.0,
+ * capability `scan_quality`): `one_spot`, `never_looked_down`, `never_looked_up`,
+ * `repeated_views`, `not_all_around`, `walls_poorly_seen`, `frames_lost`. The app words a
+ * known code itself; `text` / `todo` are the server's English, used for an unknown code.
+ */
+export interface ScanIssue {
+  code: string;
+  value: number | null;
+  limit: number | null;
+  text: string;
+  /** What to do better (the server's `do`). */
+  todo: string;
+}
+
+/**
+ * What the server thinks of the scan a map was built from: `scan_quality` of
+ * `GET /maps/{id}` and of a finished build's result. Only what the app shows or logs is
+ * kept; the server's numbers (`motion`, `walls`, `frames`) go to the log as they came.
  */
 export interface ScanQuality {
-  /** 0..1, or null when the server gave no usable number. */
-  score: number | null;
-  /** The server's word or sentence for the scan, or empty. */
-  verdict: string;
-  /** What to do better next time, in the server's words. */
-  advice: string[];
+  verdict: ScanVerdict | null;
+  /** The server's sentence about the scan (English), or empty. */
+  summary: string;
+  issues: ScanIssue[];
+  /** Footprint of the scan, metres, as the server measured it; null when not given. */
+  footprintM: number[] | null;
+  /** Highest pitch of the phone during the scan, degrees; null when not given. */
+  highestPitchDeg: number | null;
+  /** Share of repeated views, 0..1; null when not given. */
+  repeatedShare: number | null;
 }
 
 /** Keeps whatever of a `scan_quality` object is well-formed; null when nothing is. */
@@ -68,14 +89,57 @@ export function parseScanQuality(value: unknown): ScanQuality | null {
   if (!json) {
     return null;
   }
-  const number = asNumber(json.score);
-  const score = number !== null && number >= 0 && number <= 1 ? number : null;
-  const verdict = asString(json.verdict).trim();
-  const advice = asList(json.advice)
-    .filter((line): line is string => typeof line === 'string')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  return score === null && !verdict && advice.length === 0 ? null : { score, verdict, advice };
+  const verdict = SCAN_VERDICTS.includes(json.verdict as ScanVerdict) ? (json.verdict as ScanVerdict) : null;
+  const summary = asString(json.summary).trim();
+  const issues: ScanIssue[] = [];
+  for (const entry of asList(json.issues)) {
+    // `GET /maps` rows give bare codes; the full answer gives objects.
+    const item = typeof entry === 'string' ? { code: entry } : asObject(entry);
+    const code = asString(item?.code).trim();
+    if (item && code) {
+      issues.push({
+        code,
+        value: asNumber(item.value),
+        limit: asNumber(item.limit),
+        text: asString(item.text).trim(),
+        todo: asString(item.do).trim(),
+      });
+    }
+  }
+  const motion = asObject(json.motion);
+  const footprintRaw = motion?.footprint_m;
+  const footprintM = Array.isArray(footprintRaw)
+    ? footprintRaw.every((n) => asNumber(n) !== null) && footprintRaw.length > 0
+      ? (footprintRaw as number[])
+      : null
+    : asNumber(footprintRaw) !== null
+      ? [footprintRaw as number]
+      : null;
+  const highestPitchDeg = asNumber(asObject(motion?.pitch_deg)?.highest);
+  const repeated = asNumber(motion?.repeated_share);
+  const repeatedShare = repeated !== null && repeated >= 0 && repeated <= 1 ? repeated : null;
+  if (!verdict && !summary && issues.length === 0) {
+    return null;
+  }
+  return { verdict, summary, issues, footprintM, highestPitchDeg, repeatedShare };
+}
+
+/** One line for the log: verdict, codes and the server's main numbers. */
+export function describeScanQuality(quality: ScanQuality): string {
+  const parts = [`scan quality ${quality.verdict ?? 'unknown'}`];
+  if (quality.issues.length > 0) {
+    parts.push(`issues ${quality.issues.map((issue) => issue.code).join(', ')}`);
+  }
+  if (quality.footprintM) {
+    parts.push(`footprint ${quality.footprintM.map((n) => n.toFixed(2)).join(' x ')} m`);
+  }
+  if (quality.highestPitchDeg !== null) {
+    parts.push(`highest pitch ${quality.highestPitchDeg.toFixed(1)} deg`);
+  }
+  if (quality.repeatedShare !== null) {
+    parts.push(`${Math.round(quality.repeatedShare * 100)} % repeated views`);
+  }
+  return parts.join('; ') + (quality.summary ? ` - ${quality.summary}` : '');
 }
 
 export interface ServerJob {
@@ -463,6 +527,10 @@ export interface LocalizeOutcome {
   numInliers: number;
   /** "ok" when the map could be placed in the current AR session. */
   alignmentStatus: string;
+  /** Why the alignment failed (`alignment.reason_code`, e.g. `weak_only`), or empty. */
+  alignmentReason: string;
+  /** The server answered after its first good frame (`load.stopped_early`). */
+  stoppedEarly: boolean;
   /**
    * The server's answer to "where is the room": the room's frame in this AR session
    * (`alignment.T_arworld_from_map`), 16 numbers in column-major order. Null unless the
@@ -492,6 +560,8 @@ export function parseLocalize(body: unknown): LocalizeOutcome | null {
     reason: asString(json.reason),
     numInliers: asNumber(json.num_inliers) ?? 0,
     alignmentStatus: asString(alignment?.status) || 'none',
+    alignmentReason: asString(alignment?.reason_code),
+    stoppedEarly: asObject(json.load)?.stopped_early === true,
     transform: ok ? matrixFromRows(alignment?.T_arworld_from_map) : null,
     frameId: asString(json.frame_id),
     portal: ok ? parsePortal(alignment?.portal) : null,

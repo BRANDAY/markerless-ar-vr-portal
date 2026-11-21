@@ -17,7 +17,7 @@ import {
   localize,
   uploadRecording,
 } from '../server/core/client';
-import { describeJob, isFinalJobState, type LocalizeOutcome, type ServerJob } from '../server/core/roomPlan';
+import { describeJob, describeScanQuality, isFinalJobState, type LocalizeOutcome, type ServerJob } from '../server/core/roomPlan';
 import { getDeviceId } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions, getAppState } from '../state/appStore';
@@ -182,6 +182,8 @@ async function finishBuild(baseUrl: string, target: ScanTarget, job: ServerJob, 
   });
   roomActions.setUpload({ phase: 'done', text: describeJob(job), progress: 1 });
   log(`build ${describeJob(job)}`);
+  const quality = job.result?.scanQuality;
+  log(quality ? `build: ${describeScanQuality(quality)}` : 'build: the server gave no scan quality');
 
   // The new room is the one the app works with from now on.
   prefsActions.set({ lastRoomId: target.mapId, lastCapture: null });
@@ -564,6 +566,8 @@ export async function localizeWithClip(
     const outcome = answer.value;
     log(
       `localize: ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}` +
+        (outcome.alignmentReason ? ` [${outcome.alignmentReason}]` : '') +
+        (outcome.stoppedEarly ? ', answered at the first good frame' : '') +
         (outcome.reason ? ` (${outcome.reason})` : ''),
     );
     return {

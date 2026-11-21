@@ -17,6 +17,7 @@ import {
   parseRoom,
   parseSavedDoor,
   parseScanQuality,
+  describeScanQuality,
 } from './roomPlan';
 
 const JOB = {
@@ -127,28 +128,40 @@ describe('parseJob / describeJob', () => {
     const cancelled = parseJob({ ...JOB, state: 'cancelled' });
     assert.equal(cancelled && describeJob(cancelled), 'cancelled');
   });
-  test('the scan quality of a finished build is kept as far as it is well-formed (placeholder contract)', () => {
+  test('the scan quality of a finished build is kept as far as it is well-formed (server 0.8.0)', () => {
     const result = { room: { status: 'ok' }, portal: { source: 'none' }, warnings: [] };
     const done = (scan_quality: unknown) => parseJob({ ...JOB, state: 'succeeded', progress: 1, result: { ...result, scan_quality } });
-    // a server that says nothing about the scan, as every server does today
+    // an older server says nothing about the scan
     assert.equal(parseJob({ ...JOB, state: 'succeeded', result })?.result?.scanQuality, null);
-    assert.deepEqual(done({ score: 0.42, verdict: ' made from one spot ', advice: ['Walk round the room.', 7, '  ', 'Look up.'] })?.result?.scanQuality, {
-      score: 0.42,
-      verdict: 'made from one spot',
-      advice: ['Walk round the room.', 'Look up.'],
-    });
-    // any one of the three is enough
-    assert.deepEqual(done({ score: 1 })?.result?.scanQuality, { score: 1, verdict: '', advice: [] });
-    assert.deepEqual(done({ verdict: 'good' })?.result?.scanQuality, { score: null, verdict: 'good', advice: [] });
-    assert.deepEqual(done({ advice: ['Scan again.'] })?.result?.scanQuality, { score: null, verdict: '', advice: ['Scan again.'] });
-    // a score that is not 0..1 is not guessed at; odd shapes are nothing
-    assert.deepEqual(done({ score: 85, verdict: 'good' })?.result?.scanQuality, { score: null, verdict: 'good', advice: [] });
-    assert.equal(done({ score: 'high', advice: 'walk' })?.result?.scanQuality, null);
+    // the owner's first recording, as the server judged it
+    const owner = done({
+      verdict: 'rescan',
+      summary: ' Scanned from one spot. ',
+      issues: [
+        { code: 'one_spot', value: 1.1, limit: 1.5, text: 'Made from one spot.', do: 'Walk round the room.' },
+        { code: 'never_looked_up', value: -11.5, limit: 15, text: 'Never looked up.', do: 'Sweep to the ceiling.' },
+        { code: 'repeated_views', value: 0.45, limit: 0.3 },
+        { value: 3 },
+      ],
+      motion: { footprint_m: [1.1, 0.84], pitch_deg: { lowest: -40, median: -20, highest: -11.5 }, repeated_share: 0.45 },
+    })?.result?.scanQuality;
+    assert.equal(owner?.verdict, 'rescan');
+    assert.equal(owner?.summary, 'Scanned from one spot.');
+    assert.deepEqual(owner?.issues.map((issue) => issue.code), ['one_spot', 'never_looked_up', 'repeated_views']);
+    assert.deepEqual(owner?.issues[0], { code: 'one_spot', value: 1.1, limit: 1.5, text: 'Made from one spot.', todo: 'Walk round the room.' });
+    assert.deepEqual(owner?.footprintM, [1.1, 0.84]);
+    assert.equal(owner?.highestPitchDeg, -11.5);
+    assert.equal(owner?.repeatedShare, 0.45);
+    assert.match(owner ? describeScanQuality(owner) : '', /rescan; issues one_spot, never_looked_up, repeated_views; footprint 1.10 x 0.84 m; highest pitch -11.5 deg; 45 % repeated/);
+    // the row of GET /maps gives bare codes
+    assert.deepEqual(parseScanQuality({ verdict: 'limited', issues: ['frames_lost', 7] })?.issues.map((issue) => issue.code), ['frames_lost']);
+    // an unknown verdict is not guessed at; odd shapes are nothing
+    assert.equal(done({ verdict: 'excellent' })?.result?.scanQuality, null);
     assert.equal(done('good')?.result?.scanQuality, null);
     assert.equal(done([0.5])?.result?.scanQuality, null);
     assert.equal(parseScanQuality(null), null);
     // the job itself is read whatever the field holds
-    assert.equal(done({ score: {} })?.state, 'succeeded');
+    assert.equal(done({ verdict: {} })?.state, 'succeeded');
   });
   test('rejects what is not a job; clamps progress', () => {
     assert.equal(parseJob(null), null);
@@ -227,6 +240,13 @@ describe('parseLocalize', () => {
     const failed = parseLocalize({ success: false, quality: 'failed', reason: 'too few matches', pose: null });
     assert.equal(failed?.quality, 'failed');
     assert.equal(failed?.alignmentStatus, 'none');
+    // server 0.8.0: weak frames only - an ordinary refusal, with its reason kept for the log
+    const weak = parseLocalize({ success: true, quality: 'weak', alignment: { status: 'failed', reason_code: 'weak_only' }, load: { stopped_early: true } });
+    assert.equal(weak?.alignmentStatus, 'failed');
+    assert.equal(weak?.alignmentReason, 'weak_only');
+    assert.equal(weak?.stoppedEarly, true);
+    assert.equal(weak?.transform, null);
+    assert.equal(failed?.stoppedEarly, false);
     assert.equal(parseLocalize({ detail: 'x' }), null);
   });
 });
