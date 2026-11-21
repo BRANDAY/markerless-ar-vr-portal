@@ -7,7 +7,7 @@ import { serverConnection } from '../server/ServerConnection';
 import { getPhoneNetworkState } from '../server/wifiRoute';
 import { appActions } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
-import { homeScreen, openDoor, searchForServer } from './flows';
+import { homeScreen, searchForServer } from './flows';
 import { AppButton, Body, IconTile, Row, ScreenFrame, Sheet, SheetTitle, Small, Title } from './kit';
 import { useServerView } from './ServerPanel';
 import { RADIUS, TYPE, useTheme } from './theme';
@@ -55,10 +55,6 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
       appActions.resetTo(homeScreen());
     }
   };
-  const withoutServer = () => {
-    appActions.resetTo(homeScreen());
-    openDoor('free');
-  };
   const roomCount = connection.info?.maps.length ?? 0;
 
   let body: React.ReactNode;
@@ -85,7 +81,6 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
       footer = (
         <>
           <AppButton kind="ghost" label={t('connect.enterAddressInstead')} onPress={() => setAddressOpen(true)} />
-          <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={withoutServer} />
         </>
       );
       break;
@@ -122,7 +117,7 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
           ))}
         </>
       );
-      footer = <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={withoutServer} />;
+      footer = null;
       break;
     case 'wifi':
       body = (
@@ -158,7 +153,6 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
         <>
           <AppButton label={t('common.searchAgain')} onPress={searchForServer} />
           <AppButton kind="ghost" label={t('connect.enterAddress')} onPress={() => setAddressOpen(true)} />
-          <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={withoutServer} />
         </>
       );
       break;

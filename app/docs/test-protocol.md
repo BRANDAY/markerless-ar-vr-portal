@@ -16,6 +16,11 @@ mode**: what to do, what to press, what gets recorded and what counts as success
 > **Tools**. A restart of the app ends on Home: tap **Open the door** to start the
 > search. "Search time" counts from the moment the AR screen opens; "app start to door"
 > now includes the time spent on Home, so use the search time for the restart test.
+>
+> **Since the two modes (21 November 2026):** do the restart test in **visitor mode**. A
+> later launch opens the camera at once, so "app start to door" has no screen in between
+> and is the number to report. The records are written in visitor mode as well; the
+> reference marks and the **Measure** button need staff mode with the tools.
 
 ## The idea
 

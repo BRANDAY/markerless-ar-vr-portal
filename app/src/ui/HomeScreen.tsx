@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { t, type TextKey } from '../i18n';
@@ -12,6 +12,7 @@ import { chipState, homeSituation } from './core/homeView';
 import { openDoor, openGuidedScan } from './flows';
 import { Icon } from './icons';
 import { AppButton, Body, Card, Dot, Eyebrow, IconTile, ScreenFrame, Small, Tag } from './kit';
+import { SwitchToVisitorSheet } from './modeSheets';
 import { PlanDrawing } from './PlanDrawing';
 import { useServerView } from './ServerPanel';
 import { BRAND, SPACE, TYPE, useTheme } from './theme';
@@ -29,6 +30,7 @@ export function HomeScreen() {
   const environment = useAppState((s) => s.environment);
   // A build that failed while the user was elsewhere stays on Home until it has been seen.
   const building = isBuilding(build) || build.phase === 'failed';
+  const [switchOpen, setSwitchOpen] = useState(false);
 
   useEffect(() => {
     void roomsActions.refresh();
@@ -102,7 +104,7 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('home.openDoor')} onPress={() => openDoor('room')} />
-          <AppButton kind="text" label={t('home.scanAnother')} onPress={() => openGuidedScan('new')} />
+          <AppButton kind="text" label={t('settings.switch')} onPress={() => setSwitchOpen(true)} />
         </>
       );
       break;
@@ -117,7 +119,6 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('home.scanThis')} onPress={() => openGuidedScan('new')} />
-          <AppButton kind="text" label={t('home.tryWithoutScan')} onPress={() => openDoor('free')} />
         </>
       );
       break;
@@ -153,7 +154,6 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('common.searchAgain')} onPress={() => appActions.go('connect')} />
-          <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={() => openDoor('free')} />
         </>
       );
       break;
@@ -168,7 +168,6 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('common.searchAgain')} onPress={() => appActions.go('connect')} />
-          <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={() => openDoor('free')} />
         </>
       );
       break;
@@ -180,7 +179,7 @@ export function HomeScreen() {
           <Body dim>{t('ar.coach.server.2')}</Body>
         </Card>
       );
-      footer = <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={() => openDoor('free')} />;
+      footer = null;
       break;
     case 'no-server':
       content = (
@@ -193,13 +192,13 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('home.findServer')} onPress={() => appActions.go('connect')} />
-          <AppButton kind="text" label={t('connect.tryWithoutServer')} onPress={() => openDoor('free')} />
         </>
       );
       break;
   }
 
   return (
+    <>
     <ScreenFrame footer={footer}>
       <View style={styles.header}>
         <Text style={[TYPE.title, styles.flex, { color: theme.ink }]}>{BRAND.name}</Text>
@@ -219,6 +218,8 @@ export function HomeScreen() {
       </View>
       {content}
     </ScreenFrame>
+    {switchOpen ? <SwitchToVisitorSheet onClose={() => setSwitchOpen(false)} /> : null}
+    </>
   );
 }
 

@@ -178,7 +178,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (145 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (154 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -188,25 +188,47 @@ textures and the simple door model).
 ## The interface
 
 Since 21 November 2026 the app has product screens, built step by step from
-[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 4 and 6 of the section 10
-of its first revision so far; the second revision of the spec, with a staff and a visitor
-mode, is not built yet). **None of these screens has been seen on a phone**; the build on the phone is still
+[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 3 of its first revision, and
+steps A, D and F of the second: the two modes, the guided scan, inside the space. Step B,
+placing the door, is not built yet). **None of these screens has been seen on a phone**; the build on the phone is still
 `546697d`. "Vrata" and the amber and teal colours are working choices, kept in one file
 (`src/brand.ts`).
 
-What a user meets, in order:
+### Two modes
 
-1. **First launch only:** three welcome cards, then the camera permission screen (why the
-   camera is needed and where the video goes, before Android's own dialog), then **Find
-   the server**, which searches the Wi-Fi at once.
+The app is always in one of two modes, and remembers which (`app-prefs.json`).
+
+- **Visitor mode**, also after a fresh install: one screen. The first launch shows a
+  welcome panel ("Step through the door", **Start**); **Start** asks for the camera.
+  Later launches open the camera at once. The app looks for the server on the Wi-Fi by
+  itself ("One moment…"), finds the room and shows the door: no button, no settings.
+  A visitor sees a door **only where staff saved one** (the server's `portal.source` is
+  `manual` or `selected`); a doorway the server only found is not shown. When something
+  does not work, a sheet says so in plain words ("The door isn't ready - please ask a
+  member of staff"), with **Try again** and a small line for staff ("No server on this
+  Wi-Fi", "No door has been placed yet", "Room not recognised"...). A help button brings
+  the welcome panel back.
+- **Staff mode**: Home, scanning, settings. It is entered through the small lock on the
+  welcome panel and the **staff PIN** - four digits, created at the first use of the lock
+  and kept on the phone as a hash; five wrong tries lock the pad for 30 seconds. The first
+  time, the three welcome cards and **Find the server** come before Home. **Switch to
+  visitor mode** is on Home and in Settings; **Change staff PIN** is in Settings.
+
+Until placing the door is built (step B), the app itself cannot save a door: a visitor
+gets one only in a room whose doorway was fixed on the server by other means
+(`PUT /maps/{id}/portal`, or the manual anchor of the server's README).
+
+What staff meet, in order:
+
+1. **The first time in staff mode:** three welcome cards, the camera permission screen if
+   the camera is not allowed yet, then **Find the server**, which searches the Wi-Fi at
+   once.
 2. **Home.** The app name, a server chip (green dot and the server's name when
    connected), the settings button, and one card with one amber button:
    - a room on the server: its plan drawing, name and doorway size, and **Open the door**;
    - connected, no room yet: **Scan this room**, which starts the guided scan (below);
    - a scan is being sent or built: the percentage and **See progress**;
-   - server offline or never set up: **Search again** or **Find the server**;
-   - always available: **Try a door without a server**, which puts the door two metres in
-     front of the user.
+   - server offline or never set up: **Search again** or **Find the server**.
 3. **The AR screen.** Over the camera there is a close button, the name of the room or of
    the space, and one instruction at a time: "Point at the room and hold still", "Try
    another view", "Take a step sideways", "Slow down"... When the door stands, the
@@ -224,7 +246,8 @@ What a user meets, in order:
    space, at full strength from 0.3 m. The walls are those of the room plan the server
    sends with the door's position, so there is no warning for a door without a room, or
    for a room whose shape the server could not measure.
-4. **Settings:** server, automatic search, privacy, "How it works", the version line.
+4. **Settings:** server, automatic search, **Switch to visitor mode**, **Change staff
+   PIN**, privacy, "How it works", the version line.
 
 ### Scanning a room
 
@@ -274,9 +297,15 @@ switch the developer options on (and off again). They add:
   buttons), the measurement panel and the switches. [Using the developer tools](#using-the-developer-tools)
   and [The scenario, step by step](#the-scenario-step-by-step) describe them; the checks of
   assignment task 5 ([`docs/test-protocol.md`](docs/test-protocol.md)) are done there;
-- in Settings: provider, door frame, attach mode, room plan in AR, test room, the box and
-  sphere of task 1 ("Test objects"), a diagnostics screen with the status and the log, and
-  **Keep the AR view running**.
+- in Settings: provider, **Door in front of the camera**, door frame, attach mode, room
+  plan in AR, test room, the box and sphere of task 1 ("Test objects"), a diagnostics
+  screen with the status and the log, and **Keep the AR view running**.
+
+At start the room is always found through the server. The door that is simply put two
+metres in front of the camera (the `manual` provider) is a developer tool, labelled "not
+tied to the room": **Door in front of the camera** in the developer options opens it, and
+the **Provider** switch of the tools changes to it. With developer options off, **Open
+the door** always uses the server.
 
 The AR view (and with it the AR session) is started when the AR screen opens and ended
 when it closes, so every visit of the AR screen finds the room anew. If starting it
@@ -309,11 +338,14 @@ Kept as a list for the product side; nothing here was decided silently.
 | "See the room" opens the room result | opens Home | the room result is step 5 |
 | Inside the space: only "Door is behind you" and the info button | the close button stays as well | a way out that does not depend on Android's back button |
 | "Place the door by hand" | not offered | the spec itself postpones it |
-| AR menu: only "Find the door again" for a door without a room | "Put the door in front of me" instead | the door placed without a server has nothing to be found by |
+| Staff AR screen shows a door only where one was saved | it still shows a doorway the server found by itself | placing and saving the door is step B; until then staff would see no door at all |
+| "Scan another room" lives on the Rooms screen | no product screen offers a second room | the Rooms screen is step I; the scan panel of the tools still records one |
+| Visitor: "This phone can't show the door" has no button | the sheet can be closed, and the app goes on | the AR engine's answer has not been tried on a device |
+| Staff PIN sheets | one title the spec does not have: "Enter the current PIN" (changing the PIN) | the spec names the step, not its words |
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
-| Language, visitor mode, credits rows in Settings | not shown | later steps |
+| Connection, Language, Credits rows in Settings | "Server" row as before; the other two not shown | the connection choice is step E, the rest G and J |
 
 ## Using the developer tools
 
@@ -353,12 +385,13 @@ Buttons of the debug overlay:
 | **Measuring** / **Measuring: on** | measurement mode: the scan panel is replaced by the measurement panel, a crosshair marks the middle of the screen. See [Measuring where the door stands](#measuring-where-the-door-stands) |
 | **Hide log**, **Clear log** | the event log |
 
-The shortest way to see the virtual world, without a server: on Home (or on **Find the
-server**) tap **Try a door without a server**, and move the phone slowly until the door
-casing appears 2 m ahead, standing on the floor and facing you. Look through the door at
-the atrium, walk through it: the hall surrounds you. Turn around and walk back through
-the door. If the door stands badly, look at a free piece of floor and choose **Put the
-door in front of me** from the menu (top right).
+The shortest way to see the virtual world, without a server: enter staff mode (the lock
+on the welcome panel, then a PIN), switch the developer options on (Settings, seven taps
+on the version line) and tap **Door in front of the camera** there. Move the phone slowly
+until the door casing appears 2 m ahead, standing on the floor and facing you. Look
+through the door at the atrium, walk through it: the hall surrounds you. Turn around and
+walk back through the door. If the door stands badly, look at a free piece of floor and
+press **Tools**, then **Re-place door**.
 
 ## The scenario, step by step
 
@@ -544,7 +577,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 145 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 154 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -787,6 +820,9 @@ src/
                               the steps of the guided scan (scanFlow), percentage, steps and problems of a build (buildView)
   ui/ScanPrepareScreen.tsx, ScanScreen.tsx, BuildScreen.tsx   the guided scan and the build of its map
   spaces/spaces.ts            the spaces that can stand behind the door, and what is said about them
+  ui/VisitorScreen.tsx        the whole of visitor mode: welcome panel, coach lines, "ask a member of staff" sheets
+  ui/modeSheets.tsx           the staff PIN pad, and the question before switching to visitor mode
+  ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts
   ar/WallGridLayer.tsx        the real room's wall as a grid, inside the space
   ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
   ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
@@ -1072,6 +1108,11 @@ has never been installed.
   light and dark, with the largest system font; that leaving and re-entering the AR
   screen starts a new AR session cleanly; the plan drawing against the real room; the
   amber outline of an unconfirmed doorway; the AR-support query;
+- **the two modes**: a fresh install opening the visitor screen; **Start** and Android's
+  camera dialog; the search for the server behind "One moment…"; every visitor sheet
+  (server off, no Wi-Fi, no saved door, room not recognised, camera refused); the help
+  button; the lock and the PIN pad (create, enter, wrong, locked for 30 s, change); the
+  mode surviving a restart; a later visitor launch going straight to the camera;
 - **the guided scan**: that the recording starts by itself, the counters (floor, walls,
   metres) against a real walk, whether a minute and six metres are sensible thresholds,
   the corner brackets, the scan paint and the engine's mesh lines (look and frame rate),

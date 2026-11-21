@@ -76,8 +76,8 @@ export function PortalARScene(props: SceneProps) {
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
   const mode = useAppState((s) => s.mode);
-  /** The door is looked for only while the AR screen is shown (not while scanning, not when covered). */
-  const active = useAppState((s) => s.screen === 'ar');
+  /** The door is looked for only on the staff AR screen and the visitor screen (not while scanning, not when covered). */
+  const active = useAppState((s) => s.screen === 'ar' || s.screen === 'visitor');
   /** A first pose that is still being checked is drawn as an outline, not as the door. */
   const pending = useAppState((s) => s.providerMeta.pending === true);
   const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);

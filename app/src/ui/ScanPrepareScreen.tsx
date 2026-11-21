@@ -4,7 +4,6 @@ import { StyleSheet, TextInput, View } from 'react-native';
 import { t } from '../i18n';
 import { useRoomScan } from '../room/roomStore';
 import { appActions } from '../state/appStore';
-import { usePrefs } from '../state/prefs';
 import { homeScreen, startScanning } from './flows';
 import { AppButton, Notice, Row, ScreenFrame, Small, Title } from './kit';
 import { RADIUS, TYPE, useTheme } from './theme';
@@ -16,7 +15,6 @@ import { RADIUS, TYPE, useTheme } from './theme';
 export function ScanPrepareScreen() {
   const theme = useTheme();
   const target = useRoomScan((s) => s.scanTarget);
-  const hostMode = usePrefs((s) => s.visitorMode);
   const [name, setName] = useState(target?.label ?? '');
   const isNew = target !== null && !target.replace;
 
@@ -39,7 +37,6 @@ export function ScanPrepareScreen() {
         <Row icon="walk" tone="teal" title={t('scanPrepare.path.title')} sub={t('scanPrepare.path.body')} />
       </View>
       <Notice>{t('scanPrepare.notice')}</Notice>
-      {hostMode ? <Small>{t('scanPrepare.host')}</Small> : null}
       {isNew ? (
         <View style={styles.field}>
           <Small>{t('scanPrepare.name.label')}</Small>
@@ -54,6 +51,7 @@ export function ScanPrepareScreen() {
           />
         </View>
       ) : null}
+      <Small>{`${t('scanPrepare.host')} ${t('permission.line.video')}`}</Small>
     </ScreenFrame>
   );
 }

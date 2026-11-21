@@ -181,7 +181,7 @@ function Controls() {
         label={`Attach: ${attachMode}`}
         onPress={() => appActions.setAttachMode(attachMode === 'direct' ? 'parent' : 'direct')}
       />
-      <Button label={`Provider: ${providerId}`} onPress={nextProvider} />
+      <Button label={`Provider: ${providerId === 'manual' ? 'manual (not tied to the room)' : providerId}`} onPress={nextProvider} />
       <Button
         label={`World: ${environment}`}
         onPress={() => appActions.setEnvironment(environment === 'sponza' ? 'test-room' : 'sponza')}

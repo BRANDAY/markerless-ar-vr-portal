@@ -6,6 +6,8 @@ import type { ConnectionSnapshot } from '../server/core/connectionMachine';
 import type { ServerPortal } from '../server/core/roomPlan';
 import { SESSION_ID } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
+import { getPrefs } from '../state/prefs';
+import { doorMayBeShown } from '../ui/core/modes';
 import { BaseProvider } from './BaseProvider';
 import {
   decide,
@@ -581,7 +583,8 @@ export class SelfHostedServerProvider extends BaseProvider {
 
 /** The doorway of a server answer as a candidate pose, or null when there is none. */
 function candidateFrom(portal: ServerPortal | null, strong: boolean): DoorCandidate | null {
-  if (!portal || portal.source === 'none' || !portal.position || !portal.rotation) {
+  // A visitor sees a door only where a staff member saved one (`ui-spec.md`, 4.3).
+  if (!portal || !doorMayBeShown(portal.source, getPrefs().visitorMode) || !portal.position || !portal.rotation) {
     return null;
   }
   return { position: portal.position, rotation: portal.rotation, strong };

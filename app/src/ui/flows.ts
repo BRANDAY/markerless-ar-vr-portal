@@ -10,19 +10,41 @@ import { getRoomScanState, isBuilding, roomActions, type ScanTarget } from '../r
 import { type CaptureSummary, scanController } from '../room/scanController';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions, getAppState } from '../state/appStore';
-import { getPrefs } from '../state/prefs';
+import { getPrefs, prefsActions } from '../state/prefs';
+import { startScreen } from './core/modes';
 
 /**
- * Opens the AR screen. The app chooses how the door is placed: `room` = in the doorway
- * of the scanned room, found with the server's help; `free` = two metres in front of the
- * user, without a server ("Try a door without a server").
+ * Opens the staff AR screen. The room is found through the server. `free` is the
+ * developer tool "Door in front of the camera": two metres ahead, not tied to the room.
+ * With developer options on, a provider chosen there by hand is left as it is.
  */
-export function openDoor(source: 'room' | 'free'): void {
+export function openDoor(source: 'room' | 'free' = 'room'): void {
   if (warnAboutDevice()) {
     return;
   }
-  appActions.setProvider(source === 'room' ? 'self-hosted' : 'manual');
+  if (source === 'free') {
+    appActions.setProvider('manual');
+  } else if (!getPrefs().developerOptions) {
+    appActions.setProvider('self-hosted');
+  }
   appActions.go('ar');
+}
+
+/** The staff PIN was right: staff mode, with the welcome cards the first time. */
+export function enterStaffMode(): void {
+  prefsActions.set({ visitorMode: false });
+  appActions.setVisitorStarted(false);
+  appActions.log('mode: staff');
+  appActions.resetTo(startScreen({ visitorMode: false, onboardingDone: getPrefs().onboardingDone }));
+}
+
+/** "Switch to visitor mode": from now on, and after a restart, the app is the visitor screen. */
+export function enterVisitorMode(): void {
+  prefsActions.set({ visitorMode: true });
+  appActions.setProvider('self-hosted');
+  appActions.setOverlayVisible(false);
+  appActions.log('mode: visitor');
+  appActions.resetTo('visitor');
 }
 
 /** The ids and the names of the rooms the server has. */

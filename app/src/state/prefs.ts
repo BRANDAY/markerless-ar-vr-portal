@@ -7,7 +7,7 @@ import { File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 
 export interface Prefs {
-  /** The welcome cards have been shown. */
+  /** The staff welcome cards have been shown. */
   onboardingDone: boolean;
   /** Developer options switched on (seven taps on the version line). */
   developerOptions: boolean;
@@ -23,8 +23,14 @@ export interface Prefs {
   keepArView: boolean;
   /** Search the Wi-Fi for a server when none is known. */
   findAutomatically: boolean;
+  /** The mode (`ui-spec.md`, 4.3): visitor (true, also on a fresh install) or staff. */
   visitorMode: boolean;
+  /** The staff PIN, hashed; null until staff mode is opened for the first time. */
   pinHash: string | null;
+  /** The visitor welcome panel was passed once: later launches open the camera at once. */
+  visitorWelcomeDone: boolean;
+  /** How the room is found: the venue's own server, or the ReactVision cloud (not built yet). */
+  connection: string;
   /** Room to try first. */
   lastRoomId: string | null;
   /** Chosen space per room, until the server stores it. */
@@ -49,8 +55,10 @@ const DEFAULTS: Prefs = {
   testObjects: false,
   keepArView: false,
   findAutomatically: true,
-  visitorMode: false,
+  visitorMode: true,
   pinHash: null,
+  visitorWelcomeDone: false,
+  connection: 'server',
   lastRoomId: null,
   spaceByRoom: {},
   lastCapture: null,

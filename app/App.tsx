@@ -18,6 +18,7 @@ import { serverConnection } from './src/server/ServerConnection';
 import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
 import { prefsActions, usePrefs } from './src/state/prefs';
 import { ArScreen } from './src/ui/ArScreen';
+import { startScreen } from './src/ui/core/modes';
 import { BuildScreen } from './src/ui/BuildScreen';
 import { ConnectScreen } from './src/ui/ConnectScreen';
 import { homeScreen } from './src/ui/flows';
@@ -29,6 +30,7 @@ import { ProblemScreen } from './src/ui/ProblemScreen';
 import { ScanPrepareScreen } from './src/ui/ScanPrepareScreen';
 import { ScanScreen } from './src/ui/ScanScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
+import { VisitorScreen } from './src/ui/VisitorScreen';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /**
@@ -53,6 +55,8 @@ const MAX_TIMED_RETRIES = 10;
  */
 function useCameraPermission() {
   const [permission, setPermission] = useState<CameraPermission>('pending');
+  /** The first look at the permission has been taken: 'pending' now means "not given". */
+  const [checked, setChecked] = useState(false);
   const permissionRef = useRef<CameraPermission>('pending');
   const busyRef = useRef(false);
   const retriesRef = useRef(0);
@@ -73,7 +77,9 @@ function useCameraPermission() {
       let retry = false;
       try {
         // `check` works without an Activity; `request` does not.
-        if (await PermissionsAndroid.check(CAMERA)) {
+        const granted = await PermissionsAndroid.check(CAMERA);
+        setChecked(true);
+        if (granted) {
           update('granted');
           return;
         }
@@ -133,19 +139,23 @@ function useCameraPermission() {
     evaluate(true);
   }, [evaluate]);
 
-  return { permission, ask };
+  return { permission, ask, checked };
 }
 
-/** The screens that are drawn over the camera. Every other screen is a plain view. */
-function usesCamera(screen: Screen): boolean {
-  return screen === 'ar' || screen === 'scan';
+/**
+ * The screens that are drawn over the camera. Every other screen is a plain view. The
+ * visitor screen counts once its welcome panel has been passed.
+ */
+function usesCamera(screen: Screen, visitorStarted: boolean): boolean {
+  return screen === 'ar' || screen === 'scan' || (screen === 'visitor' && visitorStarted);
 }
 
 export default function App() {
-  const { permission, ask } = useCameraPermission();
+  const { permission, ask, checked: permissionChecked } = useCameraPermission();
   const scanning = useRoomScan((state) => state.scanning);
   const wireframe = useRoomScan((state) => state.wireframe);
   const screen = useAppState((state) => state.screen);
+  const visitorStarted = useAppState((state) => state.visitorStarted);
   const problem = useAppState((state) => state.problem);
   const history = useAppState((state) => state.history);
   const prefsLoaded = usePrefs((state) => state.loaded);
@@ -159,12 +169,8 @@ export default function App() {
     roomsActions.start();
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
-    // The first screen: the welcome cards on the first launch, Home afterwards.
-    void prefsActions.load((prefs) => {
-      if (!prefs.onboardingDone) {
-        appActions.resetTo('welcome');
-      }
-    });
+    // The first screen follows the mode: the visitor screen (also on a fresh install), or Home.
+    void prefsActions.load((prefs) => appActions.resetTo(startScreen(prefs)));
     // Whether this phone can run AR at all. A failed query is no answer.
     isARSupportedOnDevice().then(
       (answer) => {
@@ -211,10 +217,10 @@ export default function App() {
   }, []);
   useEffect(() => {
     // A "no" in Android's dialog while the permission screen is up.
-    if ((permission === 'denied' || permission === 'blocked') && (screen === 'permission' || usesCamera(screen))) {
+    if ((permission === 'denied' || permission === 'blocked') && (screen === 'permission' || usesCamera(screen, visitorStarted))) {
       cameraRefused();
     }
-  }, [permission, screen, cameraRefused]);
+  }, [permission, screen, visitorStarted, cameraRefused]);
 
   // Android's back button (`ui-spec.md`, 4.1). Sheets and menus register their own
   // handlers, which run before this one.
@@ -246,7 +252,7 @@ export default function App() {
   // The AR view is mounted for the screens over the camera only. Mounting it anew starts
   // a new AR session; with the developer option "Keep the AR view running" it stays
   // mounted, covered by the other screens, once it has been shown.
-  const cameraScreen = usesCamera(screen);
+  const cameraScreen = usesCamera(screen, visitorStarted);
   const [arShown, setArShown] = useState(false);
   useEffect(() => {
     if (cameraScreen) {
@@ -297,6 +303,9 @@ export default function App() {
     case 'problem':
       plain = <ProblemScreen kind={problem ?? 'server'} />;
       break;
+    case 'visitor':
+      // Drawn below, over the camera: the visitor screen brings its own welcome panel.
+      break;
     case 'scanPrepare':
       plain = <ScanPrepareScreen />;
       break;
@@ -340,6 +349,7 @@ export default function App() {
         </>
       ) : null}
       {screen === 'scan' && permission === 'granted' ? <ScanScreen /> : null}
+      {screen === 'visitor' ? <VisitorScreen permission={permission} permissionChecked={permissionChecked} onAllow={ask} /> : null}
       {plain ? <View style={styles.cover}>{plain}</View> : null}
     </View>
   );

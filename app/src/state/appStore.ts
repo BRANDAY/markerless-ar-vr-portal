@@ -97,6 +97,8 @@ export interface AppState {
   problem: ProblemKind | null;
   /** Whether this phone can run AR; null until the AR engine has answered. */
   arSupported: boolean | null;
+  /** Visitor screen: the welcome panel has been passed and the camera is shown. */
+  visitorStarted: boolean;
 
   door: PoseUpdate | null;
   providerId: ProviderId;
@@ -133,9 +135,12 @@ let state: AppState = {
   history: [],
   problem: null,
   arSupported: null,
+  visitorStarted: false,
 
   door: null,
-  providerId: 'manual',
+  // At start the room is always found through the server (`ui-spec.md`, 4.3); a door put
+  // in front of the camera is a developer tool.
+  providerId: 'self-hosted',
   providerStatus: 'idle',
   providerDetail: '',
   providerMeta: {},
@@ -265,6 +270,12 @@ export const appActions = {
 
   setArSupported(arSupported: boolean): void {
     setState({ arSupported });
+  },
+
+  setVisitorStarted(visitorStarted: boolean): void {
+    if (visitorStarted !== state.visitorStarted) {
+      setState({ visitorStarted });
+    }
   },
 
   showProblem(problem: ProblemKind): void {

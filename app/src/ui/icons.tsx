@@ -12,6 +12,7 @@ export type IconName =
   | 'more'
   | 'settings'
   | 'info'
+  | 'help'
   | 'check'
   | 'alert'
   | 'door'
@@ -129,6 +130,14 @@ export function Icon({ name, color, size = 22 }: { name: IconName; color: string
           {ring(19 * s)}
           {bar(7 * s, 90, 0, 2.5 * s)}
           {dot(2.4 * s, 0, -5 * s)}
+        </>
+      );
+      break;
+    case 'help':
+      body = (
+        <>
+          {ring(19 * s)}
+          <Text style={{ color, fontSize: 13 * s, fontWeight: '700', lineHeight: 16 * s }}>?</Text>
         </>
       );
       break;

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import appConfig from '../../app.json';
@@ -7,6 +8,8 @@ import { roomActions, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { chipState } from './core/homeView';
+import { openDoor } from './flows';
+import { PinSheet, SwitchToVisitorSheet } from './modeSheets';
 import { Body, Eyebrow, Row, ScreenFrame, Small, useSevenTaps } from './kit';
 import { useServerView } from './ServerPanel';
 import { TYPE, useTheme } from './theme';
@@ -17,6 +20,7 @@ export function SettingsScreen() {
   const connection = useServerView().connection;
   const auto = usePrefs((s) => s.findAutomatically);
   const developer = usePrefs((s) => s.developerOptions);
+  const [sheet, setSheet] = useState<'switch' | 'pin' | null>(null);
 
   const chip = chipState(connection.state);
   const serverName = connection.info?.serverName ?? '';
@@ -36,9 +40,12 @@ export function SettingsScreen() {
   });
 
   return (
+    <>
     <ScreenFrame title={t('settings.title')} onBack={() => appActions.back()}>
       <Row icon="wifi" tone={chip === 'connected' ? 'teal' : 'neutral'} title={t('settings.server')} value={serverValue} arrow onPress={() => appActions.go('connect')} />
       <Row icon="search" title={t('settings.auto')} toggle={{ value: auto, onChange: (value) => prefsActions.set({ findAutomatically: value }) }} />
+      <Row icon="door" title={t('settings.switch')} arrow onPress={() => setSheet('switch')} />
+      <Row icon="lock" title={t('settings.changePin')} arrow onPress={() => setSheet('pin')} />
       <Row icon="lock" title={t('settings.privacy')} arrow onPress={() => appActions.go('privacy')} />
       <Row icon="info" title={t('settings.how')} arrow onPress={() => appActions.go('welcome')} />
 
@@ -49,6 +56,9 @@ export function SettingsScreen() {
 
       {developer ? <DeveloperOptions /> : null}
     </ScreenFrame>
+    {sheet === 'switch' ? <SwitchToVisitorSheet onClose={() => setSheet(null)} /> : null}
+    {sheet === 'pin' ? <PinSheet purpose="change" onClose={() => setSheet(null)} onDone={() => setSheet(null)} /> : null}
+    </>
   );
 }
 
@@ -79,7 +89,13 @@ function DeveloperOptions() {
         switches.
       </Body>
       <Row title="Diagnostics on the AR screen" toggle={{ value: diagnosticsLine, onChange: (value) => prefsActions.set({ diagnosticsLine: value }) }} />
-      <Row title="Localisation provider" sub="Normally chosen by the app when a door is opened" value={providerId} onPress={nextProvider} />
+      <Row
+        title="Localisation provider"
+        sub="Kept while developer options are on; without them the server is always used"
+        value={providerId === 'manual' ? 'manual - not tied to the room' : providerId}
+        onPress={nextProvider}
+      />
+      <Row title="Door in front of the camera" sub="Not tied to the room: two metres ahead, no server" arrow onPress={() => openDoor('free')} />
       <Row title="Door frame" value={frame} onPress={() => appActions.setFrame(frame === 'casing' ? 'simple' : 'casing')} />
       <Row title="Attach mode" value={attachMode} onPress={() => appActions.setAttachMode(attachMode === 'direct' ? 'parent' : 'direct')} />
       <Row title="Room plan in AR" toggle={{ value: planVisible, onChange: () => roomActions.togglePlan() }} />

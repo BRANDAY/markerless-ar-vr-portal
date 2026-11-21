@@ -11,6 +11,7 @@ import type { ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roo
 import { serverConnection } from '../server/ServerConnection';
 import { getPrefs, prefsActions } from '../state/prefs';
 import { pickRoom } from '../ui/core/homeView';
+import { doorMayBeShown } from '../ui/core/modes';
 import { roomDisplayName } from './roomNames';
 
 export interface RoomDetail {
@@ -65,10 +66,20 @@ export function roomName(mapId: string | null): string {
 /**
  * The id of the room to find or to open: the one used last if the server still has it.
  * Reads the server's own list of rooms, so it also works before `refresh` has answered.
+ *
+ * In visitor mode only a room with a door that staff saved will do; once the list of
+ * rooms is known, a server without such a room has no room for a visitor.
  */
 export function currentRoomId(): string | null {
   const ids = serverConnection.getView().connection.info?.maps ?? [];
-  return pickRoom(ids, getPrefs().lastRoomId);
+  const { visitorMode, lastRoomId } = getPrefs();
+  if (visitorMode && state.rooms.length > 0) {
+    const withDoor = state.rooms
+      .filter((room) => ids.includes(room.mapId) && doorMayBeShown(room.portalSource, true))
+      .map((room) => room.mapId);
+    return pickRoom(withDoor, lastRoomId);
+  }
+  return pickRoom(ids, lastRoomId);
 }
 
 let generation = 0;
