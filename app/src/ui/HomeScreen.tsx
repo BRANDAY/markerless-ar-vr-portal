@@ -88,7 +88,10 @@ export function HomeScreen() {
         {kind === 'no-door' ? <Tag label={t('home.room.noDoor')} tone="amber" /> : null}
       </View>
       <PlanDrawing room={plan?.room ?? null} door={kind === 'no-door' ? null : savedDoor} width={planWidth} height={150} />
-      <Text style={[TYPE.cardTitle, { color: theme.ink }]}>{roomName(roomId) || t('home.room.eyebrow')}</Text>
+      <Pressable onPress={() => appActions.go('rooms')} accessibilityRole="button" accessibilityLabel={t('rooms.title')} style={styles.roomName}>
+        <Text style={[TYPE.cardTitle, styles.flex, { color: theme.ink }]}>{roomName(roomId) || t('home.room.eyebrow')}</Text>
+        <Icon name="forward" color={theme.ink2} size={16} />
+      </Pressable>
       {kind === 'no-door' ? <Small>{t('home.room.noDoor.line')}</Small> : doorLine ? <Small>{doorLine}</Small> : null}
     </Card>
   );
@@ -263,5 +266,6 @@ const styles = StyleSheet.create({
   settings: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   spaceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  roomName: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
   change: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
 });

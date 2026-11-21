@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { t } from '../i18n';
+import { useRoomHealth } from '../room/roomAdmin';
 import { roomsActions } from '../room/roomsStore';
 import { serverConnection } from '../server/ServerConnection';
 import { getPhoneNetworkState } from '../server/wifiRoute';
@@ -174,6 +175,9 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
     arUnsupported: arSupported === false,
     searchPending: !searched,
   });
+
+  // A room that keeps not being found is marked in the staff's Rooms list.
+  useRoomHealth(view.sheet === 'notRecognised');
 
   const [aboutOpen, setAboutOpen] = useState(false);
   /** The sheet the visitor has closed; it stays closed until the problem goes away. */

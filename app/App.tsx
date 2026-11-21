@@ -33,6 +33,7 @@ import { BridgeScreen } from './src/ui/BridgeScreen';
 import { PlaceDoorScreen } from './src/ui/PlaceDoorScreen';
 import { ProblemScreen } from './src/ui/ProblemScreen';
 import { RoomResultScreen } from './src/ui/RoomResultScreen';
+import { RoomsScreen } from './src/ui/RoomsScreen';
 import { ScanPrepareScreen } from './src/ui/ScanPrepareScreen';
 import { ScanScreen } from './src/ui/ScanScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
@@ -330,6 +331,9 @@ export default function App() {
       break;
     case 'spaces':
       plain = <SpacesScreen />;
+      break;
+    case 'rooms':
+      plain = <RoomsScreen />;
       break;
     case 'problem':
       plain = <ProblemScreen kind={problem ?? 'server'} />;

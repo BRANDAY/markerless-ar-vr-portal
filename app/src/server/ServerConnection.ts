@@ -233,6 +233,14 @@ class ServerConnection {
     return result;
   }
 
+  /**
+   * One check right now instead of at the next heartbeat: after the server's rooms were
+   * changed from this phone, so that the list it reports is the new one.
+   */
+  async checkNow(): Promise<void> {
+    await this.probeNow(HEARTBEAT_TIMEOUT_MS);
+  }
+
   /** Forget the configured and the saved address. */
   forget(): void {
     this.cancelSearch();

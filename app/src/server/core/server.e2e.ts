@@ -62,6 +62,7 @@ import {
   postDeviceLog,
   probeHealth,
   removeDoor,
+  renameRoom,
   saveDoor,
   setClientIdentity,
   setClientRole,
@@ -497,6 +498,25 @@ async function main(): Promise<number> {
         check(false, `the device log could not be read back: ${String(error)}`);
       }
     }
+  }
+
+  // 8. the room's name (`ui-spec.md`, 5.11; api-v2, section 10): renamed, and named back.
+  //    Deleting a room is not tried here: it would take the room of this test away.
+  if (!withDoor) {
+    console.log(`SKIP  renaming the room: it would change "${mapId}" (add --door to run it)`);
+  } else if (!caps.includes('rooms_admin')) {
+    console.log('SKIP  renaming the room: the server does not announce rooms_admin');
+  } else {
+    setClientRole('staff');
+    const before = await getMaps(baseUrl);
+    const was = before.ok ? (before.value.find((room) => room.mapId === mapId)?.label ?? '') : '';
+    const name = 'App e2e - renamed';
+    const renamed = await renameRoom(baseUrl, mapId, name);
+    check(renamed.ok && renamed.value.label === name, `room renamed${renamed.ok ? '' : `: ${renamed.reason}`}`);
+    const listed = await getMaps(baseUrl);
+    check(listed.ok && listed.value.find((room) => room.mapId === mapId)?.label === name, 'GET /maps lists the room under its new name');
+    const back = await renameRoom(baseUrl, mapId, was || null);
+    check(back.ok && back.value.label === was, `the earlier name is back ("${was}")`);
   }
 
   console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`);

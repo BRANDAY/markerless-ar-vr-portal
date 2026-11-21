@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { t, type TextKey } from '../i18n';
 import { useMeasure } from '../measure/measureController';
 import { removeSavedDoor } from '../room/doorServer';
+import { useRoomHealth } from '../room/roomAdmin';
 import { roomName as nameOfRoom, useRooms } from '../room/roomsStore';
 import { spaceInfo } from '../spaces/spaces';
 import { appActions, useAppState } from '../state/appStore';
@@ -67,6 +68,8 @@ export function ArScreen() {
     }
   }, [view.sheet]);
   const sheet = view.sheet !== null && view.sheet !== closedSheet ? view.sheet : null;
+  // A room that keeps not being found is marked in the Rooms list.
+  useRoomHealth(view.sheet === 'unknown' && source === 'room');
 
   // "Walk through the door", for a few seconds whenever the door comes to stand.
   const [hint, setHint] = useState(false);
@@ -110,6 +113,11 @@ export function ArScreen() {
   const moveDoor = () => {
     setMenuOpen(false);
     openPlaceDoor();
+  };
+  /** "This is a different room", "Choose another room": the Rooms list, with Home behind it. */
+  const chooseRoom = () => {
+    appActions.resetTo(homeScreen());
+    appActions.go('rooms');
   };
   // The Spaces screen is not over the camera: coming back, the room is found again.
   const changeSpace = () => {
@@ -166,7 +174,11 @@ export function ArScreen() {
 
       <View style={styles.bottom} pointerEvents="box-none">
         {coach && !view.lostBanner ? (
-          <CoachCard line1={t(coach.line1)} line2={coach.line2 ? t(coach.line2) : undefined} />
+          <CoachCard line1={t(coach.line1)} line2={coach.line2 ? t(coach.line2) : undefined}>
+            {view.offerOtherRoom && source === 'room' ? (
+              <AppButton kind="ghost" onCamera label={t('ar.differentRoom')} onPress={chooseRoom} />
+            ) : null}
+          </CoachCard>
         ) : null}
         {hint && view.situation === 'door' && !view.lostBanner ? (
           <View style={styles.center} pointerEvents="none">
@@ -217,6 +229,7 @@ export function ArScreen() {
           <SheetTitle>{t('problem.unknown.title', { room: source === 'room' ? roomName : t('ar.room.fallback') })}</SheetTitle>
           <Body dim>{t('problem.unknown.body')}</Body>
           <AppButton label={t('problem.unknown.keep')} onPress={appActions.requestRelocalize} />
+          {source === 'room' ? <AppButton kind="text" label={t('problem.unknown.otherRoom')} onPress={chooseRoom} /> : null}
           {source === 'room' ? (
             <AppButton kind="text" label={t('problem.unknown.scan')} onPress={() => openGuidedScan('again')} />
           ) : null}

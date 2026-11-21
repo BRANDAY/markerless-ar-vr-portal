@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (201 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (208 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -283,6 +283,32 @@ What staff meet, in order:
    directly with the copyright lines of their licence files. Not listed: software that
    comes in indirectly (the AR engine among it) and the full texts of the licences.
    Nothing of 5 and 6 has been seen on a device.
+7. **Rooms** (`src/ui/RoomsScreen.tsx`, rows and menu decided in
+   `src/ui/core/roomsView.ts`, tested; spec 5.11): one row per room of the server, read
+   with `GET /maps`. Opened by the arrow beside the room's name on Home, and from the
+   staff AR screen by **This is a different room** (under the coach lines from the fourth
+   attempt on) and **Choose another room** (on "This doesn't look like ...").
+   - The line of a row: "Ready · {space}" (teal), "No door yet · place the door" (amber),
+     "Building the map · {p}%" (amber; a tap opens the build), "Scan again · the room has
+     changed" (red).
+   - **Red** means: the room was not found in three stays on a camera screen in a row
+     (`src/room/roomAdmin.ts`: a stay that ends in "This doesn't look like ..." - or, for
+     a visitor, in its "not recognised" sheet - counts one; a room that is found, or
+     scanned again, starts anew). The count is kept on this phone (`missedByRoom` in the
+     preferences, a key the spec does not list).
+   - **A tap on a row** makes that room the one the app works with and leads back. The
+     spec does not say what a tap does; without it a second room could not be opened,
+     because the app still names the room when it asks the server where the phone is.
+   - The row's menu: **Move the door** / **Place the door**, **Remove the door**,
+     **Change the space**, **Scan again**, **Rename**, **Delete** - the last two only when
+     the server announces `rooms_admin`. Rename is a sheet with a text field (at most 80
+     characters, the server's limit). Delete asks first, in the spec's words.
+   - **What "Delete" does on the server**: it takes the room out of use and moves its
+     folder into `.trash` on the server's disk; whoever runs the server can put it back.
+     The question on the screen says the map and the video "are removed" - that is the
+     spec's text, and it says more than the server does.
+   - Under the list: "Rooms live on the server ...", and **Scan a new room**.
+   Not seen on a device.
 
 ### Scanning a room
 
@@ -567,7 +593,9 @@ Kept as a list for the product side; nothing here was decided silently.
 | Blur behind elements over the camera | translucent fill only | the spec allows it |
 | Status panel and event log only on a Diagnostics screen | also the former overlay as **Tools** over the camera | the measurement mode needs crosshair, marks and log over the live view |
 | Door fades in over 300 ms; door dimmed while tracking is lost | the door appears at once and is not dimmed | not tried inside ViroReact's portal |
-| "This is a different room", "Choose another room" in the AR problem sheet | "Keep looking" and "Scan this room" only | the rooms list is a later step |
+| Rooms: what a tap on a row does | it makes that room the one the app works with and leads back | the spec names no action; the room is still named by the app when it asks the server (S6 is not used yet) |
+| Rooms: texts the spec does not have | "Save" (rename), "A map is being built for this room. Try again when it is done.", "That did not work. Try again.", the screen-reader label "More about {name}" | the spec names the actions, not these lines |
+| Rooms: "failed to be found three sessions in a row" | counted on this phone, per stay on a camera screen | the server keeps no such count |
 | A ring with the percentage | the number in a plain circle, and a bar | no vector-drawing module (the spec allows the bar) |
 | Floor painted as a dot grid, corners as a dot with a ring | the floor's edge only; a white dot on a small square | kept to a few scene nodes |
 | Room mesh as thin lines in the scan colour | the AR engine's own mesh lines, in its colour | the engine draws them; the colour is not ours to set |
@@ -835,7 +863,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 201 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 208 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -1020,6 +1048,7 @@ localisation on was run again against server 0.5.0 after the door layer was intr
 | The app's own sum against the door the server multiplied out for the same answer | **0.0 mm, 0.00 degrees** apart, on both rooms |
 | The door removed | ok; the room has no door for visitors again |
 | The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth (the server's estimate: 3.3 cm, with its warning about the session's alignment); the door through the second way stands **1.7 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run7`) |
+| The room's name: renamed, listed under the new name, named back (`PATCH /maps/{id}` with `label`) | all three pass (server 0.6.0, `run8`). Deleting a room is not tried: it would take the test's room away |
 | The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.5 s, "good", 1075 inliers; the app's decision: **place**; the door stands **2.3 cm** from where the recording's known transform puts it |
 
 The zero in the second localisation is expected and says less than it seems: the door
@@ -1153,6 +1182,9 @@ src/
   spaces/spaceChoice.ts       the choice tied to the stores: kept per room in the preferences, shown by the scene
   spaces/pictures.ts, credits.ts   the picture of each space; whose work the spaces, the door and the software are
   ui/SpacesScreen.tsx         the list of spaces, the sheet of one, "Put behind my door"
+  ui/RoomsScreen.tsx          the rooms of the server: state of each, row menu, rename, delete
+  ui/core/roomsView.ts        pure, unit-tested: the rows and their states, the row menu, the count of failed searches
+  room/roomAdmin.ts           rename and delete a room on the server; the count of sessions in which a room was not found
   ui/VisitorScreen.tsx        the whole of visitor mode: welcome panel, coach lines, "ask a member of staff" sheets
   ui/modeSheets.tsx           the staff PIN pad, and the question before switching to visitor mode
   ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts

@@ -21,6 +21,7 @@ import { serverConnection } from '../server/ServerConnection';
 import { appActions, getAppState } from '../state/appStore';
 import { getPrefs, prefsActions } from '../state/prefs';
 import { type BuildFailure, failureFromJobError, failureFromUpload } from '../ui/core/buildView';
+import { noteSession } from './roomAdmin';
 import { getRoomScanState, isBuilding, roomActions, type ScanTarget, type ServerPlan } from './roomStore';
 import { roomsActions } from './roomsStore';
 import { findCaptureDir, getLastCaptureDir, recordClip } from './scanController';
@@ -137,6 +138,8 @@ async function finishBuild(baseUrl: string, target: ScanTarget, job: ServerJob, 
 
   // The new room is the one the app works with from now on.
   prefsActions.set({ lastRoomId: target.mapId, lastCapture: null });
+  // A new map: the searches that failed with the old one no longer count against the room.
+  noteSession(target.mapId, true);
   void roomsActions.refresh();
   if (getAppState().screen === 'ar') {
     // Developer tools: the recording was made in the AR session that is still running,

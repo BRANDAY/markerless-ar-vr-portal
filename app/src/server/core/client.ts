@@ -427,6 +427,23 @@ export function measureBridge(baseUrl: string, mapId: string, body: BridgeBody, 
   return requestJson(`${baseUrl}/maps/${enc(mapId)}/vps/bridge`, { method: 'POST', body: JSON.stringify(body) }, parseMapInfo, options);
 }
 
+/**
+ * `PATCH /maps/{map_id}` with `{"label": ...}`: renames the room (api-v2, section 10;
+ * capability `rooms_admin`). The id stays; null removes the name. The answer is the room.
+ */
+export function renameRoom(baseUrl: string, mapId: string, label: string | null, options?: RequestOptions): Promise<ApiResult<ServerMapInfo>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}`, { method: 'PATCH', body: JSON.stringify({ label }) }, parseMapInfo, options);
+}
+
+/**
+ * `DELETE /maps/{map_id}`: the server takes the room out of use (api-v2, section 10). It
+ * moves the room's folder aside on its disk; it does not erase it. 409 while a map is
+ * being built for the room, 404 for a room it does not have.
+ */
+export function deleteRoom(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<true>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}`, { method: 'DELETE' }, parseAnyObject, options);
+}
+
 /** `GET /maps`: the rooms the server has. */
 export function getMaps(baseUrl: string, options?: RequestOptions): Promise<ApiResult<ServerMapInfo[]>> {
   return requestJson(`${baseUrl}/maps`, { method: 'GET' }, parseMaps, options);

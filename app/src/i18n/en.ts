@@ -325,6 +325,21 @@ export const en = {
   'spaces.put': 'Put behind my door',
   'spaces.notice': 'Walk-in spaces have depth: you can step inside and look around corners. 360° views surround you but stay flat.',
 
+  // ---- rooms ----
+  'rooms.title': 'Rooms',
+  'rooms.state.ready': 'Ready · {space}',
+  'rooms.state.noDoor': 'No door yet · place the door',
+  'rooms.state.changed': 'Scan again · the room has changed',
+  'rooms.menu': 'More about {name}',
+  'rooms.rename': 'Rename',
+  'rooms.rename.save': 'Save',
+  'rooms.delete': 'Delete',
+  'rooms.delete.ask': 'Delete “{name}”? Its map and video are removed from the server. This can’t be undone.',
+  'rooms.delete.building': 'A map is being built for this room. Try again when it is done.',
+  'rooms.failed': 'That did not work. Try again.',
+  'rooms.footer': 'Rooms live on the server “{server}”. Every phone that connects to it sees the same rooms.',
+  'rooms.scanNew': 'Scan a new room',
+
   // ---- credits and licences ----
   'credits.door': 'The door',
   'credits.software': 'Software',

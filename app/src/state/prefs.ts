@@ -48,6 +48,11 @@ export interface Prefs {
   lastRoomId: string | null;
   /** Chosen space per room, until the server stores it. */
   spaceByRoom: Record<string, string>;
+  /**
+   * Per room: in how many AR sessions in a row it was not found (`ui/core/roomsView.ts`).
+   * From three on, the Rooms list says the room has changed.
+   */
+  missedByRoom: Record<string, number>;
   /** Folder of the newest scan, so "Send again" survives a restart. */
   lastCapture: string | null;
   /** Chosen language, else the phone's. */
@@ -77,6 +82,7 @@ const DEFAULTS: Prefs = {
   doorRecords: null,
   lastRoomId: null,
   spaceByRoom: {},
+  missedByRoom: {},
   lastCapture: null,
   language: null,
 };

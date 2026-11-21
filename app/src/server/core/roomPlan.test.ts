@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, test } from 'node:test';
 
-import { getJob, getJobs, getPortal, getRoom, localize, measureBridge, patchRoomVps, removeDoor, saveDoor, setClientRole, uploadRecording } from './client';
+import { deleteRoom, getJob, getJobs, getPortal, getRoom, localize, measureBridge, patchRoomVps, removeDoor, renameRoom, saveDoor, setClientRole, uploadRecording } from './client';
 import { validateHealth } from './health';
 import {
   describeJob,
@@ -314,9 +314,11 @@ describe('room-scan requests against a local mock', () => {
           });
         }
         if (request.method === 'PATCH' && url === '/maps/room') {
-          const sent = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { vps: unknown };
-          return send(200, { map_id: 'room', label: 'Living room', portal_source: 'none', vps: sent.vps });
+          const sent = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { vps?: unknown; label?: string | null };
+          return send(200, { map_id: 'room', label: sent.label === undefined ? 'Living room' : sent.label, portal_source: 'none', vps: sent.vps });
         }
+        if (request.method === 'DELETE' && url === '/maps/room') return send(200, { deleted: 'room', kept_as: '.trash/room-20261121-094000' });
+        if (request.method === 'DELETE' && url === '/maps/busy') return send(409, { detail: 'a build for this room is running' });
         if (request.method === 'DELETE' && url === '/maps/room/portal') return send(200, { deleted: true, portal: { source: 'none' } });
         if (url === '/maps/room/portal') return send(200, PORTAL);
         if (url === '/maps/odd/portal') return send(200, 'not an object');
@@ -397,6 +399,23 @@ describe('room-scan requests against a local mock', () => {
     const removed = await patchRoomVps(baseUrl, 'room', null);
     assert.equal(removed.ok && removed.value.vps, null);
     assert.equal((await patchRoomVps(baseUrl, 'nowhere', null)).ok, false);
+  });
+  test('a room is renamed and deleted (api-v2, section 10)', async () => {
+    const renamed = await renameRoom(baseUrl, 'room', 'Exhibition 2');
+    assert.equal(renamed.ok && renamed.value.label, 'Exhibition 2');
+    const request = seen.filter((r) => r.method === 'PATCH').pop();
+    assert.deepEqual(JSON.parse(request?.body ?? 'null'), { label: 'Exhibition 2' });
+    // no name: the label is removed
+    const unnamed = await renameRoom(baseUrl, 'room', null);
+    assert.equal(unnamed.ok && unnamed.value.label, '');
+    assert.equal((await renameRoom(baseUrl, 'nowhere', 'x')).ok, false);
+
+    assert.deepEqual(await deleteRoom(baseUrl, 'room'), { ok: true, value: true });
+    // refused while a map is being built for the room
+    const busy = await deleteRoom(baseUrl, 'busy');
+    assert.equal(!busy.ok && busy.status, 409);
+    const gone = await deleteRoom(baseUrl, 'nowhere');
+    assert.equal(!gone.ok && gone.status, 404);
   });
   test('the bridge: samples of one AR session go to the server, the measured bridge comes back', async () => {
     const identity = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
