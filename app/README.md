@@ -772,30 +772,43 @@ Checked against the server on the PC; **not yet run from a phone**.
 ### End-to-end check without a phone
 
 ```powershell
-npm run e2e:server -- http://127.0.0.1:8077 <folder with video.mp4 and session.jsonl> [map id] [--localize-only]
+npm run e2e:server -- http://127.0.0.1:8077 <folder with video.mp4 and session.jsonl> [map id] [--localize-only] [--door]
 ```
 
 runs the app's own client code and decision rules against a real server from the PC
 (`src/server/core/server.e2e.ts`): health, device log, upload, following the build, room
-plan, doorway, and a localisation with the recording used as the clip. The map id
-defaults to `app_e2e` and is replaced on the server. Result of the last run:
-server 0.3.0 on the development PC (GTX 1050 Ti), 2026-11-20, with the server project's
-test recording of 30 frames from the public TUM room sequence (not a phone recording):
+plan, door, a localisation with the recording used as the clip, and then what a staff
+member and a visitor do with the door: a door is saved as placed in the clip's AR
+session, a second localisation in that session has to bring it back, a save from a
+session that never found the room has to be refused, and the door is removed again. The
+map id defaults to `app_e2e` and is replaced on the server. With `--localize-only`
+nothing is uploaded and an existing map is used; the door part **replaces and then
+removes the map's door**, so with `--localize-only` it runs only when `--door` is given
+too.
+
+Result of the last runs: server 0.4.0 on the development PC (GTX 1050 Ti), 2026-11-21,
+with the server project's test recording of 30 frames from the public TUM room sequence
+(not a phone recording). Logs: `E:\VR-FESB\device-tests\2026-11-21\e2e\`.
 
 | Step | Result |
 | --- | --- |
-| Health, capabilities | ok |
+| Health, capabilities (`staff_door`, `door_size`, `rooms_admin` among them) | ok |
 | Device log: batch accepted, a repeated batch counted as duplicates | ok |
-| Upload accepted, build followed through its seven steps | ok, 643 s |
-| Room plan and doorway of the new map parsed | 2 walls, 1 corner, 1 door opening - which the server did not consider sure enough to use (`source: none`) |
-| Localisation with the recording as the clip | answered in 1.7 s, "good", 743 inliers; the app's decision: **no doorway, nothing placed** |
-| The same clip against an existing map that has a doorway set by hand (`--localize-only`) | answered in 3.4 s, "good", 1073 inliers; the app's decision: **place**; the doorway came back **2.3 cm** from where the recording's known transform puts it |
+| Upload accepted, build followed to its end | ok, 293 s |
+| Room plan and door of the new map parsed | 2 walls, 1 corner, 1 door opening; no door (`source: none`), and no suggestion: the server did not consider the opening sure enough |
+| Localisation with the recording as the clip | answered in 2.7 s, "good", 741 inliers; the app's decision: **no saved door, nothing placed** |
+| A door saved with a session id that never found the room | refused with 422, as the app expects |
+| A door saved as placed in the clip's session (0.85 × 2.05 m, turned by 35 degrees) | accepted (`alignment_used: session_alignment`); the server shows it as `manual`, confirmed, with its size; `GET /maps` lists the room as one with a door for visitors |
+| A second localisation in that session, as a visitor | the door comes back **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
+| The door removed | ok; the room has no door for visitors again |
+| The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.0 s, "good", 1074 inliers; the app's decision: **place**; the door came back **2.3 cm** from where the recording's known transform puts it |
 
-So both branches of the app's logic were exercised against the real server; a doorway
-found *automatically* by the server and then placed by the app has not been seen yet,
-because no recording at hand produces one. A first run was cut off at step 6 of 7 when the
-server was restarted; the app's client reported the job as failed with the server's
-reason. With `--localize-only` nothing is uploaded and an existing map is used.
+The zero in the second localisation is expected and says less than it seems: the door
+was saved and read back through the same alignment of the same session, so it shows that
+the app's request and the server's conversion agree in both directions, not how well a
+room is found again. The 2.3 cm of the last row is the figure for that, on a test
+recording. A first run on 2026-11-20 was cut off when the server was restarted; the
+app's client reported the job as failed with the server's reason.
 
 What it cannot cover, because it needs React Native or a camera: how the phone encodes
 the upload from file paths, the upload progress, the recorder, the 2.5 s clip, and
