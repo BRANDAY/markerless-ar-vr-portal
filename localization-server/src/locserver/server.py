@@ -19,7 +19,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import API_VERSION, SERVICE_ID, __version__, bridge, config, netinfo
+from . import API_VERSION, SERVICE_ID, __version__, bridge, config, netinfo, wifihint
 from . import geometry as g
 from .capture import Frame, VideoCapture, rotate_image_cw, rotate_intrinsics_cw, sharpness
 from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
@@ -47,10 +47,11 @@ MAX_VIDEO_BYTES = 150 * 2**20
 SESSION_TTL_S = 30 * 60
 SESSION_MAX_OBS = 60
 MAX_MESH_BYTES = 200 * 2**20
-CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge"]
+CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge", "wifi_hint"]
 UI_FILE = Path(__file__).parent / "ui" / "index.html"
 UNTRACKED_PREFIXES = ("/ui", "/monitor", "/favicon", "/docs", "/openapi")  # the panel itself is not a device
-API_REVISION = 4
+API_REVISION = 5
+MAX_ROOMS_TRIED = 6  # rooms one /localize request may try when it has to find the room itself
 
 
 class State:
@@ -225,7 +226,15 @@ def _map_extras(m: LocMap) -> dict:
         "frame_id": _frame_id(m),
         "vps": (vps := bridge.public_vps(m.meta.get("vps"), _frame_id(m))),
         "recognition": ["self-hosted"] + ([vps["provider"]] if vps and vps["bridge"] and vps["bridge"]["valid"] else []),
+        "wifi": wifihint.public(m.meta.get("wifi")),  # how many networks are known for the room - never which
     }
+
+
+def _wifi_seen(raw) -> dict:
+    """The networks a phone sent (JSON text or parsed), as ``{bssid: rssi}``. Raises ``ValueError``."""
+    if isinstance(raw, (str, bytes)):
+        raw = json.loads(raw)
+    return wifihint.parse(raw)
 
 
 def _save_upload(upload: UploadFile, path: Path, limit: int, what: str) -> int:
@@ -459,6 +468,47 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         m.set_meta(changes)
         return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
 
+    @app.put("/maps/{map_id}/wifi")
+    def wifi_put(map_id: str, body: dict = Body(...)):
+        """The staff phone tells which Wi-Fi networks it sees in this room: ``{"networks": [{"bssid", "rssi"}]}``.
+
+        Scans add up (the strongest signal per network is kept); ``"replace": true`` starts over.
+        Only a hint for *which room* - see wifihint.py. The addresses are never returned by the API.
+        """
+        m = st.get_map(map_id)
+        try:
+            unknown = set(body) - {"networks", "replace"}
+            if unknown:
+                raise ValueError(f"unknown field(s) {sorted(unknown)}")
+            seen = wifihint.parse(body.get("networks"), "networks")
+            if not seen:
+                raise ValueError("no usable network in the list")
+        except ValueError as e:
+            raise HTTPException(422, f"bad wifi list: {e}")
+        m.set_meta({"wifi": wifihint.merge(m.meta.get("wifi"), seen, utc_now(), replace=bool(body.get("replace")))})
+        return {"map_id": m.map_id, "wifi": wifihint.public(m.meta.get("wifi"))}
+
+    @app.delete("/maps/{map_id}/wifi")
+    def wifi_delete(map_id: str):
+        m = st.get_map(map_id)
+        had = bool(m.meta.get("wifi"))
+        m.set_meta({"wifi": None})
+        return {"map_id": m.map_id, "deleted": had, "wifi": None}
+
+    @app.post("/maps/candidates")
+    def map_candidates(body: dict = Body(default={})):
+        """Which room is this phone probably in? Rooms ordered by the Wi-Fi networks it sees (no picture involved)."""
+        try:
+            seen = _wifi_seen(body["wifi"]) if body.get("wifi") else {}
+        except ValueError as e:
+            raise HTTPException(422, f"bad wifi list: {e}")
+        maps = [m for m in st.maps.values() if not body.get("only_with_door") or resolve_portal(m)["confirmed"]]
+        cands = wifihint.order([{"map_id": m.map_id, "wifi": m.meta.get("wifi"), "visual": None} for m in maps], seen)
+        for c in cands:
+            lm = st.maps[c["map_id"]]
+            c.update(label=lm.meta.get("label"), portal_confirmed=resolve_portal(lm)["confirmed"])
+        return {"hint": "wifi" if seen else "none", "networks_sent": len(seen), "candidates": cands}
+
     @app.post("/maps/{map_id}/vps/bridge")
     def vps_bridge(map_id: str, request: Request, body: dict = Body(...)):
         """Measure the bridge: the phone was located by this server and by the service in one AR session.
@@ -542,6 +592,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         device_id: str | None = Form(None),
         label: str | None = Form(None),
         session_id: str | None = Form(None, description="id of the AR session that recorded (the one later sent to /localize)"),
+        wifi: str | None = Form(None, description='JSON list of the Wi-Fi networks seen in the room: [{"bssid": "..", "rssi": -52}]'),
         max_frames: int = Form(200),
         detect_openings: bool = Form(True),
     ):
@@ -562,6 +613,10 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             raise HTTPException(422, "display_rotation_cw must be 0, 90, 180 or 270")
         if not 30 <= max_frames <= 400:
             raise HTTPException(422, "max_frames must be between 30 and 400")
+        try:
+            seen = _wifi_seen(wifi) if wifi else {}
+        except ValueError as e:
+            raise HTTPException(422, f"bad wifi list: {e}")
 
         def refuse_if_busy():
             if (map_id in st.maps or (st.maps_dir / map_id).exists()) and not replace:
@@ -587,6 +642,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 raise HTTPException(422, problem[1], headers={"X-Error-Code": problem[0]})
             params = {"display_rotation_cw": display_rotation_cw, "device_id": device_id, "label": label,
                       "recording_session_id": session_id,
+                      "wifi": wifihint.merge(None, seen, utc_now()) if seen else None,
                       "max_frames": max_frames, "detect_openings": detect_openings, "mesh": None, "mesh_format": mesh_format}
             if mesh is not None:
                 mpath = d / _mesh_name(mesh, mesh_format)
@@ -687,6 +743,32 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         if vps and vps.get("bridge"):  # it was measured in the old units of the map
             m.set_meta({"vps": {**vps, "bridge": None, "bridge_dropped": {"reason": "scale_changed", "utc": utc_now()}}})
         return m.summary()
+
+    def _find_room(cands: list[LocMap], fr: Frame, seen: dict, intr, device_id, map_camera: bool, max_rooms: int):
+        """Try the frame in the candidate rooms, most likely first: Wi-Fi hint, then how alike the pictures are.
+
+        Returns ``(room, result of the frame in that room, the candidates with what happened)``.
+        The first room with a good localisation wins; with none, the room with the most inliers.
+        """
+        visual: dict = {}
+        similarity = getattr(st.localizer, "room_similarity", None)
+        if similarity is not None:
+            try:
+                visual = similarity(cands, fr.image)
+            except Exception:  # ordering by picture is a help, not a need
+                log.warning("visual room similarity failed", exc_info=True)
+        ordered = wifihint.order([{"map_id": c.map_id, "wifi": c.meta.get("wifi"), "visual": visual.get(c.map_id)} for c in cands], seen)
+        best = None
+        for i, c in enumerate(ordered):
+            lm = st.maps[c["map_id"]]
+            c.update(label=lm.meta.get("label"), tried=False, success=None, quality=None, num_inliers=None)
+            if i >= max(1, min(int(max_rooms), MAX_ROOMS_TRIED)) or (best and best[1].success and best[1].quality == "good"):
+                continue
+            r = st.localizer.localize(lm, fr.image, intr, device_id, map_camera)
+            c.update(tried=True, success=bool(r.success), quality=r.quality, num_inliers=int(r.num_inliers))
+            if best is None or (r.success, r.num_inliers) > (best[1].success, best[1].num_inliers):
+                best = (lm, r)
+        return best[0], best[1], ordered
 
     def _session_sim(m: LocMap, sid: str):
         """``(arworld <- map, how it is known, its position rms)`` of an AR session, or ``(None, "map", None)``."""
@@ -868,9 +950,36 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         max_frames: int = Form(3),
         persist_scale: bool = Form(False),
         include_room: bool = Form(True, description="add the room plan in AR-world coordinates to the alignment"),
+        wifi: str | None = Form(None, description='JSON list of the Wi-Fi networks the phone sees - only orders the candidate rooms'),
+        max_rooms: int = Form(3, description="without map_id: how many rooms are tried at most"),
+        only_with_door: bool = Form(False, description="without map_id: only rooms whose door was placed by the staff"),
     ):
         t_req = time.perf_counter()
-        m = st.get_map(map_id)
+        # which room? given - or the one this AR session is already aligned with - or found below
+        room_choice: dict = {"mode": "given", "hint": "none"}
+        cands: list[LocMap] = []
+        m = None
+        if (map_id or "").strip().lower() not in ("", "auto"):
+            m = st.get_map(map_id)
+        else:
+            s_old = st.sessions.get(session_id) if session_id else None
+            if s_old and s_old["observations"] and s_old["map_id"] in st.maps:
+                m, room_choice["mode"] = st.maps[s_old["map_id"]], "session"
+            else:
+                cands = [x for x in st.maps.values() if not only_with_door or resolve_portal(x)["confirmed"]]
+                if not cands:
+                    raise HTTPException(404, "no room to localise in" + (" (none has a door placed by the staff)" if only_with_door and st.maps else ""))
+                if len(cands) == 1:
+                    m, room_choice["mode"] = cands[0], "only_room"
+                else:
+                    room_choice["mode"] = "auto"
+        seen: dict = {}
+        if wifi and m is None:  # a hint must never break a localisation: a bad list is reported and ignored
+            try:
+                seen = _wifi_seen(wifi)
+                room_choice.update(hint="wifi" if seen else "none", networks_sent=len(seen))
+            except ValueError as e:
+                room_choice.update(hint="invalid", hint_error=str(e))
         if (image is None) == (video is None):
             raise HTTPException(422, "send exactly one of the files `image` or `video`")
         if intrinsics_mode not in ("auto", "map"):
@@ -963,13 +1072,23 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         # ---- localise ---- #
         results = []
         with st.gpu_lock:
-            for fr in frames:
-                try:
-                    r = st.localizer.localize(m, fr.image, intr, device_id, intrinsics_mode == "map")
-                except Exception as e:  # e.g. CUDA out of memory: report, do not crash the server
-                    log.exception("localisation crashed")
-                    raise HTTPException(500, f"localisation error: {type(e).__name__}: {e}")
-                results.append((fr, r))
+            try:
+                rest = frames
+                if m is None:  # find the room with the first (sharpest) frame, then go on in that room
+                    t_room = time.perf_counter()
+                    m, first, tried = _find_room(cands, frames[0], seen, intr, device_id, intrinsics_mode == "map", max_rooms)
+                    room_choice.update(candidates=tried, rooms_tried=sum(1 for c in tried if c["tried"]),
+                                       elapsed_ms=round((time.perf_counter() - t_room) * 1000, 1))
+                    results.append((frames[0], first))
+                    rest = frames[1:]
+                for fr in rest:
+                    results.append((fr, st.localizer.localize(m, fr.image, intr, device_id, intrinsics_mode == "map")))
+            except HTTPException:
+                raise
+            except Exception as e:  # e.g. CUDA out of memory: report, do not crash the server
+                log.exception("localisation crashed")
+                raise HTTPException(500, f"localisation error: {type(e).__name__}: {e}")
+        room_choice["chosen"] = m.map_id
         best_fr, best = max(results, key=lambda fr_r: (fr_r[1].success, fr_r[1].num_inliers))
         out = localization_dict(best, m, st.loc_opts)
         out["frames"] = [
@@ -1010,6 +1129,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         else:
             out["alignment"] = None
         out["frame_id"] = _frame_id(m)
+        out["room_choice"] = room_choice
         out["elapsed_ms"] = round((time.perf_counter() - t_req) * 1000, 1)
         al_out = out.get("alignment") or {}
         st.monitor.record_localization({

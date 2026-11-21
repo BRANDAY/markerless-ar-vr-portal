@@ -26,8 +26,8 @@ Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-ro
 ```json
 {
   "status": "ok", "service": "arportal-localization-server", "api_version": 1,
-  "api_revision": 4,
-  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge"],
+  "api_revision": 5,
+  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge", "wifi_hint"],
   "jobs": {"running": 1, "queued": 0},
   "...": "all v1 fields unchanged"
 }
@@ -39,7 +39,9 @@ Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-ro
   and comes with `confirmed` / `suggested` (section 5). `rooms_admin`: rename
   and delete a room (section 10). `service_bridge` (revision 4): one door per
   room for every way of recognising it; `frame_id`; the bridge to an external
-  positioning service (section 11).
+  positioning service (section 11). `wifi_hint` (revision 5): `/localize`
+  finds the room itself when `map_id` is left out, and Wi-Fi networks can be
+  sent as a hint for which room (section 12).
 * Errors are unchanged: HTTP status + `{"detail": "text"}`.
 * Units and frames are unchanged: metres, right-handed, `T_a_from_b`,
   quaternions `[x, y, z, w]`, `rotation_euler_deg` = ViroReact Euler degrees
@@ -66,6 +68,7 @@ server builds the map **in the background** and answers immediately.
 | `display_rotation_cw` | 0/90/180/270 | no | only if the video's orientation tag is wrong: rotate frames clockwise by this to make them upright |
 | `device_id` | text | no | stored in the map; same meaning as in `/localize` |
 | `label` | text | no | human-readable name shown in `/maps` |
+| `wifi` | JSON text | no | the Wi-Fi networks seen in the room, `[{"bssid": "..", "rssi": -52}]` - only a hint for which room (section 12) |
 | `session_id` | text | no | id of the **AR session that is recording** (same character rule as `map_id`). Send it and the staff can save the door in this same session without a `/localize` first (section 5). Use a new id whenever the AR session starts anew (app start, tracking reset) |
 | `max_frames` | int | no (200) | upper bound of frames used for the map (build time grows with it), 30–400 |
 | `detect_openings` | bool | no (true) | run the doorway search |
@@ -532,6 +535,12 @@ New optional form field:
 | Field | Type | Meaning |
 |---|---|---|
 | `include_room` | bool (default `true`) | add the room plan in AR-world coordinates to the alignment |
+| `map_id` | text, **now optional** | leave it out (or send `auto`) and the server finds the room itself - section 12 |
+| `wifi` | JSON text | the Wi-Fi networks the phone sees; only orders the candidate rooms - section 12 |
+| `max_rooms` | int (default 3, at most 6) | without `map_id`: how many rooms are tried |
+| `only_with_door` | bool (default `false`) | without `map_id`: only rooms whose door a staff member placed (what a visitor wants) |
+
+The answer always carries `"room_choice"` (section 12) and `"frame_id"`.
 
 When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 
@@ -605,12 +614,17 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
    session after one accepted `/localize`), `DELETE /maps/{map_id}/portal`
    removes it, `PATCH /maps/{map_id}` renames the room, `DELETE /maps/{map_id}`
    removes the room (section 10).
-8. Only when the room is also registered at an external service: measure the
+8. Optionally leave the Wi-Fi networks seen in the room with it: field `wifi`
+   of the upload in step 3, or `PUT /maps/{map_id}/wifi` later (section 12).
+9. Only when the room is also registered at an external service: measure the
    bridge once (section 11), in the same AR session or any later one.
 
 **Visitor: nothing on the device but the app**
 
 1. `GET /maps`: the rooms. Offer (or pick) those with `portal_confirmed == true`.
+   With several rooms the visitor does not have to choose: leave `map_id` out
+   in step 3 (with `only_with_door=true`, and `wifi` if the phone may read the
+   networks) and take the room from the answer (section 12).
 2. Optionally `GET /maps/{map_id}/room` and `GET /maps/{map_id}/portal` (plan
    and door in map coordinates; not needed for step 3).
 3. `POST /localize` with frames or a clip + AR poses as in v1, with a
@@ -645,7 +659,8 @@ Both modes send `X-Device-Role` (section 9.1).
 | `mesh` input | OBJ/PLY reader done, tested on hand-made files | waits for `app/docs/capture-format.md` and a real snapshot |
 | `/maps/{id}/portal`, `/localize` / `/align` / `/sessions` additions | done | tests |
 | Staff door with size, `confirmed` / `suggested`, saving in the recording's session, `X-Device-Role`, rename / delete a room (sections 5, 10) | done (server 0.4.0) | `tests/test_staff_door.py`; a run of `scripts/simulate_phone.py` as staff device and as visitor device against the running server. Not with a phone |
-| One door for every way: `frame_id`, the room's place at an external service, the bridge (`PATCH ... vps.bridge`, `POST /maps/{id}/vps/bridge`), dropped on a new scan (section 11) | done (server 0.5.0) | `tests/test_service_bridge.py` (made-up service frame with known truth); `scripts/simulate_phone.py --vps-bridge`. **No real answer of the service has been seen**: its frame conventions are an assumption |
+| One door for every way: `frame_id`, the room's place at an external service, the bridge (`PATCH ... vps.bridge`, `POST /maps/{id}/vps/bridge`), dropped on a new scan (section 11) | done (server 0.5.0) | `tests/test_service_bridge.py` (made-up service frame with known truth); `scripts/simulate_phone.py --vps-bridge` in the recording's session and in a later one. **No real answer of the service has been seen**: its frame conventions are an assumption |
+| Which room: Wi-Fi networks left with a room, `/localize` without `map_id`, `room_choice`, `POST /maps/candidates` (section 12) | done (server 0.6.0) | `tests/test_wifi_hint.py`, `tests/test_wifi_rooms.py`; `scripts/simulate_phone.py` against the running server (five rooms, two of them with a staff door): with the made-up networks the right room was tried first and found, 0.75 s for the search; without them the picture led to the other scan of the same real room. **Never with a real phone or real networks** |
 | Section 9: device headers, `POST /devices/{id}/log`, `GET /devices`, log read-back, `/ui` | done (server 0.3.0) | tests; a run of `scripts/simulate_phone.py` against the running server. No log from the real app has been received yet |
 
 **Not verified: anything on a real room recorded with the phone.** No such
@@ -921,7 +936,8 @@ For this server itself the bridge is the identity and is not stored.
   unseen. `warnings` says so in words (show them to the staff). In the
   simulator (made-up service, known truth) a bridge measured in a *later*
   session through one clip's alignment was estimated at 2.8 cm and was really
-  11 cm off at the door. **Measure the bridge in the AR session that recorded
+  11 cm off at the door; measured in the recording's own session it was
+  estimated at 2.1 cm and was 1.1 cm off. **Measure the bridge in the AR session that recorded
   the room** (`alignment_used: "recording_session"`), right after the build,
   like the door: there the AR world is the room's frame and this error does
   not exist. In any other session localise with several clips from different
@@ -1054,6 +1070,143 @@ resulting `location_id` in.
 
 ---
 
+## 12. Which room: Wi-Fi as a hint, the picture decides
+
+Capability `wifi_hint` (revision 5, server 0.6.0).
+
+**Owner's decision (2026-11-21):** Wi-Fi tells only *in which room* a phone
+probably is - nothing more. Where the phone stands, and with it where the
+door is, comes from the picture, as before. So the networks never enter the
+pose; they only decide **in which order candidate rooms are tried**, and
+everything works without them.
+
+### The staff phone leaves the networks with the room
+
+Either with the recording - form field of `POST /maps/{map_id}/recording`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `wifi` | JSON text | `[{"bssid": "aa:bb:cc:dd:ee:ff", "rssi": -52}, ...]` - the networks visible while scanning |
+
+or at any time later:
+
+```
+PUT    /maps/{map_id}/wifi     {"networks": [{"bssid": "aa:bb:cc:dd:ee:ff", "rssi": -52}, ...], "replace": false}
+DELETE /maps/{map_id}/wifi
+-> {"map_id": "hall", "wifi": {"networks": 7, "scans": 2, "updated_utc": "..."}}
+```
+
+* `bssid`: the access point's address, six pairs of hex digits (`:` or `-`
+  between them or nothing). `rssi`: signal strength in dBm (-130..0),
+  optional but worth sending - it is what tells neighbouring rooms apart. An
+  entry may also be just the address as text. At most 200 per request.
+* **No passwords, and no network names**: `ssid` and any other field of an
+  entry are ignored and not stored (names are not needed for the comparison
+  and may be personal). `02:00:00:00:00:00` - what Android reports when it
+  hides the address - is skipped.
+* Several `PUT`s add up: per network the strongest signal seen is kept, at
+  most 64 networks per room. `"replace": true` starts over. A good list comes
+  from two or three looks at different places of the room.
+* **The addresses are never returned** by any endpoint. `GET /maps` and
+  `GET /maps/{id}` report only `"wifi": {"networks": n, "scans": k,
+  "updated_utc": ...}` (`null` when nothing is known). They live in the room's
+  folder on the PC that runs the server.
+* A new scan of the room keeps the list (the room did not move) unless the new
+  upload brings its own.
+
+### `/localize` finds the room
+
+Send `/localize` **without `map_id`** (or with `map_id=auto`):
+
+1. If the request's `session_id` already has an accepted observation, the
+   server stays in that session's room (`mode: "session"`); a phone does not
+   change rooms inside one AR session without the app noticing.
+2. Otherwise the candidates are all rooms (with `only_with_door=true`: those
+   with a staff door). One candidate → that one (`mode: "only_room"`).
+3. Several (`mode: "auto"`) → they are **ordered**:
+   * rooms whose networks match the ones sent in `wifi`, best match first;
+   * then rooms nothing is known about (they stay possible);
+   * last, rooms whose networks do not match at all;
+   * inside each group - and everywhere when no `wifi` was sent - by how alike
+     the picture is to the room's pictures (one feature extraction, no
+     matching).
+4. The sharpest frame is localised in the first room; **the first room with a
+   good localisation wins**. If it fails there, the next room is tried, up to
+   `max_rooms` (default 3). The rest of a clip is then localised in the room
+   that was found. With no success anywhere the answer is the usual failed
+   localisation, reported for the most likely room.
+
+```json
+"room_choice": {
+  "mode": "auto", "hint": "wifi", "networks_sent": 5,
+  "chosen": "hall", "rooms_tried": 1, "elapsed_ms": 812.4,
+  "candidates": [
+    {"map_id": "hall", "label": "Main hall", "wifi_score": 0.71, "wifi_matched": 4, "visual_score": 0.31,
+     "tried": true, "success": true, "quality": "good", "num_inliers": 640},
+    {"map_id": "side", "label": "Side room", "wifi_score": 0.18, "wifi_matched": 2, "visual_score": 0.44,
+     "tried": false, "success": null, "quality": null, "num_inliers": null}
+  ]
+}
+```
+
+* `mode`: `given` (the request named the room - nothing was searched, `wifi`
+  is ignored) | `session` | `only_room` | `auto`.
+* `hint`: `wifi` (networks were used) | `none` | `invalid` (the `wifi` field
+  could not be read: it is **ignored, never an error** - `hint_error` says
+  why; a hint must not cost the visitor the localisation).
+* `wifi_score`: 0..1, `null` when the room has no list or none was sent.
+  `visual_score`: comparable between rooms only roughly (good for an order).
+* **Take the room from the answer** (`map_id` at the top level, `chosen`
+  here) and name it in the following requests, or keep sending the same
+  `session_id` - both keep the search from running again.
+* Cost: every room that is tried costs one localisation of one frame (about
+  0.5 s on the reference PC), so a wrong first guess makes the first answer
+  slower, not wrong.
+
+A list of likely rooms without a picture - for a screen that says "you seem to
+be in ...", and for choosing the `location_id` when the room is recognised by
+an external service (section 11):
+
+```
+POST /maps/candidates     {"wifi": [{"bssid": "..", "rssi": -52}], "only_with_door": true}
+-> {"hint": "wifi", "networks_sent": 5,
+    "candidates": [{"map_id": "hall", "label": "Main hall", "wifi_score": 0.71, "wifi_matched": 4,
+                    "visual_score": null, "portal_confirmed": true}, ...]}
+```
+
+### Limits the app has to know
+
+* **Android: reading the list of visible networks needs the location
+  permission.** `WifiManager.getScanResults()` requires
+  `ACCESS_FINE_LOCATION` (plus `ACCESS_WIFI_STATE`) **and location switched
+  on** in the system settings; without them the list is empty. This holds on
+  Android 13+ too (the newer `NEARBY_WIFI_DEVICES` permission does not cover
+  the scan list). The address of the *connected* network is hidden the same
+  way (`02:00:00:00:00:00`). So the visitor is asked for "location" although
+  the app does not locate anybody - the app has to say why, and **must work
+  when the answer is no** (send no `wifi`; the server then orders by picture).
+  *Written from the Android documentation as remembered, not tested on a
+  phone: check against the current documentation before building on it.*
+* Android throttles scans (a foreground app: four `startScan()` calls in two
+  minutes); reading the last results is not limited. One list per visit is
+  enough.
+* ViroReact / React Native have no call for this: a small native module or a
+  library is needed (check its licence).
+* iOS gives apps no list of visible networks at all.
+* What the hint cannot do: rooms served by the same access points with about
+  the same strength (two halves of one hall) get similar scores - then the
+  picture decides, as it does without any hint. Access points get replaced
+  and moved; after that the staff sends a new list (`"replace": true`).
+* Privacy: access-point addresses can be looked up in public databases and
+  reveal where a building is. They are stored on the PC that runs the server
+  only and are never handed out; do not put them into device logs
+  (section 9) either.
+
+Not built, possible later: learning the list from visitors' successful
+localisations instead of asking the staff phone.
+
+---
+
 ## Change log
 
 * 2026-11-20 — first draft.
@@ -1095,6 +1248,16 @@ resulting `location_id` in.
   and 6 say that the app places the door from `alignment.T_arworld_from_map`
   and the door record; `alignment.portal` stays for compatibility. Capability
   `service_bridge`.
+* 2026-11-21 — **revision 5, server 0.6.0: Wi-Fi as a hint for the room**
+  (owner: Wi-Fi tells only in which room, the door is found from the picture).
+  New section 12. `/localize`: `map_id` may be left out - the server orders
+  the rooms (Wi-Fi networks sent in the new field `wifi`, then visual
+  similarity) and tries them, new fields `max_rooms`, `only_with_door`, the
+  answer gains `room_choice`. New: field `wifi` of the recording upload,
+  `PUT` / `DELETE /maps/{id}/wifi`, `POST /maps/candidates`; `GET /maps`
+  gains `wifi` (counts only - addresses are never returned). **Changed
+  behaviour:** `/localize` without `map_id` on a server with several rooms
+  used to answer `422`; it now looks for the room. Capability `wifi_hint`.
 * 2026-11-21 — room plan with `status: "partial"`: `reason` now names what was
   missing and what to do when wall-like surfaces were seen over too little of
   their height (text for the user, e.g. "fewer than two walls were found: 2 more

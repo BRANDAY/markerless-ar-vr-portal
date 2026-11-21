@@ -33,7 +33,7 @@ def make_server(tmp_path, room=None, metric=True):
         out = maps / f".build-{job.job_id}"
         make_map(out, job.map_id, metric=metric)
         meta = json.loads((out / "map.json").read_text(encoding="utf-8"))
-        meta.update({k: job.params[k] for k in ("label", "device_id", "recording_session_id") if job.params.get(k)})
+        meta.update({k: job.params[k] for k in ("label", "device_id", "recording_session_id", "wifi") if job.params.get(k)})
         (out / "map.json").write_text(json.dumps(meta), encoding="utf-8")
         if room is not None:
             save_room(out, room)

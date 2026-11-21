@@ -72,7 +72,7 @@ def builder(room=None, fail=None, gate=None):
 def test_health_announces_v2_without_breaking_v1_clients(tmp_path):
     c = make_server(tmp_path, builder())
     h = c.get("/health").json()
-    assert h["api_version"] == 1 and h["api_revision"] == 4  # the current app accepts only api_version 1
+    assert h["api_version"] == 1 and h["api_revision"] == 5 # the current app accepts only api_version 1
     assert {"recording_upload", "jobs", "room_plan", "auto_portal"} <= set(h["capabilities"])
     assert h["jobs"] == {"running": 0, "queued": 0}
 

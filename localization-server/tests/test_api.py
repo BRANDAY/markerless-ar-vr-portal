@@ -94,7 +94,9 @@ def test_localize_without_ar_pose_and_failures(api):
     assert out["success"] is False and out["quality"] == "failed" and out["pose"] is None
     assert api.post("/localize", data={"map_id": "metric_room"}).status_code == 422  # no file
     assert api.post("/localize", files={"image": ("q.jpg", b"not an image", "image/jpeg")}, data={"map_id": "metric_room"}).status_code == 422
-    assert api.post("/localize", files={"image": ("q.jpg", jpeg(), "image/jpeg")}).status_code == 422  # two maps loaded
+    # two maps loaded and none named: since revision 5 the server looks for the room itself (tests/test_wifi_rooms.py)
+    r = api.post("/localize", files={"image": ("q.jpg", jpeg(), "image/jpeg")})
+    assert r.status_code == 200 and r.json()["room_choice"]["mode"] == "auto" and r.json()["room_choice"]["rooms_tried"] == 2
     assert api.post("/localize", files={"image": ("q.jpg", jpeg(), "image/jpeg")}, data={"map_id": "metric_room", "fx": "500"}).status_code == 422
 
 

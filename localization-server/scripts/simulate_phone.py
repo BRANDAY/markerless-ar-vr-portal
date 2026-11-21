@@ -256,12 +256,32 @@ def door_in_front(T_cam: np.ndarray, floor: float | None, ahead: float = 1.5) ->
     return pos.tolist(), float(np.degrees(np.arctan2(-fwd[0], -fwd[2])))  # the door's +Z points into the room, at the person
 
 
-def send_clip(phone: Phone, map_id: str, session: str, clip_dir: Path) -> tuple[dict | None, float]:
+# Made-up Wi-Fi networks of the simulated room (locally administered addresses, so they are nobody's access points).
+# The staff phone leaves them with the room; a visitor sees about the same - they only tell WHICH room.
+ROOM_WIFI = [("06:53:49:4d:00:01", -47), ("06:53:49:4d:00:02", -58), ("06:53:49:4d:00:03", -66), ("06:53:49:4d:00:04", -79)]
+
+
+def wifi_seen(rng) -> list[dict]:
+    """What a phone standing in the simulated room sees: the same networks, other strengths, one missed, one stranger."""
+    nets = [{"bssid": b, "ssid": "sim-net", "rssi": int(round(r + rng.normal(scale=4)))} for b, r in ROOM_WIFI]
+    nets.pop(int(rng.integers(len(nets))))
+    return nets + [{"bssid": "06:53:49:4d:00:%02x" % int(rng.integers(0x40, 0xff)), "rssi": -88}]
+
+
+def send_clip(phone: Phone, map_id: str | None, session: str, clip_dir: Path, wifi: list | None = None) -> tuple[dict | None, float]:
+    """One /localize. Without ``map_id`` the server finds the room itself (``wifi`` only orders its candidates)."""
+    data = {"session_id": session, "device_id": phone.device_id, "include_room": "true"}
+    if map_id:
+        data["map_id"] = map_id
+    else:
+        data["only_with_door"] = "true"
+        if wifi:
+            data["wifi"] = json.dumps(wifi)
     t = time.perf_counter()
     with open(clip_dir / "video.mp4", "rb") as v, open(clip_dir / "session.jsonl", "rb") as sj:
         r = phone.http.post(f"{phone.server}/localize", timeout=120,
                             files={"video": ("video.mp4", v, "video/mp4"), "session_jsonl": ("session.jsonl", sj, "application/x-ndjson")},
-                            data={"map_id": map_id, "session_id": session, "device_id": phone.device_id, "include_room": "true"})
+                            data=data)
     ms = (time.perf_counter() - t) * 1000
     if r.status_code != 200:
         phone.log("localize", f"request failed {r.status_code} {r.text[:160]}", "error")
@@ -321,6 +341,10 @@ def staff(phone: Phone, a, folder: Path, info: dict, T_last: np.ndarray, clips: 
         phone.log("app", f"room {a.map_id!r} is already on the server - scan skipped")
         phone.set(tracking="NORMAL")
         same_session = False  # this run's AR session did not record the room
+        if a.find_room != "off":
+            w = phone.http.put(f"{phone.server}/maps/{a.map_id}/wifi", json={"networks": wifi_seen(np.random.default_rng(5))})
+            if w.status_code == 200:
+                phone.log("app", f"Wi-Fi networks seen here were left with the room ({w.json()['wifi']['networks']} known now) - a hint for which room, nothing more")
     else:
         # ---- scan ------------------------------------------------------- #
         size_mb = (folder / "video.mp4").stat().st_size / 2**20
@@ -344,13 +368,15 @@ def staff(phone: Phone, a, folder: Path, info: dict, T_last: np.ndarray, clips: 
         with open(folder / "video.mp4", "rb") as v, open(folder / "session.jsonl", "rb") as s:
             r = phone.http.post(f"{phone.server}/maps/{a.map_id}/recording", timeout=600,
                                 files={"video": ("video.mp4", v, "video/mp4"), "session_jsonl": ("session.jsonl", s, "application/x-ndjson")},
-                                data={"replace": "true", "device_id": phone.device_id, "label": a.label, "session_id": ar_session})
+                                data={"replace": "true", "device_id": phone.device_id, "label": a.label, "session_id": ar_session,
+                                      **({"wifi": json.dumps(wifi_seen(np.random.default_rng(5)))} if a.find_room != "off" else {})})
         if r.status_code != 202:
             phone.set("error", detail=f"upload refused: {r.status_code}")
             phone.log("upload", f"upload refused: {r.status_code} {r.text[:200]}", "error")
             return False
         job = r.json()["job"]
-        phone.log("upload", f"upload finished in {time.time() - t0:.1f} s, job {job['job_id']}")
+        phone.log("upload", f"upload finished in {time.time() - t0:.1f} s, job {job['job_id']}"
+                            + ("; the Wi-Fi networks seen in the room went with it" if a.find_room != "off" else ""))
 
         # ---- build ------------------------------------------------------ #
         phone.set("building", detail="waiting for the map")
@@ -463,12 +489,34 @@ def visitor(phone: Phone, a, clips: list, S: np.ndarray, what: str) -> tuple[boo
     phone.log("localize", "localisation started (new AR session, this device never scanned)")
     visit = f"{phone.session_id}-ar0"
     alignment, placed, last_T, door = None, False, None, None
+    room_known = a.find_room == "off"  # otherwise the first clip does not say which room: the server finds it
+    my_wifi = wifi_seen(np.random.default_rng(9)) if a.find_room == "wifi" else None
+    if my_wifi:
+        guess = phone.http.post(f"{phone.server}/maps/candidates", json={"wifi": my_wifi, "only_with_door": True}).json()
+        phone.log("app", "the Wi-Fi networks point to: " + ", ".join(
+            f"{c.get('label') or c['map_id']} ({'no networks known' if c['wifi_score'] is None else 'score %.2f' % c['wifi_score']})"
+            for c in guess["candidates"]))
     for i, (clip_dir, T_ar, used) in enumerate(clips):
         last_T = T_ar
-        out, ms = send_clip(phone, a.map_id, visit, clip_dir)
+        out, ms = send_clip(phone, a.map_id if room_known else None, visit, clip_dir, my_wifi)
         if out is None:
             phone.idle(a.localize_interval)
             continue
+        if not room_known:
+            rc = out.get("room_choice") or {}
+            tried = [c for c in rc.get("candidates") or [] if c.get("tried")]
+            phone.log("localize", f"the server looked for the room itself (hint: {rc.get('hint')}): tried "
+                      + ", ".join(f"{c['map_id']} ({'found' if c['success'] else 'not found'}, {c['num_inliers']} inliers)" for c in tried)
+                      + f" -> {rc.get('chosen')}, {rc.get('elapsed_ms', 0):.0f} ms for the search",
+                      room_choice={k: rc.get(k) for k in ("mode", "hint", "chosen", "rooms_tried", "elapsed_ms")},
+                      order=[c["map_id"] for c in rc.get("candidates") or []])
+            verdict["room_found"] = rc.get("chosen")
+            verdict["rooms_tried"] = rc.get("rooms_tried")
+            room_known = True
+            if out["map_id"] != a.map_id:
+                phone.log("localize", f"that is not the room of this visit ({a.map_id}) - going on there by name", "warn")
+                phone.idle(a.localize_interval)
+                continue
         al = out.get("alignment") or {}
         if out["success"]:
             phone.log("localize", f"clip {i + 1}: {out['quality']}, {out['num_inliers']} inliers, {ms:.0f} ms; alignment {al.get('status')}"
@@ -490,6 +538,7 @@ def visitor(phone: Phone, a, clips: list, S: np.ndarray, what: str) -> tuple[boo
         scale = float(alignment["scale"])
         cam = np.linalg.inv(S)[:3, :3] @ last_T[:3, 3] + np.linalg.inv(S)[:3, 3]  # last camera, map coordinates
         verdict = {
+            **{k: v for k, v in verdict.items() if k in ("room_found", "rooms_tried")},
             "alignment": alignment["status"], "scale": round(scale, 4),
             "rotation_error_deg": round(float(g.rotation_angle_deg(M[:3, :3] / scale, S[:3, :3])), 3),
             "position_error_at_camera_m": round(float(np.linalg.norm((M[:3, :3] @ cam + M[:3, 3]) - last_T[:3, 3])), 4),
@@ -546,6 +595,10 @@ def main() -> int:
     ap.add_argument("--door", choices=["pose", "suggested"], default="pose",
                     help="pose: the staff places the door in front of them; suggested: confirm the doorway the server found (if any)")
     ap.add_argument("--door-size", default="0.9,2.0", help="width,height of the door the staff sets, metres")
+    ap.add_argument("--find-room", choices=["wifi", "picture", "off"], default="wifi",
+                    help="how the visitor's first request finds the room: 'wifi' = the staff left the networks seen in the room and the "
+                         "visitor sends its own (they only order the candidates); 'picture' = no networks, rooms tried by visual "
+                         "similarity; 'off' = the visitor names the room")
     ap.add_argument("--vps-bridge", action="store_true",
                     help="the staff also measures the bridge to a made-up second positioning service; visitors then check the same door through it")
     ap.add_argument("--localize-count", type=int, default=6, help="number of 2.5 s clips sent to /localize")
@@ -581,13 +634,13 @@ def main() -> int:
     ok, verdict = True, {}
     if a.role in ("both", "staff"):
         phone = Phone(a.server, a.device_id if a.device_id and a.role == "staff" else "sim-staff-1",
-                      a.name if a.name and a.role == "staff" else "Staff phone", "simulator 1.1", a.speed, role="staff")
+                      a.name if a.name and a.role == "staff" else "Staff phone", "simulator 1.2", a.speed, role="staff")
         phone.set(map_id=a.map_id)
         print(f"staff device {phone.device_id!r} ({phone.name}), session {phone.session_id}, server {phone.server}")
         ok = staff(phone, a, folder, info, T_last, clips, S)
     if ok and a.role in ("both", "visitor"):
         phone = Phone(a.server, a.device_id if a.device_id and a.role == "visitor" else "sim-visitor-1",
-                      a.name if a.name and a.role == "visitor" else "Visitor phone", "simulator 1.1", a.speed, role="visitor")
+                      a.name if a.name and a.role == "visitor" else "Visitor phone", "simulator 1.2", a.speed, role="visitor")
         print(f"visitor device {phone.device_id!r} ({phone.name}), session {phone.session_id}, server {phone.server}")
         ok, verdict = visitor(phone, a, clips, S, what)
         print(json.dumps(verdict, indent=1))

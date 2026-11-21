@@ -301,6 +301,28 @@ class Localizer:
                 pass
         return self._finish(res, tm, t_start, None)
 
+    def room_similarity(self, lmaps, image_bgr: np.ndarray) -> dict[str, float]:
+        """How much the picture looks like each room: mean of the three best global-descriptor similarities.
+
+        One feature extraction, no matching - cheap enough to order many rooms before
+        the costly attempt. Every map has its own VLAD vocabulary, so the numbers of
+        different rooms are comparable only roughly: good for an order, not for a decision.
+        """
+        out: dict[str, float] = {}
+        feats_by_size: dict[int, object] = {}
+        for lm in lmaps:
+            size = int(lm.meta["features"]["image_max_size"])
+            if size not in feats_by_size:
+                feats_by_size[size] = self.pipe.extract(resize_max(image_bgr, size)[0])
+            feats = feats_by_size[size]
+            if len(feats.keypoints) < 20 or not len(lm.global_desc):
+                out[lm.map_id] = 0.0
+                continue
+            sim = lm.global_desc @ lm.vlad.encode(feats.descriptors)
+            out[lm.map_id] = float(np.sort(sim)[-3:].mean())
+        self.pipe.sync()
+        return out
+
     @staticmethod
     def _finish(res: LocalizationResult, tm: dict, t_start: float, reason: str | None) -> LocalizationResult:
         res.reason = reason
