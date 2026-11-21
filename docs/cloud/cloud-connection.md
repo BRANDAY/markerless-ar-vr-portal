@@ -1,190 +1,220 @@
-# Connecting a ready-made cloud service as a second way to hold the door
+# Connecting ReactVision Advanced VPS as a second way to hold the door
 
-State as of 2026-11-21. The self-hosted server stays the main way to find the doorway. This document covers the second way: an existing cloud positioning service that keeps the door in place when there is no PC with our server in the venue. We do not build a cloud of our own.
+State as of 2026-11-21. The self-hosted server stays the main way to find the place and the door. This document covers the second way the owner chose on 2026-11-21: **ReactVision Advanced VPS**, a ready-made cloud service that is built into the AR library the app already uses. We do not build a cloud of our own.
 
-**Decision:** Google ARCore Cloud Anchors, called through the functions that ViroReact 3.2.2 already has. It costs nothing, needs no native module of ours, and an anchor can live up to 365 days. The door opening is still found by our server (or placed by hand) once; the cloud only remembers where that was.
+This is a plan. Nobody has tried the service by hand yet: it needs a paid account, which only the owner can open. What is known comes from the vendor's documentation and from the source of the installed library (`app/node_modules/@reactvision/react-viro`, version 3.2.2; paths below are relative to that package). The provider itself is written by the app chat, in place of the stub `ReactVisionVpsProvider` in `app/src/localization/stubs.ts`.
 
-Nothing here has run on a phone yet. The code is written and unit-tested; the list of what must be checked on the device is in section 8.
+## 1. Why this service
 
-## 1. What a cloud service can and cannot do for us
+Advanced VPS does what the assignment asks: a place is scanned once, and afterwards any phone recognises it from the camera picture and shows content at the same spot, with no markers and no GPS. It ships inside ViroReact 3.2.2 (`components/AR/ViroVPS.tsx`, `ViroVPSAnchor.tsx`), so the app needs no native module of its own, and the recording our app already makes for the self-hosted server is the same recording the service takes. It maps the whole room, not one spot. The price is known and small for a trial: the Basic plan at $25 a month. The other candidates lose on one of these points: Google ARCore Cloud Anchors are free but remember one anchor and live 24 hours with an API key; MultiSet and Immersal need a native module of ours and cost from $99 a month for real use; Niantic has no React Native kit.
 
-Every service looked at returns one of two things: the pose of the phone in a map, or the pose of an anchor that was saved earlier. None of them finds a door opening. So with any cloud service the doorway has to be decided once by something else, and the cloud keeps that decision:
+What speaks against it, and is accepted: the feature was released on 2026-11-08, there is no independent review of it, and all accuracy figures are the vendor's own.
 
-- **(a) the server finds the opening, the cloud remembers it.** The staff scans the room as today, our server finds the real opening, and the doorway that appears is saved as a cloud anchor. Visitors' phones then need internet, not the server.
-- **(b) the door is placed by hand, the cloud remembers it.** No server at all. The door stands where the staff put it, so it fits the real opening only as well as the hand placement did.
+## 2. How it works, in our terms
 
-Both go through the same "Save door to cloud" step, and the code supports both. Path (a) is the one to build the interface around, because it keeps what only our product has: a door that sits in the real opening with the real size.
+**Registering the place (staff, once).**
 
-## 2. What ViroReact 3.2.2 really provides
+1. The staff member records a walk through the room. The app already does this for our server: `startRecording` / `stopRecording` on the AR view give `video.mp4` and `session.jsonl`.
+2. The recording is sent to ReactVision with `uploadScanRecording(...)`. Sending needs a short-lived **user token**; a client key is refused.
+3. The cloud builds a map. `getScan(...)` reports `queued`, `processing`, then `succeeded` or `failed`. A map is accepted only if it has at least 500 points and passes the service's self-check. How long this takes is not documented.
+4. The place gets a `location_id`.
 
-Checked in the installed package `app/node_modules/@reactvision/react-viro` (version 3.2.2). Paths are relative to the package root.
+**The door.** The service has no "save this door" call. Content is placed by coordinates in the frame of the map (metres, Y up), and those coordinates are the same for every phone and every session. Where we keep them is our decision; see section 5.
 
-| What | Where | Notes |
+**The visitor.** The app starts `<ViroVPS>` and calls `startTracking(locationId)`. The phone downloads the map (about 1 MB), matches the camera against it and reports the states `searching`, `mapLoaded`, `tracking`, `lost`, `error`. Once it is `tracking`, the app knows where the map is in the current AR session and can put the door at its saved coordinates. `startTracking("auto")` must not be used: it starts from GPS.
+
+Two ways of matching:
+
+| | On the phone (`localization="device"`) | On the vendor's server (`localization="server"`) |
 |---|---|---|
-| `hostCloudAnchor(anchorId, ttlDays = 1)` | `components/AR/ViroARSceneNavigator.tsx:1042-1051` | Uploads an anchor that already exists in the session. `ttlDays` is clamped to 1..365 in JS. |
-| `resolveCloudAnchor(cloudAnchorId)` | same file, `:1063-1070` | Returns `{ success, anchor?, error?, state }`. |
-| `getCloudAnchorStatus()`, `cancelCloudAnchorOperations()` | same file, `:1081-1095` | Progress of a resolve; cancel everything. |
-| Result types and the state names | `components/Types/ViroEvents.ts:462-551`, `:718-739` | `anchor.position` is in world coordinates, `anchor.rotation` in degrees. States include `ErrorNotAuthorized`, `ErrorCloudIdNotFound`, `ErrorResolvingLocalizationNoMatch`, `ErrorAnchorExpired`. |
-| Which service is used | `components/Types/ViroEvents.ts:504`: `ViroProvider = "none" \| "arcore" \| "reactvision"` | Set by the `provider` prop of `ViroARSceneNavigator`; when it is missing the default is `"reactvision"` (`ViroARSceneNavigator.tsx:2342-2345`). The JS calls are the same for both services. |
-| Where the calls live | `ViroARSceneNavigator.tsx:2093-2175` | On the `arSceneNavigator` object every scene receives as a prop. Our scene already hands it to providers (`app/src/ar/PortalARScene.tsx:135`). |
-| Making a local anchor | `components/AR/ViroARScene.tsx:368-449` | There is **no** call that creates an anchor at an arbitrary pose. The way is a hit test (`performARHitTestWithWorldPoints` and others) followed by `createAnchoredNode(hitResult)`, which returns `{ anchorId?, transform? }`. Detected planes also carry an `anchorId` (`onAnchorFound`). |
-| Build settings (Expo config plugin) | `plugins/withViroAndroid.ts:375-386` | `googleCloudApiKey` is written to the manifest as `com.google.android.ar.API_KEY`; `rvApiKey`, `rvProjectId` as `com.reactvision.RVApiKey`, `com.reactvision.RVProjectId`. |
-| Location permissions | `plugins/withViroAndroid.ts:391-407` | Added when the plugin option `provider` is `"arcore"` or `"reactvision"`. Cloud anchors do not need them; see section 6. |
-| Keys at run time | not found | Cloud anchor credentials are read from the manifest by native code. Only the VPS REST helpers accept credentials from JS (`components/AR/ViroVPSClient.ts:64-90`). |
-| ReactVision VPS | `components/AR/ViroVPS.tsx`, `ViroVPSClient.ts`, navigator methods `uploadScanRecording`, `loadVPSMap`, `getVPSLocalization` | Present. `PAID_PLAN_REQUIRED` is named in `components/AR/ViroVPS.tsx:41`. |
+| Network | Only to download the map | All the time |
+| Price | Nothing on top of the plan | $0.60 per minute |
+| Holding up over days and in other light | Weaker | Better, by the vendor's words |
 
-The Android side of the package is prebuilt (`android/*/*.aar`), so what the native code does with these calls cannot be read. The ARCore client inside is `arcore_client/core-1.43.0.aar`.
+The default for us is `device`.
 
-Our app today is built with `"provider": "none"` (`app/app.json`), and no cloud call is used anywhere in `app/src`.
+## 3. What the owner has to do
 
-## 3. The candidates, by the same questions
+Nothing below was done for you: no account was opened, no terms were accepted, nothing was paid and no key was created.
 
-Prices and terms were read on the vendors' pages on 2026-11-21; sources are in section 9.
+**Cost.** The Basic plan is $25 a month ($250 a year); take the monthly one for the trial. It includes $5 of compute time a month. Building a map from a scan costs $0.60 a minute and is charged only when the map is accepted, so the included $5 covers about 8 minutes of processing. Finding a place on the phone (`device` mode), downloading maps and reading are not billed. Finding on the vendor's server costs $0.60 a minute. Storage on Basic is 1 GB. No student discount is listed.
 
-| | ARCore Cloud Anchors (Google) | ReactVision Cloud Anchors | ReactVision Advanced VPS | MultiSet | Immersal |
-|---|---|---|---|---|---|
-| Work to connect | Small. JS calls are in ViroReact. Build settings plus one Gradle dependency for long-lived anchors. | Smallest. Same JS calls, two keys in the build. | Medium. Own scan upload and map flow, new components (`ViroVPS`, `ViroVPSAnchor`). | Large. Native Android SDK, so a native module of our own. | Large, and the Android SDK is given on request only. |
-| Price for one venue | No price published; nothing found that asks for payment. | Free plan: 1,000 Spatial API requests per month. | Basic plan $25/month, plus $0.60/min for map processing and server localisation. | Free: 1,000 calls for the lifetime of the account. Then from $99/month. | Free plan for small maps; commercial use from $99/month. |
-| How long the binding lasts | 24 hours with an API key. 1 to 365 days with keyless authorisation. | `ttlDays` 1..365 in the call; whether more than 1 day works with a client key is not stated. | Map retention not stated. | Not checked. | Not checked. |
-| Needed from the owner | Google account, a Cloud project, ARCore API switched on, one credential. | Studio account, project, client key. | Studio account, paid plan, card. | Account, key. | Account, request for the SDK. |
-| What goes to the cloud | Visual features around the anchor and device poses. Raw upload is discarded within 24 hours; the processed map stays at Google. | Keyframes turned into 3D points and SIFT descriptors. Region not stated; US, UK or EU. | A recording of the room (video and poses). | Map of the venue. | Map of the venue. |
-| Who stands behind it | Google. Deprecation policy promises a year of notice. | Small company; cloud anchors fixes were still landing in 3.2.1 (2026-11-18). | Same company; feature released 2026-11-08. | Start-up. | Hexagon. |
+1. **Account.** Sign up at https://studio.reactvision.xyz and create a project, for example "AR Portal". The site will ask to accept its terms.
+2. **Plan.** Switch the team to **Basic** and add a payment card. The card is required even with the included credit: without a payment method that can be charged for compute time the service answers `403 COMPUTE_BILLING_NOT_SET_UP`. The documentation does not say on which page the plan is changed; look for billing or plan in the team settings.
+3. **Spend limit, before anything is scanned.** On the team's **Usage** page lower the monthly compute limit from the default $100 to a small sum, for example $10. The smallest allowed value is not documented. When the limit is reached, paid work is refused with `403 COMPUTE_SPEND_LIMIT_REACHED` until the next period; nothing more is charged.
+4. **Project ID.** Open the project, press **Edit** (top right); the ID is under the project name with a **Copy** button.
+5. **Client key.** In the team sidebar: **Integrations → API Keys → Create Key**, kind *client*, for this project. It starts with `rv_client_`.
+6. **Secret key.** Same page, kind *secret*. Give it the `vps` scope only; the scope is chosen at creation and cannot be changed later. It starts with `rv_secret_`. **The site shows it once**: copy it straight into the server file of section 4.
+7. **Files.** Put the three values into the two files described in section 4. Do not paste them into a chat, a document or any file of the repository.
+8. Tell the chats that the files are in place, without the values.
 
-**Why ARCore Cloud Anchors.** It is free, it is the service least likely to disappear without notice, and it is already reachable from our app without native code. Its one weak point, the 24-hour lifetime with an API key, has a documented way around it (keyless authorisation, 365 days).
+You do not create the fourth value, the user token (`rv_ut_`): our server makes it when a staff phone needs one.
 
-**Why not the others, for now.**
-- *ReactVision Cloud Anchors* is the fallback. Our code works with it unchanged, because ViroReact uses the same two calls for both services. Switching is a build setting. It is second only because the service is young and its lifetime rules are not written down.
-- *ReactVision Advanced VPS* is the only candidate that maps the whole room, which would survive a changed doorway area better than one anchor. It costs money from the first scan, is two weeks old, and repeats what our own server does. Worth a separate trial only if anchors turn out not to hold.
-- *MultiSet and Immersal* need a native module and a paid plan for real use. Not justified while a free path exists in the library we already ship.
+If a key leaks: delete it on the API Keys page and create a new one. Deleting a secret key also cancels every token made with it.
 
-## 4. How the door gets into the opening
+Not documented, so decide with that in mind: what happens to registered places when the plan is cancelled or lowered.
 
-### Saving (staff, once per room)
+## 4. Where the keys are kept, and what the build expects
 
-1. The room is scanned as today and the door appears in the real opening (self-hosted provider). Without a server, the door is placed by hand instead.
-2. The staff member taps **Save door to cloud**.
-3. The screen asks to walk slowly around the doorway for about half a minute, looking at the floor and the walls next to it. The service builds its picture of the place from what the camera saw around the anchor.
-4. The app makes an AR anchor on the floor under the doorway, uploads it, and looks it up once to make sure it can be found. The screen shows "Saving…", then "Checking…".
-5. Result: "Saved. Works without the server until 21 Nov 2027", or a plain reason why not (no internet, too little seen, the build is not registered with Google).
+The repository is public. No key, token or project number is written into any file inside it, and none is pasted into a chat. Documents and code name the variables only.
 
-What the phone keeps is small: the id of the cloud anchor, the doorway pose relative to that anchor, the size of the opening, and the expiry date (`cloud-door.json` in the app's private storage). No key is stored.
+### Who holds what
 
-### Finding (every later session)
+| Value | Looks like | Who holds it | What it is for |
+|---|---|---|---|
+| Project ID | a UUID | the app build and the server | Says which ReactVision project the calls belong to. Not a secret by itself, but kept with the keys. |
+| Client key | `rv_client_…` | the app build, so every phone | Finding a place and downloading its map. It cannot create places or upload scans. It ends up inside the APK. |
+| Secret key | `rv_secret_…` | **our server only** | Full access: creating and deleting places, minting user tokens. Never in the app, never on a phone. |
+| User token | `rv_ut_…` | nobody keeps it | Made by our server from the secret key for one staff phone, lives about an hour, lets that phone upload a scan. It is fetched when needed and not stored. |
 
-1. The app starts with the cloud provider. Status: "Looking for the saved doorway — look at the wall and floor around it".
-2. The service finds the anchor from the camera view. The app rebuilds the doorway from the saved offset and shows the door, with the opening size the server measured.
-3. If the place is not recognised, the app tries again a limited number of times and then tells the user where to stand. After a loss of tracking the door stays on screen, is marked as not trusted, and is looked for again. These are the same rules the self-hosted provider follows.
+### Files, outside the repository
 
-Visitors do nothing extra. Their phone needs internet at that moment.
+Proposed place: a folder next to the other local project data, `E:\VR-FESB\secrets\`. Two files, so the app build never reads the secret key:
 
-### Limits of this way
+`E:\VR-FESB\secrets\reactvision-app.json`, read when the app is built:
 
-- One anchor remembers one spot. If the area around the doorway changes a lot (new furniture, very different light), the anchor may not be found and the door has to be saved again.
-- The door is only as right as it was when saved. A wrong opening from the server is remembered wrong.
-- The saved record lives on the phone that made it. Other phones of the venue need a copy; see section 7.
+```json
+{
+  "rvProjectId": "<project id>",
+  "rvApiKey": "<client key>"
+}
+```
 
-## 5. What the owner has to do
+`E:\VR-FESB\secrets\reactvision-server.env`, read when the server starts:
 
-Nothing below was done for you: no account was created, no terms were accepted, no key was made.
+```
+RV_PROJECT_ID=<project id>
+RV_SECRET_KEY=<secret key>
+```
 
-Cost: **0**. No Google page read on 2026-11-21 names a price for the ARCore API. Whether the Cloud project needs a billing account was not confirmed; if the console asks for a card, stop and tell me.
+If the folder should be somewhere else, one environment variable can point to it (suggested name `VRFESB_SECRETS_DIR`). The app chat and the server chat settle the exact names when they write the reading code; this document will be brought in line with theirs.
 
-1. Open https://console.cloud.google.com with a Google account. Create a project, for example `ar-portal`. Google will ask to accept its Cloud terms.
-2. In **APIs & Services → Library**, find **ARCore API** and press **Enable**.
-3. **For the first test (anchors that live 24 hours).** In **APIs & Services → Credentials**, press **Create credentials → API key**. Then restrict the key:
-   - Application restriction: **Android apps**, package `hr.fesb.arportal`, SHA-1 `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`.
-   - API restriction: **ARCore API** only.
-4. **For anchors that live up to 365 days (keyless).** In the same place press **Create credentials → OAuth client ID**. If the console first asks to set up the consent screen, give an app name and your e-mail; no scopes are needed. Then choose application type **Android**, package `hr.fesb.arportal`, the same SHA-1. There is nothing to copy from this step: Google recognises the app by its package and signature.
-5. Put the API key from step 3 into a local file that git ignores, `app/src/localization/cloud/cloud-keys.local.json`:
-   ```json
-   { "googleCloudApiKey": "paste the key here" }
-   ```
-   The shape is shown in `cloud-keys.example.json` next to it. Do not paste the key into a chat or into any other file.
+### What the app build expects
 
-About the SHA-1: it is the fingerprint of the debug keystore every React Native project is generated with (`app/android/app/debug.keystore`). It is public, so the restriction in step 3 only stops casual misuse. Before the app goes to a venue it needs its own signing key, and steps 3 and 4 have to be repeated with that key's SHA-1.
+The Expo plugin of the library takes the values as options (`plugins/withViroAndroid.ts:378-383`):
 
-## 6. Plan for the app chat
+```json
+["@reactvision/react-viro", {
+  "android": { "xRMode": ["AR"] },
+  "provider": "reactvision",
+  "rvApiKey": "<from reactvision-app.json>",
+  "rvProjectId": "<from reactvision-app.json>",
+  "telemetry": false
+}]
+```
 
-Code that exists (new files only, `app/src/localization/cloud/`):
+The vendor's setup page shows only `rvApiKey` and `rvProjectId`; `"provider": "reactvision"` is what the plugin assumes anyway once a key is present (`plugins/withViroAndroid.ts:371-373`), and it is written out here because our file says `"none"` today.
 
-| File | What it is |
-|---|---|
-| `CloudAnchorDoorProvider.ts` | The provider (`id: 'arcore-cloud-anchor'`). Reads the saved record, finds the anchor, emits the doorway. |
-| `saveDoorToCloud.ts` | What the "Save door to cloud" button calls. |
-| `doorRecordStore.ts` | The record file on the phone. |
-| `core/resolveSession.ts` | Rules of finding and keeping the door (attempts, time limits, tracking loss). |
-| `core/saveDoor.ts` | Steps of saving: local anchor, upload, check, offset. |
-| `core/cloudAnchorApi.ts` | Typed access to the ViroReact calls and the meaning of every failure state. |
-| `core/localAnchor.ts` | Where the local anchor comes from: hit test under the doorway, or a detected plane. |
-| `core/doorRecord.ts`, `core/anchorMath.ts` | The saved record and its expiry; the doorway relative to the anchor. |
-| `core/*.test.ts` | 53 unit tests. |
+Today `app/app.json` has `"provider": "none"` and no keys. Because `app.json` is committed, the values cannot be typed into it. The build needs a small `app.config.js` that reads `reactvision-app.json` and adds the three options; when the file is missing it leaves `"provider": "none"`, so a machine without keys builds the app exactly as today.
 
-Steps, in the order that finds problems earliest:
+Where the values go after that:
 
-1. **Tests.** Add `"src/localization/cloud/core/**/*.ts"` to `include` in `app/tsconfig.test.json`, so `npm test` runs the 53 tests.
-2. **Provider.** In `app/src/localization/index.ts` return `new CloudAnchorDoorProvider()` for `'arcore-cloud-anchor'` (import from `./cloud`) and add the id to `SELECTABLE_PROVIDER_IDS`. The stub class of the same id in `stubs.ts` is then unused.
-3. **Build with an API key.** Read `googleCloudApiKey` from `app/src/localization/cloud/cloud-keys.local.json` in an `app.config.js` and pass it to the `@reactvision/react-viro` plugin. Keep the plugin option `"provider": "none"`: on Android that option only decides whether location permissions are added (`plugins/withViroAndroid.ts:391-407`), and cloud anchors do not need them. Set the service on the view instead: `<ViroARSceneNavigator provider="arcore" …>` in `App.tsx`.
-4. **Save button.** In `PortalARScene.tsx` keep a ref to `ViroARScene` and build the anchor source once:
-   `firstAnchorSource([hitTestAnchorSource(() => sceneRef.current, log), planeAnchorSource(() => planes)])`.
-   The button calls `saveDoorToCloud({ navigator, anchors, door, opening, doorSource, roomId, log, onStep })` with the door pose that is on screen. The result says what to show.
-5. **First device test, 24-hour anchors.** Save a door, close the app completely, start it with the cloud provider, see the door come back. This proves the whole chain apart from the lifetime.
-6. **Keyless, 365 days.** Add the Gradle dependency `com.google.android.gms:play-services-auth` with a small config plugin (like `plugins/withAndroidBuildTuning.js`), build **without** `googleCloudApiKey`, save a door. `saveDoorToCloud` asks for 365 days and falls back to 1 day when that is refused, with a warning in the result, so the outcome is visible at once.
-7. **Words on screen.** Google requires a notice where the feature is used: "To power this session, Google will process sensor data (e.g., camera and location)." with a "Learn more" link to https://support.google.com/ar?p=how-google-play-services-for-ar-handles-your-data. Where it goes belongs to the product spec (`docs/product/ui-spec.md`).
+- `expo prebuild` writes them into `app/android/app/src/main/AndroidManifest.xml` as `com.reactvision.RVApiKey` and `com.reactvision.RVProjectId`. The whole `app/android` folder is ignored by git (`app/.gitignore`), so they do not reach the repository. They are inside every APK built this way; that is what a client key is for, but such an APK should not be attached to a public release.
+- The library reads them from the manifest by itself. `<ViroVPS>` uses them when no `credentials` prop is given (`components/AR/ViroVPS.tsx:150-157`).
+- The AR view needs the service switched on as well. `ViroARSceneNavigator` takes `provider="reactvision"`, and that is also its default when the prop is missing (`components/AR/ViroARSceneNavigator.tsx:2342-2345`). `App.tsx` does not pass the prop today.
 
-The status codes the provider sends reuse the existing ones (`no-room` for "nothing saved" and "anchor gone", `incompatible` for "build not registered", `server-offline` for "no internet", `not-recognised`, `unconfirmed`, `tracking-lost`). If the interface needs its own words for the cloud cases, new codes have to be added to `StatusMeta` in `types.ts`.
+One side effect to know: with `"provider": "reactvision"` the plugin adds the two location permissions to the manifest (`plugins/withViroAndroid.ts:391-407`). Finding a place by its `location_id` needs no GPS, and the app must not ask the visitor for location at run time.
+
+### What the server expects
+
+The server reads `RV_PROJECT_ID` and `RV_SECRET_KEY` from its environment and gives a staff phone a user token on request. The mint, as the vendor documents it:
+
+- `POST https://platform.reactvision.xyz/functions/v1/app-user-tokens`
+- headers: `x-api-key: <secret key>`, `content-type: application/json`
+- body: `project_id`, `app_user_id` (our own name for the staff phone: 1 to 255 printable ASCII characters, no spaces), optional `ttl_seconds` (60 to 3600, default 3600), `scopes: ["vps"]`
+- answer: `token` (starts with `rv_ut_`), `expires_in`, `expires_at`, `scopes`
+
+On the phone the token is handed to the library with `createUserTokenCredentials({ projectId, fetchToken })`, where `fetchToken` asks our server (`components/AR/ViroUserTokenCredentials.ts`). One app user gets at most 60 tokens an hour, so the helper keeps a token and renews it shortly before it runs out; the server should not mint one per request.
+
+## 5. Where the door's place is stored
+
+**Proposal: on our own server, with the room.** For each room the server keeps, next to what it has today:
+
+- the `location_id` of the place at ReactVision;
+- the door pose in the frame of the ReactVision map (position in metres, heading);
+- the width and height of the door.
+
+The phone receives these together with the room, as it already receives the door and the room plan, and keeps the last copy so the door can be shown when only the internet is reachable.
+
+Why there: the staff member sets the door once and it is saved in one place for both ways; nothing about the door has to be entered in the vendor's web editor; and removing or moving the door stays one action. The alternative is a scene in ReactVision's editor bound to the place. That keeps the door in the vendor's cloud, the steps are not documented, and the app would have to load vendor scenes.
+
+Not decided: a venue with no server of ours at all would need another carrier for these three values (the vendor's editor, or a small file delivered with the app). The owner's decision of 2026-11-21 has the door and the room coming from the server, so this case is outside the current work.
+
+**How the staff's door becomes map coordinates.** The staff member places the door in the room; that pose is in the AR frame of the current session. While the phone is tracking the place, `onLocalized` reports `renderPose`: the camera's pose in the map frame, a 4x4 matrix of 16 numbers in column-major order (`components/AR/ViroVPS.tsx:378-386`). With the camera's pose in the AR frame at the same moment:
+
+- map-from-session = `renderPose` × inverse(camera pose in the session);
+- door in the map = map-from-session × door in the session. This is what is saved.
+
+A visitor's phone does the reverse: door in the session = inverse(map-from-session) × door in the map, and gives the result to the app through the existing `emitPose`. The reviewing chat proposed this instead of putting the portal inside `<ViroVPSAnchor>`, because that component moves its content every frame and our portal must not move while someone walks through it. With `emitPose`, the rules that already exist apply ("do not move the door while the user is inside").
+
+So the door for this way can be saved only after the cloud has built the map and the staff phone has recognised the place. If the door was already placed for our own server in the same session, its pose is still valid and is converted at that moment.
+
+## 6. Plan of the connection
+
+In the order that shows problems earliest. Steps 1 and 2 are the owner's; the rest is written by the app chat and the server chat.
+
+1. The owner opens the account, pays for Basic, lowers the spend limit and creates the keys (section 3).
+2. The owner puts the values into the two files (section 4).
+3. **Build with the service on.** `app.config.js`, a new build. First check on the phone: everything that works today still works with `"provider": "reactvision"`: AR, the recording for our server, the depth mesh.
+4. **Server: token for the staff phone.** One endpoint that returns a user token; the secret key stays on the server. Also the three stored values of section 5.
+5. **Staff: send the recording to ReactVision.** The same folder that goes to our server is given to `uploadScanRecording`; the app shows the state from `getScan` until the map is accepted or refused, and saves the `location_id` on our server.
+6. **Visitor: find the place.** `<ViroVPS>` with `localization="device"`, `startTracking(locationId)`; the provider maps the states to its own statuses.
+7. **The door.** Conversion of section 5 in both directions; saving on the server; `emitPose` for the visitor.
+8. **Comparison on one room.** The same recording, the same door, both ways; times and offsets through the measurement log the app already has.
+
+Step 5 has a possible shortcut worth checking before it is written: the recording already reaches our server, and the secret key lives there. If the service's REST interface accepts a scan uploaded from the server, the phone would need no token at all. The documentation read so far describes the upload only through the library call.
 
 ## 7. Risks and limits
 
 | Risk | What follows |
 |---|---|
-| ViroReact's native ARCore path has never run in our app. | Step 5 above is the first thing to do. If it fails, try the same code with `provider="reactvision"`. |
-| Keyless authorisation may not work through ViroReact (its native code may insist on an API key). | Anchors would last 24 hours only. Ways out: ReactVision Cloud Anchors with the same code, or a small native module of ours that calls ARCore's own hosting function. The app already has a local native module (`app/modules/wifi-route`). |
-| Whether keyless needs a Google account signed in on the phone is not confirmed. | Matters for phones handed to visitors. Check on a phone without an account. |
-| `hostCloudAnchor` may not accept the id that `createAnchoredNode` returns. | The code falls back to the id of a detected plane and measures the anchor pose by looking the anchor up. |
-| ViroReact does not expose ARCore's "is enough seen to host" estimate. | The app cannot tell the staff when they have looked around enough; it can only ask for half a minute and report a failure. |
-| The anchor expires after at most 365 days. | The door must be saved again once a year. The app warns 30 days before. Google has a server-side API that can extend the lifetime; using it needs a service account and is not built. |
-| The room looks different later (light, furniture). | The anchor may not be found. Google advises against bare white walls and shiny surfaces. No published numbers; ours will come from the measurement protocol. |
-| Features of the venue interior are stored at Google. | Must be said to the venue. Venues that refuse this stay on the self-hosted server, which is why it remains the main way. |
-| Internet is needed on every visitor phone at start. | The self-hosted server needs only local Wi-Fi. |
-| The saved record is on one phone. | `toShareText` / `fromShareText` turn it into one line of text. The simplest carrier is our own server: store the line with the room and hand it to every phone that connects once. That is a change for the server chat and is not done. |
-| The cloud anchor id is not a secret, and the debug signing key is public. | With keyless authorisation, anyone who rebuilds the app with the debug key could look up our anchors. Use a private signing key for venue builds. |
+| The feature is two weeks old and has no independent review. | Take the vendor's accuracy figures as claims. Our own numbers come from step 8. |
+| Processing time of a scan is unknown. | The staff flow needs a "the cloud is building the map" state that can last minutes, and must survive closing the app. |
+| A refused map (fewer than 500 points, failed self-check). | The app must say so and ask for a new walk. Refused scans are not billed. |
+| Matching on the phone may be weak after days or in other light. | The vendor's own test: after nine days on a car park the server recognised 77 % of frames, the phone 16 %. Server mode costs $0.60 a minute and needs the network all the time. |
+| Money. | Server mode for an hour is about $36. The spend limit is the protection; set it low before the first scan. |
+| The portal inside `<ViroVPSAnchor>` may jump during a walk-through. | Use `renderPose` and `emitPose` (section 5). To be checked on the phone. |
+| `renderPose` and our camera pose are read at slightly different moments. | A moving phone gives a wrong conversion. Save the door while the phone is held still, and average several readings. |
+| `"provider": "reactvision"` may disturb what works today. | First check of step 3. |
+| The library changes fast (seven releases in six weeks, 3.2.0 broke compatibility). | Keep the version pinned at 3.2.2 until the comparison is done. |
+| Interior recordings go to the vendor's cloud. | The vendor says it keeps the recording only while it processes it. How long maps are kept and who owns them is not stated. Venues that refuse this stay on our server. |
+| Limits of the service. | 10 scans a day per user and 3 unfinished scans at a time. An upload limit of 512 MiB was seen in one reading of the limits page and not in another. |
 
 ## 8. Not verified
 
-On the device (nothing was run on a phone):
-- that `provider="arcore"` hosts and resolves at all in ViroReact 3.2.2 on the Xiaomi 14 Ultra;
-- that a resolve right after hosting, in the same session, succeeds;
-- how long hosting and resolving take, and how far the door lands from where it was saved;
-- that the door holds when the app is started from another side of the room, in other light;
-- keyless authorisation through ViroReact, with and without a Google account on the phone;
-- that the build works with the plugin option `"provider": "none"` and the prop `provider="arcore"`.
+Nothing was run on a phone, and no call was made to the service.
 
-In the documentation:
-- Google's keyless steps for Android were read from search summaries of https://developers.google.com/ar/develop/authorization, not from the full page;
-- whether the Cloud project needs a billing account;
-- the rule for extending an anchor's lifetime through the Management API;
-- how far away and at what angle an anchor can still be found; Google publishes no numbers;
-- ReactVision: lifetime of anchors hosted with a client key, the 512 MiB recording limit, and the `403 PAID_PLAN_REQUIRED` answer were not found on the pages read today (the last one is named in the library source);
-- MultiSet and Immersal terms were taken from the earlier survey and not read again.
+- How long a scan is processed and how long recognising the place takes.
+- Whether recognising an existing place keeps working if the plan is cancelled.
+- Where the origin and the axes of the map frame come from.
+- Whether the recording our app makes is accepted as it is (the same library calls are used, but nobody has uploaded one).
+- Whether `"provider": "reactvision"` disturbs our recording and the depth mesh.
+- Whether the portal works when the door is driven by `renderPose`.
+- Accuracy and repeatability in a room; the vendor publishes no room figures.
+- Whether a scan can be uploaded from our server with the secret key.
+- Whether StudioGo, the vendor's scanning app, exists for Android.
+- How long maps are kept and what the terms say about ownership of the data.
 
-## 9. Sources (read 2026-11-21)
+## 9. Sources
 
-Google:
-- Cloud Anchors overview: https://developers.google.com/ar/develop/cloud-anchors
-- Developer guide (lifetime with an API key, quotas of 30 host and 300 resolve requests per minute, upload discarded within 24 hours): https://developers.google.com/ar/develop/java/cloud-anchors/developer-guide
-- Lifetime up to 365 days: https://developers.google.com/ar/reference/java/com/google/ar/core/Session
-- Authorisation: https://developers.google.com/ar/develop/authorization
-- Management API (list, delete, extend): https://developers.google.com/ar/develop/cloud-anchors/management-api
-- Deprecation policy: https://developers.google.com/ar/develop/cloud-anchors/cloud-anchor-deprecation-policy
-- Required user notice: https://developers.google.com/ar/develop/privacy-requirements
-- Data handling: https://developers.google.com/ar/data-privacy
+- The owner's decision of 2026-11-21 and the task for the chats: `rework_two_modes_brief.md` in the shared notes folder.
+- The review of the service for the owner: `reports/advanced-vps-review.md` (not published).
+- Library source: `app/node_modules/@reactvision/react-viro` 3.2.2, files named in the text.
+- Vendor pages, read 2026-11-21:
+  - https://viro-community.readme.io/docs/advanced-vps-and-scanning
+  - https://viro-community.readme.io/docs/advanced-vps-setup
+  - https://viro-community.readme.io/docs/advanced-vps-in-your-app
+  - https://viro-community.readme.io/docs/virovps
+  - https://viro-community.readme.io/docs/authentication
+  - https://viro-community.readme.io/docs/client-keys
+  - https://viro-community.readme.io/reference/app-user-tokensmint
+  - https://viro-community.readme.io/docs/reactvision-studio-setup
+  - https://viro-community.readme.io/reference/limits
+  - https://www.reactvision.xyz/pricing/
+  - https://github.com/ReactVision/viro/releases
 
-ReactVision:
-- Pricing: https://www.reactvision.xyz/pricing/
-- Cloud anchors: https://viro-community.readme.io/docs/cloud-anchors
-- Keys and project: https://viro-community.readme.io/docs/reactvision-studio-setup, https://viro-community.readme.io/docs/authentication
-- Advanced VPS: https://viro-community.readme.io/docs/advanced-vps-and-scanning
-- Terms and privacy: https://www.reactvision.xyz/policies/terms-of-service/, https://www.reactvision.xyz/policies/privacy-policy/
-- Releases: https://github.com/ReactVision/viro/releases
+The vendor pages were read through a tool that returns summaries, so menu names and field names should be checked against the live pages while doing the steps.
 
-Earlier surveys in this repository: `docs/research/tools-comparison.ru.md` (2026-11-20) for MultiSet, Immersal and Niantic.
+## 10. An earlier variant in the repository
+
+Before the owner's decision this chat had prepared the other free candidate, Google ARCore Cloud Anchors, as code: `app/src/localization/cloud/` (commit `8d1d981`). It is not connected to the app and nothing imports it. Whether it stays as a spare or is removed is for the owner and the dispatcher to decide. Its frame arithmetic (`core/anchorMath.ts`, a pose written relative to another frame, with unit tests) is the same arithmetic as in section 5.
