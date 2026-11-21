@@ -40,7 +40,7 @@ export function ArScreen() {
   const environment = useAppState((s) => s.environment);
   const connection = useServerView().connection;
 
-  const source = providerId === 'self-hosted' ? 'room' : 'free';
+  const source = providerId === 'manual' ? 'free' : 'room';
   const wallClose = useWallClose();
   const view = arView({
     status,
@@ -87,9 +87,12 @@ export function ArScreen() {
     }
     if (leave === 'no-room') {
       appActions.resetTo(homeScreen());
-    } else if (leave === 'server' || leave === 'version') {
+    } else if (leave === 'server' || leave === 'version' || leave === 'cloud') {
       appActions.resetTo(homeScreen());
       appActions.showProblem(leave);
+    } else if (leave === 'cloud-setup') {
+      appActions.resetTo(homeScreen());
+      appActions.showProblem('cloudSetup');
     }
   }, [leave, toolsOpen]);
 

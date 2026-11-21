@@ -440,6 +440,66 @@ export interface ServerMapInfo {
   portalSource: string;
   /** Staff saved a door in this room: the room a visitor can be shown. */
   portalConfirmed: boolean;
+  /** The room at ReactVision Advanced VPS, when staff registered it there; else null. */
+  vps: RoomVps | null;
+}
+
+/**
+ * What the server keeps about a room for the second way of finding it, ReactVision
+ * Advanced VPS (api-v2, section 11). The server only stores this; it does not talk to the
+ * service. The door here is in the frame of THAT service's map - unrelated to the door of
+ * section 5, which is in the frame of the server's own map.
+ */
+export interface RoomVps {
+  /** What `startTracking` of the service takes. */
+  locationId: string;
+  /** Null until staff placed the door for this way. */
+  door: {
+    position: V3;
+    quaternion: [number, number, number, number];
+    /** Null: saved without a size, the app draws its default. */
+    width: number | null;
+    height: number | null;
+  } | null;
+}
+
+export function parseVps(value: unknown): RoomVps | null {
+  const json = asObject(value);
+  const locationId = asString(json?.location_id);
+  if (!json || !locationId) {
+    return null;
+  }
+  const door = asObject(json.door);
+  const position = asV3(door?.position);
+  const q = door?.quaternion_xyzw;
+  const quaternion =
+    Array.isArray(q) && q.length === 4 && q.every((n) => typeof n === 'number' && Number.isFinite(n))
+      ? (q as [number, number, number, number])
+      : null;
+  return {
+    locationId,
+    door: door && position && quaternion ? { position, quaternion, width: asNumber(door.width), height: asNumber(door.height) } : null,
+  };
+}
+
+/** One room, as `GET /maps` lists it and as `GET` / `PATCH /maps/{id}` answer. */
+export function parseMapInfo(entry: unknown): ServerMapInfo | null {
+  const map = asObject(entry);
+  const mapId = asString(map?.map_id);
+  if (!map || !mapId) {
+    return null;
+  }
+  const portalSource = asString(map.portal_source) || 'none';
+  return {
+    mapId,
+    label: asString(map.label),
+    createdUtc: asString(map.created_utc),
+    roomStatus: asString(map.room_status) || 'unavailable',
+    portalSource,
+    portalConfirmed:
+      typeof map.portal_confirmed === 'boolean' ? map.portal_confirmed : portalSource === 'manual' || portalSource === 'selected',
+    vps: parseVps(map.vps),
+  };
 }
 
 export function parseMaps(body: unknown): ServerMapInfo[] | null {
@@ -447,23 +507,5 @@ export function parseMaps(body: unknown): ServerMapInfo[] | null {
   if (!json || !Array.isArray(json.maps)) {
     return null;
   }
-  const maps: ServerMapInfo[] = [];
-  for (const entry of json.maps) {
-    const map = asObject(entry);
-    const mapId = asString(map?.map_id);
-    if (!map || !mapId) {
-      continue;
-    }
-    const portalSource = asString(map.portal_source) || 'none';
-    maps.push({
-      mapId,
-      label: asString(map.label),
-      createdUtc: asString(map.created_utc),
-      roomStatus: asString(map.room_status) || 'unavailable',
-      portalSource,
-      portalConfirmed:
-        typeof map.portal_confirmed === 'boolean' ? map.portal_confirmed : portalSource === 'manual' || portalSource === 'selected',
-    });
-  }
-  return maps;
+  return json.maps.map(parseMapInfo).filter((map): map is ServerMapInfo => map !== null);
 }

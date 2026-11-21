@@ -204,9 +204,12 @@ export function PlaceDoorScreen() {
   useEffect(() => {
     if (leaveTo === 'no-room') {
       appActions.resetTo(homeScreen());
-    } else if (leaveTo === 'server' || leaveTo === 'version') {
+    } else if (leaveTo === 'server' || leaveTo === 'version' || leaveTo === 'cloud') {
       appActions.resetTo(homeScreen());
       appActions.showProblem(leaveTo);
+    } else if (leaveTo === 'cloud-setup') {
+      appActions.resetTo(homeScreen());
+      appActions.showProblem('cloudSetup');
     }
   }, [leaveTo]);
 

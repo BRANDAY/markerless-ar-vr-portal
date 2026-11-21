@@ -5,7 +5,7 @@
  * screen shows when. Pure.
  */
 import type { TextKey } from '../../i18n';
-import { type ArInput, arView, type CoachLines } from './arView';
+import { type ArInput, type ArView, arView, type CoachLines } from './arView';
 
 type V3 = readonly number[];
 
@@ -119,7 +119,7 @@ export interface PlaceScreen {
   lostBanner: boolean;
   /** "This doesn't look like {room}". */
   sheet: 'unknown' | null;
-  leave: 'no-room' | 'server' | 'version' | null;
+  leave: ArView['leave'];
 }
 
 /**

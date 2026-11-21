@@ -27,6 +27,14 @@ test('inside the space: nothing but the wall warning', () => {
   assert.equal(arView(input({ status: 'localized', hasDoor: true, wallClose: true })).coach, null);
 });
 
+test('ReactVision as the connection method: its problems lead to their own screens (5.15)', () => {
+  assert.equal(arView(input({ status: 'error', meta: { code: 'cloud-offline' } })).leave, 'cloud');
+  assert.equal(arView(input({ status: 'error', meta: { code: 'cloud-not-set-up' } })).leave, 'cloud-setup');
+  // a door that stands is not taken away by a problem of the service
+  const standing = arView(input({ status: 'error', hasDoor: true, meta: { code: 'cloud-offline' } }));
+  assert.deepEqual([standing.situation, standing.leave], ['door', null]);
+});
+
 test('finding the room: the coach line follows the attempt (5.9)', () => {
   const line = (attempt: number, code?: string) =>
     arView(input({ meta: { attempt, attempts: 5, code } })).coach?.line1;

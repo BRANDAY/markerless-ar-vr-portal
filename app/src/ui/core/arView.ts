@@ -47,7 +47,7 @@ export interface ArView {
    */
   sheet: 'unknown' | 'noDoor' | null;
   /** The AR screen cannot go on: the app leaves it for Home or for a problem screen. */
-  leave: 'no-room' | 'server' | 'version' | null;
+  leave: 'no-room' | 'server' | 'version' | 'cloud' | 'cloud-setup' | null;
 }
 
 const READY: CoachLines = { line1: 'ar.coach.ready.1', line2: 'ar.coach.ready.2' };
@@ -142,6 +142,10 @@ export function arView(input: ArInput): ArView {
         view.leave = 'no-room';
       } else if (meta.code === 'incompatible') {
         view.leave = 'version';
+      } else if (meta.code === 'cloud-offline') {
+        view.leave = 'cloud'; // ReactVision cannot be reached, or it refused
+      } else if (meta.code === 'cloud-not-set-up') {
+        view.leave = 'cloud-setup'; // no keys in this build, or no location id for the room
       } else if (meta.code === 'no-doorway') {
         view.sheet = 'noDoor';
       } else {

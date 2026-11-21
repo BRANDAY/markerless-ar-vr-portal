@@ -77,7 +77,11 @@ export interface StatusMeta {
     | 'not-recognised'
     | 'unconfirmed'
     | 'tracking-lost'
-    | 'scale-unknown';
+    | 'scale-unknown'
+    /** ReactVision: the service cannot be reached, or it refused (plan, limit, no map). */
+    | 'cloud-offline'
+    /** ReactVision: this build has no keys, or the room has no location id at the service. */
+    | 'cloud-not-set-up';
   /**
    * A first doorway pose of this session is on its way to being confirmed: it came from
    * a weak answer and is being checked. The interface shows an outline, not the door.

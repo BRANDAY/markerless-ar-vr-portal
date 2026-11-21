@@ -18,6 +18,8 @@ export type VisitorSheet =
   | 'noDoor'
   /** The room was not recognised after the tries. */
   | 'notRecognised'
+  /** ReactVision as the connection method: the service is not reachable, or the room is not set up there. */
+  | 'cloud'
   /** The camera was refused. */
   | 'camera'
   /** The phone cannot run AR. */
@@ -87,6 +89,8 @@ export function visitorView(input: VisitorInput): VisitorView {
     } else {
       view.sheet = input.wifi ? 'noServer' : 'wifi';
     }
+  } else if (staff.leave === 'cloud' || staff.leave === 'cloud-setup') {
+    view.sheet = 'cloud';
   } else if (staff.leave === 'no-room' || staff.sheet === 'noDoor') {
     view.sheet = 'noDoor';
   } else if (staff.sheet === 'unknown') {
@@ -117,6 +121,8 @@ export function visitorSheetText(sheet: VisitorSheet): VisitorSheetText {
       return { title: 'visitor.notReady.title', body: 'visitor.askStaff', reason: 'visitor.reason.version', button: 'retry' };
     case 'noDoor':
       return { title: 'visitor.notReady.title', body: 'visitor.askStaff', reason: 'visitor.reason.noDoor', button: 'retry' };
+    case 'cloud':
+      return { title: 'visitor.notReady.title', body: 'visitor.askStaff', reason: 'visitor.reason.cloud', button: 'retry' };
     case 'notRecognised':
       return { title: 'visitor.cantFind.title', body: 'visitor.cantFind.body', reason: 'visitor.reason.notRecognised', button: 'retry' };
     case 'camera':

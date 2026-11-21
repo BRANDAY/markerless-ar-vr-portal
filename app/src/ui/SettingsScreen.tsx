@@ -20,6 +20,7 @@ export function SettingsScreen() {
   const connection = useServerView().connection;
   const auto = usePrefs((s) => s.findAutomatically);
   const developer = usePrefs((s) => s.developerOptions);
+  const cloud = usePrefs((s) => s.connection === 'reactvision');
   const [sheet, setSheet] = useState<'switch' | 'pin' | null>(null);
 
   const chip = chipState(connection.state);
@@ -42,6 +43,13 @@ export function SettingsScreen() {
   return (
     <>
     <ScreenFrame title={t('settings.title')} onBack={() => appActions.back()}>
+      <Row
+        icon="search"
+        title={t('connection.title')}
+        value={cloud ? t('connection.cloud.title') : t('connection.server.short')}
+        arrow
+        onPress={() => appActions.go('connection')}
+      />
       <Row icon="wifi" tone={chip === 'connected' ? 'teal' : 'neutral'} title={t('settings.server')} value={serverValue} arrow onPress={() => appActions.go('connect')} />
       <Row icon="search" title={t('settings.auto')} toggle={{ value: auto, onChange: (value) => prefsActions.set({ findAutomatically: value }) }} />
       <Row icon="door" title={t('settings.switch')} arrow onPress={() => setSheet('switch')} />

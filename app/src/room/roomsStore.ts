@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { getMaps, getPortal, getRoom } from '../server/core/client';
-import type { ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roomPlan';
+import type { RoomVps, ServerMapInfo, ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import { serverConnection } from '../server/ServerConnection';
 import { getPrefs, prefsActions } from '../state/prefs';
 import { pickRoom } from '../ui/core/homeView';
@@ -62,20 +62,70 @@ export function roomName(mapId: string | null): string {
   return label || roomDisplayName(mapId);
 }
 
+/** The connection method is ReactVision Advanced VPS (`ui-spec.md`, 5.15). */
+export function usesCloud(): boolean {
+  return getPrefs().connection === 'reactvision';
+}
+
+/** The copy of the rooms' ReactVision entries kept from the last time the venue's server answered. */
+function keptVps(): Record<string, RoomVps> {
+  const saved = getPrefs().vpsRooms;
+  if (!saved) {
+    return {};
+  }
+  try {
+    const json = JSON.parse(saved) as Record<string, RoomVps>;
+    const kept: Record<string, RoomVps> = {};
+    for (const [mapId, entry] of Object.entries(json ?? {})) {
+      if (entry && typeof entry.locationId === 'string' && entry.locationId) {
+        kept[mapId] = entry;
+      }
+    }
+    return kept;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * What the venue's server keeps about a room for ReactVision: the location id and the
+ * door in that service's map. From the server's list of rooms; while the server has not
+ * answered in this run, from the copy kept on the phone.
+ */
+export function vpsOfRoom(mapId: string | null): RoomVps | null {
+  if (!mapId) {
+    return null;
+  }
+  const listed = state.rooms.find((room) => room.mapId === mapId);
+  return listed ? listed.vps : (keptVps()[mapId] ?? null);
+}
+
+/** Whether a room has a door for the connection method in use. */
+export function roomHasDoor(room: ServerMapInfo): boolean {
+  return usesCloud() ? room.vps?.door != null : room.portalConfirmed;
+}
+
 /**
  * The id of the room to find or to open: the one used last if the server still has it.
  * Reads the server's own list of rooms, so it also works before `refresh` has answered.
  *
  * In visitor mode only a room with a door that staff saved will do; once the list of
  * rooms is known, a server without such a room has no room for a visitor.
+ *
+ * With ReactVision as the connection method the venue's server is needed only for the
+ * list of rooms and their doors: while it does not answer, the rooms kept on the phone
+ * from the last time are used.
  */
 export function currentRoomId(): string | null {
   const ids = serverConnection.getView().connection.info?.maps ?? [];
   const { visitorMode, lastRoomId } = getPrefs();
+  if (usesCloud() && ids.length === 0 && state.rooms.length === 0) {
+    const kept = keptVps();
+    const usable = Object.keys(kept).filter((mapId) => !visitorMode || kept[mapId].door !== null);
+    return pickRoom(usable, lastRoomId);
+  }
   if (visitorMode && state.rooms.length > 0) {
-    const withDoor = state.rooms
-      .filter((room) => ids.includes(room.mapId) && room.portalConfirmed)
-      .map((room) => room.mapId);
+    const withDoor = state.rooms.filter((room) => ids.includes(room.mapId) && roomHasDoor(room)).map((room) => room.mapId);
     return pickRoom(withDoor, lastRoomId);
   }
   return pickRoom(ids, lastRoomId);
@@ -125,6 +175,17 @@ export const roomsActions = {
       getPrefs().lastRoomId,
     );
     setState({ rooms: maps.value, currentId, detail: state.detail?.mapId === currentId ? state.detail : null });
+    // Kept on the phone: with ReactVision a door can then be shown without the venue's server.
+    const vps: Record<string, RoomVps> = {};
+    for (const room of maps.value) {
+      if (room.vps) {
+        vps[room.mapId] = room.vps;
+      }
+    }
+    const kept = Object.keys(vps).length > 0 ? JSON.stringify(vps) : null;
+    if (kept !== getPrefs().vpsRooms) {
+      prefsActions.set({ vpsRooms: kept });
+    }
     if (currentId && currentId !== getPrefs().lastRoomId) {
       prefsActions.set({ lastRoomId: currentId });
     }

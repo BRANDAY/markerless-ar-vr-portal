@@ -332,6 +332,28 @@ export const en = {
   'problem.noDoor.body': 'Put the door where visitors should find it.',
   'problem.staff': 'Please ask a member of staff.',
 
+  // ---- 5.15 connection method ----
+  'connection.title': 'Connection',
+  'connection.server.short': '{serverApp}',
+  'connection.server.title': '{serverApp} on this network',
+  'connection.server.line': 'Rooms and doors are kept on a PC in this building. Nothing leaves the network.',
+  'connection.cloud.title': 'ReactVision cloud',
+  'connection.cloud.line': 'Rooms are kept in ReactVision’s cloud. Finding the room needs no PC in the building. Requires a paid ReactVision plan.',
+  'connection.cloud.notSetUp': 'Not set up in this build.',
+  'connection.cloud.recognise': 'Recognise in the cloud',
+  'connection.cloud.recognise.line': 'More reliable after days or in different light. ReactVision charges for it by the minute.',
+  'connection.location.label': 'ReactVision location ID of “{room}”',
+  'connection.location.hint': 'The ID this room got when it was scanned into ReactVision. After saving it, place the door for this room.',
+  'connection.location.noRoom': 'Scan a room first. Its ReactVision location ID is entered here.',
+  'connection.location.save': 'Save',
+  'connection.location.saved': 'Saved.',
+  'connection.location.failed': 'Not saved. The server did not answer.',
+  'problem.cloud.title': 'Can’t reach the cloud service',
+  'problem.cloud.body': 'Check that this phone is online.',
+  'problem.cloudSetup.title': 'This room is not set up for the cloud',
+  'problem.cloudSetup.body': 'Enter the room’s ReactVision location ID under Settings › Connection, or switch back to the server on this network.',
+  'visitor.reason.cloud': 'Cloud service not reachable or not set up',
+
   // ---- 5.12 settings ----
   'settings.title': 'Settings',
   'settings.server': 'Server',

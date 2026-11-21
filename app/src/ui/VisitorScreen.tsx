@@ -10,7 +10,7 @@ import { appActions, useAppState } from '../state/appStore';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
 import { type VisitorSheet, visitorSheetText, visitorView } from './core/visitorView';
-import { enterStaffMode } from './flows';
+import { enterStaffMode, roomProvider } from './flows';
 import { Icon } from './icons';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Notice, ScreenFrame, Sheet, SheetTitle, Small, Title } from './kit';
 import { PinSheet } from './modeSheets';
@@ -46,7 +46,7 @@ export function VisitorScreen(props: { permission: Permission; permissionChecked
   // A visitor's door comes from the server and from nowhere else. Without a known server
   // the Wi-Fi is searched at once, so that the venue's name is there before "Start".
   useEffect(() => {
-    appActions.setProvider('self-hosted');
+    appActions.setProvider(roomProvider());
     void roomsActions.refresh(); // which rooms have a saved door
     if (serverConnection.getView().connection.state === 'not-configured') {
       search();

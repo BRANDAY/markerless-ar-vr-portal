@@ -32,6 +32,7 @@ import { MeasureLayer } from './MeasureLayer';
 import { PlaceMarker } from './PlaceMarker';
 import { RoomScanLayer } from './RoomScanLayer';
 import { ServerRoomLayer } from './ServerRoomLayer';
+import { VpsLayer } from './VpsLayer';
 import './materials';
 
 /** The overlay shows the camera position at most this often. */
@@ -384,6 +385,7 @@ export function PortalARScene(props: SceneProps) {
       <RoomScanLayer />
       <ServerRoomLayer />
       <MeasureLayer />
+      {active && providerId === 'reactvision-vps' ? <VpsLayer arSceneNavigator={props.arSceneNavigator} /> : null}
 
       {shownDoor === null && door && pending ? (
         <DoorOutline pose={door.pose} opening={door.opening} />

@@ -66,6 +66,7 @@ export type Screen =
   | 'spaces'
   | 'rooms'
   | 'settings'
+  | 'connection'
   | 'visitor'
   | 'problem'
   | 'diagnostics'
@@ -73,7 +74,7 @@ export type Screen =
   | 'credits';
 
 /** Problems that take the whole screen (section 7.1). */
-export type ProblemKind = 'camera' | 'device' | 'server' | 'wifi' | 'version';
+export type ProblemKind = 'camera' | 'device' | 'server' | 'wifi' | 'version' | 'cloud' | 'cloudSetup';
 
 export interface LogEntry {
   id: number;

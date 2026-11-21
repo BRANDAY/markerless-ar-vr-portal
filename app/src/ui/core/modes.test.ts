@@ -110,6 +110,9 @@ test('visitor: every dead end is a sheet', () => {
   assert.equal(sheet({ status: 'error', meta: { code: 'incompatible' } }), 'version');
   assert.equal(sheet({ status: 'error', meta: { code: 'no-room' } }), 'noDoor');
   assert.equal(sheet({ status: 'error', meta: { code: 'no-doorway' } }), 'noDoor');
+  // ReactVision as the connection method: not reachable, or not set up
+  assert.equal(sheet({ status: 'error', meta: { code: 'cloud-offline' } }), 'cloud');
+  assert.equal(sheet({ status: 'error', meta: { code: 'cloud-not-set-up' } }), 'cloud');
   assert.equal(sheet({ status: 'lost', meta: { code: 'not-recognised' } }), 'notRecognised');
   assert.equal(sheet({ cameraRefused: true }), 'camera');
   assert.equal(sheet({ arUnsupported: true }), 'device');
@@ -129,7 +132,7 @@ test('visitor: door, inside and tracking loss as for staff', () => {
 });
 
 test('visitor: every sheet has its texts, and "Try again" unless the spec says otherwise', () => {
-  const sheets: VisitorSheet[] = ['noServer', 'wifi', 'version', 'noDoor', 'notRecognised', 'camera', 'device'];
+  const sheets: VisitorSheet[] = ['noServer', 'wifi', 'version', 'noDoor', 'notRecognised', 'cloud', 'camera', 'device'];
   for (const sheet of sheets) {
     const text = visitorSheetText(sheet);
     assert.ok(en[text.title], sheet);

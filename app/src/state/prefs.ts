@@ -29,8 +29,19 @@ export interface Prefs {
   pinHash: string | null;
   /** The visitor welcome panel was passed once: later launches open the camera at once. */
   visitorWelcomeDone: boolean;
-  /** How the room is found: the venue's own server, or the ReactVision cloud (not built yet). */
+  /** How the room is found: `server` (the venue's own) or `reactvision` (Advanced VPS in the cloud). */
   connection: string;
+  /**
+   * ReactVision: match the camera on the vendor's servers instead of on the phone
+   * ("Recognise in the cloud"). The vendor charges for it by the minute.
+   */
+  vpsServerMode: boolean;
+  /**
+   * The last copy of what the venue's server keeps about its rooms for ReactVision
+   * (location id, door), as JSON: with it a door can be shown when only the internet is
+   * reachable.
+   */
+  vpsRooms: string | null;
   /** Room to try first. */
   lastRoomId: string | null;
   /** Chosen space per room, until the server stores it. */
@@ -59,6 +70,8 @@ const DEFAULTS: Prefs = {
   pinHash: null,
   visitorWelcomeDone: false,
   connection: 'server',
+  vpsServerMode: false,
+  vpsRooms: null,
   lastRoomId: null,
   spaceByRoom: {},
   lastCapture: null,

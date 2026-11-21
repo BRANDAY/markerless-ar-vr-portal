@@ -5,6 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import type { MapInSession } from '../localization/core/vpsAlignment';
 import type { ServerPortal, ServerRoom } from '../server/core/roomPlan';
 import type { BuildFailure } from '../ui/core/buildView';
 import type { DoorDraft } from '../ui/core/doorEdit';
@@ -50,6 +51,12 @@ export interface FoundRoom {
   strong: boolean;
   /** Plan, door and suggested doorway of that answer, in this session's frame. */
   plan: ServerPlan;
+  /**
+   * Set when the room was found through ReactVision Advanced VPS instead: how that
+   * service's map lies in this session. A door is then saved in the frame of that map
+   * (`sessionId` is empty and not used).
+   */
+  vps?: { locationId: string; map: MapInSession };
 }
 
 /** Sending a capture to the server and waiting for the map. */

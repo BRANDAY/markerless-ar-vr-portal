@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, test } from 'node:test';
 
-import { getJob, getJobs, getPortal, getRoom, localize, removeDoor, saveDoor, setClientRole, uploadRecording } from './client';
+import { getJob, getJobs, getPortal, getRoom, localize, patchRoomVps, removeDoor, saveDoor, setClientRole, uploadRecording } from './client';
 import { validateHealth } from './health';
 import {
   describeJob,
@@ -300,6 +300,10 @@ describe('room-scan requests against a local mock', () => {
           return send(200, { name: 'portal', alignment_used: 'session_alignment', portal: { ...PORTAL, source: 'manual', confirmed: true } });
         }
         if (request.method === 'PUT' && url === '/maps/lost/anchors/portal') return send(422, { detail: 'no accepted alignment for this session' });
+        if (request.method === 'PATCH' && url === '/maps/room') {
+          const sent = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { vps: unknown };
+          return send(200, { map_id: 'room', label: 'Living room', portal_source: 'none', vps: sent.vps });
+        }
         if (request.method === 'DELETE' && url === '/maps/room/portal') return send(200, { deleted: true, portal: { source: 'none' } });
         if (url === '/maps/room/portal') return send(200, PORTAL);
         if (url === '/maps/odd/portal') return send(200, 'not an object');
@@ -372,6 +376,16 @@ describe('room-scan requests against a local mock', () => {
     assert.equal(seen.find((r) => r.method === 'DELETE')?.role, '');
     assert.equal((await removeDoor(baseUrl, 'nowhere')).ok, false);
   });
+  test('the room at ReactVision: location id and door are stored with the room, and removed', async () => {
+    const door = { position: [1, 0, -2] as [number, number, number], quaternion_xyzw: [0, 0, 0, 1] as [number, number, number, number], width: 0.9, height: 2 };
+    const stored = await patchRoomVps(baseUrl, 'room', { provider: 'reactvision', location_id: 'loc-1', door });
+    assert.deepEqual(stored.ok && stored.value.vps, { locationId: 'loc-1', door: { position: [1, 0, -2], quaternion: [0, 0, 0, 1], width: 0.9, height: 2 } });
+    const request = seen.filter((r) => r.method === 'PATCH').pop();
+    assert.deepEqual(JSON.parse(request?.body ?? 'null'), { vps: { provider: 'reactvision', location_id: 'loc-1', door } });
+    const removed = await patchRoomVps(baseUrl, 'room', null);
+    assert.equal(removed.ok && removed.value.vps, null);
+    assert.equal((await patchRoomVps(baseUrl, 'nowhere', null)).ok, false);
+  });
   test('localize: a failed localisation is an answer, not an error', async () => {
     const result = await localize(baseUrl, form());
     assert.equal(result.ok && result.value.quality, 'failed');
@@ -395,8 +409,8 @@ describe('parseMaps', () => {
       ],
     });
     assert.deepEqual(maps, [
-      { mapId: 'room', label: 'Living room', createdUtc: '2026-11-20T10:00:00Z', roomStatus: 'ok', portalSource: 'auto', portalConfirmed: false },
-      { mapId: 'old', label: '', createdUtc: '', roomStatus: 'unavailable', portalSource: 'none', portalConfirmed: false },
+      { mapId: 'room', label: 'Living room', createdUtc: '2026-11-20T10:00:00Z', roomStatus: 'ok', portalSource: 'auto', portalConfirmed: false, vps: null },
+      { mapId: 'old', label: '', createdUtc: '', roomStatus: 'unavailable', portalSource: 'none', portalConfirmed: false, vps: null },
     ]);
     // which rooms have a door for a visitor: the server's word, or the source on an older server
     const doors = parseMaps({
@@ -407,6 +421,21 @@ describe('parseMaps', () => {
       ],
     });
     assert.deepEqual(doors?.map((room) => room.portalConfirmed), [true, true, false]);
+    // the room's entry at ReactVision Advanced VPS: location id, and the door in that service's map
+    const cloud = parseMaps({
+      maps: [
+        { map_id: 'a', vps: { provider: 'reactvision', location_id: 'loc-1', door: { position: [1, 0, -2], quaternion_xyzw: [0, 0.7071, 0, 0.7071], width: 0.9, height: 2.05 }, note: 'x' } },
+        { map_id: 'b', vps: { provider: 'reactvision', location_id: 'loc-2' } },
+        { map_id: 'c', vps: { location_id: '' } },
+        { map_id: 'd', vps: { location_id: 'loc-4', door: { position: [1, 2], quaternion_xyzw: [0, 0, 0, 1] } } },
+        { map_id: 'e', vps: null },
+      ],
+    });
+    assert.deepEqual(cloud?.[0].vps, { locationId: 'loc-1', door: { position: [1, 0, -2], quaternion: [0, 0.7071, 0, 0.7071], width: 0.9, height: 2.05 } });
+    assert.deepEqual(cloud?.[1].vps, { locationId: 'loc-2', door: null });
+    assert.equal(cloud?.[2].vps, null);
+    assert.deepEqual(cloud?.[3].vps, { locationId: 'loc-4', door: null }); // a door without a usable place is no door
+    assert.equal(cloud?.[4].vps, null);
     assert.equal(parseMaps({ maps: 'no' }), null);
     assert.equal(parseMaps(null), null);
   });

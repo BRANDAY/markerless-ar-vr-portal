@@ -1,11 +1,11 @@
 /**
- * STUBS - NOT IMPLEMENTED (stage 2).
+ * STUB - NOT IMPLEMENTED.
  *
- * Two of the planned localization back-ends (the third, the self-hosted server, has its
- * own file: `SelfHostedServerProvider.ts`). Each class already satisfies the
- * `LocalizationProvider` interface, can be selected in the app and reports
- * status `error` / "not implemented". There is deliberately NO network code,
- * no API key handling and no SDK call in this file.
+ * One of the planned localization back-ends (the self-hosted server and ReactVision
+ * Advanced VPS have their own files: `SelfHostedServerProvider.ts`,
+ * `ReactVisionVpsProvider.ts`). The class satisfies the `LocalizationProvider`
+ * interface and reports status `error` / "not implemented". There is deliberately NO
+ * network code, no API key handling and no SDK call in this file.
  *
  * Filling one in means: implement `onStart` (begin localizing), call
  * `emitPose({ pose, quality })` with the DOORWAY pose expressed in the AR-world
@@ -31,21 +31,6 @@ abstract class NotImplementedProvider extends BaseProvider {
   relocalize(): void {
     this.context?.log(`${this.id}: STUB - relocalize() does nothing yet`);
   }
-}
-
-/**
- * STUB: ReactVision platform VPS.
- *
- * Plan: build with the ViroReact config-plugin option `provider: "reactvision"`
- * plus `rvApiKey` / `rvProjectId` (not present in this repository), scan the room
- * once with ReactVision's tooling, then localize against that scan here and
- * convert the returned room-frame pose of the doorway into the session frame.
- * Needs: a ReactVision account, API key and project id.
- */
-export class ReactVisionVpsProvider extends NotImplementedProvider {
-  readonly id: ProviderId = 'reactvision-vps';
-  readonly displayName = 'ReactVision VPS (stub)';
-  protected readonly plan = 'needs ReactVision API key + project id and a scanned room';
 }
 
 /**

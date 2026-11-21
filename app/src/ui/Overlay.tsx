@@ -75,7 +75,7 @@ function StatusBanner() {
     return null;
   }
   const serious = status === 'lost' || status === 'error';
-  const again = providerId === 'self-hosted' ? 'Re-localize' : 'Re-place door';
+  const again = providerId === 'manual' ? 'Re-place door' : 'Re-localize';
   return (
     <View style={[styles.banner, serious ? styles.bannerSerious : null]} pointerEvents="box-none">
       <View style={styles.bannerText} pointerEvents="none">
@@ -174,7 +174,7 @@ function Controls() {
   return (
     <View style={styles.controls} pointerEvents="box-none">
       <Button
-        label={providerId === 'self-hosted' ? 'Re-localize' : 'Re-place door'}
+        label={providerId === 'manual' ? 'Re-place door' : 'Re-localize'}
         onPress={appActions.requestRelocalize}
       />
       <Button

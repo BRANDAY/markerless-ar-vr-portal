@@ -17,6 +17,7 @@ import {
   parseJob,
   parseJobs,
   parseLocalize,
+  parseMapInfo,
   parseMaps,
   parsePortal,
   parseRoom,
@@ -392,6 +393,31 @@ export function postDeviceLog(
     parseLogReceipt,
     { timeoutMs: 3000, ...options },
   );
+}
+
+/** What `PATCH /maps/{map_id}` takes as the room's entry at ReactVision Advanced VPS (api-v2, section 11). */
+export interface RoomVpsBody {
+  provider: 'reactvision';
+  location_id: string;
+  door?: {
+    position: [number, number, number];
+    quaternion_xyzw: [number, number, number, number];
+    width?: number;
+    height?: number;
+  };
+}
+
+/**
+ * `PATCH /maps/{map_id}` with `{"vps": ...}`: stores (or with null removes) the room's
+ * location id at the service and the door in that service's map. The answer is the room.
+ */
+export function patchRoomVps(
+  baseUrl: string,
+  mapId: string,
+  vps: RoomVpsBody | null,
+  options?: RequestOptions,
+): Promise<ApiResult<ServerMapInfo>> {
+  return requestJson(`${baseUrl}/maps/${enc(mapId)}`, { method: 'PATCH', body: JSON.stringify({ vps }) }, parseMapInfo, options);
 }
 
 /** `GET /maps`: the rooms the server has. */

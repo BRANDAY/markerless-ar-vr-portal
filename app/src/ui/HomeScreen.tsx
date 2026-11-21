@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 
 import { t, type TextKey } from '../i18n';
 import { resumeBuild } from '../room/roomServer';
-import { roomName, roomsActions, useRooms } from '../room/roomsStore';
+import { roomHasDoor, roomName, roomsActions, useRooms } from '../room/roomsStore';
 import { isBuilding, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
@@ -45,13 +45,14 @@ export function HomeScreen() {
     }
   }, [connected]);
 
+  const currentRoom = rooms.find((room) => room.mapId === currentId);
   const situation = homeSituation({
     connection: connection.state,
     rooms: connection.state === 'connected' ? (connection.info?.maps ?? []) : [],
     lastRoomId,
     building,
     // Not known until the list of rooms has been read.
-    doorSaved: rooms.find((room) => room.mapId === currentId)?.portalConfirmed ?? null,
+    doorSaved: currentRoom ? roomHasDoor(currentRoom) : null,
   });
   const chip = chipState(connection.state);
   const chipColor = { connected: theme.ok, connecting: theme.amber, offline: theme.danger, none: theme.ink2 }[chip];

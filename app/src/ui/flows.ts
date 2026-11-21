@@ -5,7 +5,8 @@
 import { t } from '../i18n';
 import { newRoomId, nextRoomNumber } from '../room/roomNames';
 import { sendCapture } from '../room/roomServer';
-import { currentRoomId, getRoomsState, roomName } from '../room/roomsStore';
+import type { ProviderId } from '../localization/types';
+import { currentRoomId, getRoomsState, roomName, usesCloud } from '../room/roomsStore';
 import { getRoomScanState, isBuilding, roomActions, type ScanTarget } from '../room/roomStore';
 import { type CaptureSummary, scanController } from '../room/scanController';
 import { serverConnection } from '../server/ServerConnection';
@@ -18,6 +19,14 @@ import { startScreen } from './core/modes';
  * developer tool "Door in front of the camera": two metres ahead, not tied to the room.
  * With developer options on, a provider chosen there by hand is left as it is.
  */
+/**
+ * The provider that finds a room, by the connection method staff chose (`ui-spec.md`,
+ * 5.15): the venue's own server, or ReactVision Advanced VPS.
+ */
+export function roomProvider(): ProviderId {
+  return usesCloud() ? 'reactvision-vps' : 'self-hosted';
+}
+
 export function openDoor(source: 'room' | 'free' = 'room'): void {
   if (warnAboutDevice()) {
     return;
@@ -25,7 +34,7 @@ export function openDoor(source: 'room' | 'free' = 'room'): void {
   if (source === 'free') {
     appActions.setProvider('manual');
   } else if (!getPrefs().developerOptions) {
-    appActions.setProvider('self-hosted');
+    appActions.setProvider(roomProvider());
   }
   appActions.go('ar');
 }
@@ -42,7 +51,7 @@ export function openPlaceDoor(): void {
     appActions.showProblem('server');
     return;
   }
-  appActions.setProvider('self-hosted');
+  appActions.setProvider(roomProvider());
   appActions.setOverlayVisible(false);
   appActions.go('placeDoor');
 }
@@ -58,7 +67,7 @@ export function enterStaffMode(): void {
 /** "Switch to visitor mode": from now on, and after a restart, the app is the visitor screen. */
 export function enterVisitorMode(): void {
   prefsActions.set({ visitorMode: true });
-  appActions.setProvider('self-hosted');
+  appActions.setProvider(roomProvider());
   appActions.setOverlayVisible(false);
   // A search that is running (the staff AR screen, the placing screen) knows the door as
   // it was before; the visitor's search starts from what the server has now.

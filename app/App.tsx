@@ -21,6 +21,7 @@ import { prefsActions, usePrefs } from './src/state/prefs';
 import { ArScreen } from './src/ui/ArScreen';
 import { startScreen } from './src/ui/core/modes';
 import { BuildScreen } from './src/ui/BuildScreen';
+import { ConnectionScreen } from './src/ui/ConnectionScreen';
 import { ConnectScreen } from './src/ui/ConnectScreen';
 import { homeScreen } from './src/ui/flows';
 import { HomeScreen } from './src/ui/HomeScreen';
@@ -308,6 +309,9 @@ export default function App() {
       break;
     case 'settings':
       plain = <SettingsScreen />;
+      break;
+    case 'connection':
+      plain = <ConnectionScreen />;
       break;
     case 'diagnostics':
       plain = <DiagnosticsScreen />;

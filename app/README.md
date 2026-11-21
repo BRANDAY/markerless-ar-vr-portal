@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (174 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (184 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -357,6 +357,84 @@ screens show when in `src/ui/core/placeView.ts` (both unit-tested); the screens 
 `src/ui/PlaceDoorScreen.tsx` and `RoomResultScreen.tsx`, the server calls
 `src/room/doorServer.ts`, the floor outline `src/ar/PlaceMarker.tsx`.
 
+### The second connection method: ReactVision Advanced VPS
+
+**Written, and never run: there is no ReactVision account yet, so neither a phone nor the
+service has seen any of this.** The venue's own server stays the main way. The owner's
+side (account, plan, keys) is described in
+[`docs/cloud/cloud-connection.md`](../docs/cloud/cloud-connection.md).
+
+**The keys and the build.** `app.config.js` reads
+`<secrets folder>\reactvision-app.json` with the fields `rvProjectId` and `rvApiKey` (the
+*client* key, `rv_client_...`) when the native project is generated. The secrets folder
+is `E:\VR-FESB\secrets`, or what the environment variable `VRFESB_SECRETS_DIR` names; it
+is outside the repository, which is public.
+
+- File there: the ViroReact plugin gets `provider: "reactvision"` and the two values;
+  `npx expo prebuild` writes them into the generated `android/` project (git-ignored) and
+  so into the APK. Run `npm run prebuild` again after putting the file there. Such an APK
+  carries the client key: do not attach it to a public release.
+- No file: nothing changes (`provider: "none"`), the app builds as before, and the
+  ReactVision way says that it is not set up.
+- A file that holds a secret key (`rv_secret_...`) stops the build. The secret key
+  belongs to the server and never goes into the app.
+- With `provider: "reactvision"` the plugin adds the two location permissions to the
+  manifest (checked with `npx expo config --type introspect` and a made-up key). The app
+  never asks for them: a room is always looked for by its location id, never with the
+  library's `"auto"`, which starts from GPS.
+
+**In the app.** Settings has a **Connection** page (`ui-spec.md`, 5.15) with the two
+methods. In a build without keys the second one is disabled: "Not set up in this build."
+With "ReactVision cloud" chosen, **Open the door**, the visitor screen and **Place the
+door** use the provider `reactvision-vps` instead of `self-hosted`; everything on screen
+stays the same. The page also has the switch "Recognise in the cloud" (matching on the
+vendor's servers, which the vendor charges for by the minute; off by default) and a field
+for the room's **ReactVision location ID**.
+
+**How it works** (`src/localization/ReactVisionVpsProvider.ts`):
+
+1. The room's location id and the door for this way come from the venue's own server
+   (`GET /maps`, field `vps`; api-v2 section 11), and from the copy the phone keeps of it,
+   so that a door can be shown when only the internet is reachable. The service itself
+   has no call to store a placed object.
+2. The library's `<ViroVPS>` (`src/ar/VpsLayer.tsx`) downloads the location's map,
+   matches the camera against it and reports the camera's pose in the frame of that map.
+3. From that pose and the AR engine's camera pose at the same moment the provider works
+   out where the map lies in the running AR session (`core/vpsAlignment.ts`: four
+   readings in a row have to agree within 4 cm and 2 degrees at the door; they are
+   averaged; a reading that would tilt the map is thrown away).
+4. The door goes out through the same path as every other door (`emitPose`), not inside
+   the library's `<ViroVPSAnchor>`, which moves its content every frame - also while
+   somebody is walking through it. A later correction is applied only when it differs by
+   more than 15 cm or 6 degrees, and waits while the user is inside the space.
+5. **Place the door** saves the door in the frame of the service's map, with its size:
+   `PATCH /maps/{id}` with `{"vps": {"location_id": ..., "door": {...}}}`. The two calls
+   to the server were tried against server 0.4.0 on a test room (stored, read back,
+   removed); the conversion itself is covered by unit tests only.
+
+The service has no "attempt 2 of 5", so the coach lines follow the time: "Try another
+view" after 15 s, "Still looking" after 40 s, and after 90 s the search is given up like a
+search through the server after its attempts.
+
+**What is assumed about the service and not verified:** that `renderPose` uses the AR
+engine's camera convention (X right, Y up, -Z forward) and that the map's Y axis is the
+vertical; that a build without keys makes the library's native module say so (this is
+how the app decides "Not set up in this build"); that `provider: "reactvision"` does not
+disturb the recording and the room mesh the scan uses; that the portal behaves when the
+door is driven this way; how long finding a place takes; all accuracy.
+
+**Not built:**
+
+- sending a scan to ReactVision from the app and following the cloud's build. It needs an
+  endpoint on the venue's server that hands out a short-lived upload token, which does
+  not exist yet. Until then a room is scanned with the vendor's own tools and the
+  location id it got is typed into the Connection page;
+- "Also build in the cloud" and the "Server" / "Cloud" tags of the Rooms screen (the
+  Rooms screen itself is a later step);
+- the privacy lines for this method (5.2, right column);
+- on this way there is no room plan, so no wall warning inside the space, and Home draws
+  no door on the plan.
+
 ### Developer options and the developer tools
 
 Everything technical is off by default. **Seven taps on the version line of Settings**
@@ -425,7 +503,10 @@ Kept as a list for the product side; nothing here was decided silently.
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
-| Connection, Language, Credits rows in Settings | "Server" row as before; the other two not shown | the connection choice is step E, the rest G and J |
+| Language, Credits rows in Settings | not shown | steps G and J |
+| Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere |
+| ReactVision: "Can't reach the cloud service" / "Check that this phone is online." | also used when the service answered and refused (plan, spend limit, no map); a second screen "This room is not set up for the cloud" when the build has no keys or the room no location id; a visitor gets "The door isn't ready" with the staff line "Cloud service not reachable or not set up" | the spec has one text for the cloud's problems |
+| ReactVision: cloud scan, "Also build in the cloud", tags in Rooms, privacy lines of the cloud column | not built | they need a token endpoint on the server, the Rooms screen and the owner's account |
 
 ## Using the developer tools
 
@@ -659,7 +740,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 174 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 184 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -855,6 +936,7 @@ with tests).
 App.tsx                       camera permission gate, AR navigator + overlay
 index.ts                      entry point
 app.json                      Expo config: ViroReact plugin options, build limits
+app.config.js                 adds the ReactVision keys from a file outside the repository, when there is one
 metro.config.js               adds .obj (and other 3D formats) to Metro's asset types
 tsconfig.test.json            compiles the pure modules and their tests for Node (`npm test`, `npm run e2e:server`, `npm run measure:report`)
 plugins/
@@ -884,7 +966,10 @@ src/
     ManualPlacementProvider.ts  stage-1 stand-in
     SelfHostedServerProvider.ts door in the opening the server found; episodes of looking for the room
     core/relocalization.ts    rules: tracking loss, retries, what an answer does to the door (unit-tested)
-    stubs.ts                  ReactVision VPS / ARCore Cloud Anchor (not implemented)
+    ReactVisionVpsProvider.ts ReactVision Advanced VPS: the door from the place's map in the vendor's cloud (never run)
+    vpsBridge.ts              between that provider and the library's tracker; "does this build have keys?"
+    core/vpsAlignment.ts, vpsStatus.ts   pure: where the service's map lies in the session, a door between the two frames, the service's states
+    stubs.ts                  ARCore Cloud Anchor (not implemented)
     math.ts                   small vector / Euler helpers
     index.ts                  provider registry
   environments/               worlds behind the portal and the door casing (maintained separately):
@@ -922,6 +1007,8 @@ src/
   ui/modeSheets.tsx           the staff PIN pad, and the question before switching to visitor mode
   ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts
   ar/WallGridLayer.tsx        the real room's wall as a grid, inside the space
+  ar/VpsLayer.tsx             the library's <ViroVPS> for the ReactVision provider
+  ui/ConnectionScreen.tsx     the connection method: own server or ReactVision cloud; the room's location id
   ui/PlaceDoorScreen.tsx      "Place the door": put it here, adjust, save to the server
   ui/RoomResultScreen.tsx     what the server understood about a room that was just scanned
   ui/core/doorEdit.ts, placeView.ts   pure: the steps of placing a door, what is sent to the server, what the placing screen shows when
@@ -985,13 +1072,16 @@ Providers:
 | Provider | State |
 | --- | --- |
 | `ManualPlacementProvider` | Implemented. When tracking first becomes NORMAL: 2 m ahead of the camera along its horizontal heading, on the floor (lowest detected horizontal plane at least 0.8 m below the camera, otherwise 1.4 m below the camera), facing the user. **Not persistent across sessions — a stand-in only.** |
-| `ReactVisionVpsProvider` | Stub, no network code. Needs a ReactVision API key + project id and plugin option `provider: "reactvision"`. |
+| `ReactVisionVpsProvider` | Implemented, **never run** (no account yet): [The second connection method](#the-second-connection-method-reactvision-advanced-vps). In a build without keys it reports "not set up". |
 | `ArCoreCloudAnchorProvider` | Stub, no network code. Needs a Google Cloud API key and plugin option `provider: "arcore"`. |
 | `SelfHostedServerProvider` | Implemented, **not yet run on a device**. The door stands where staff saved it in the room: the place comes with the answer to a 2.5 s clip sent to `/localize` (or, in the developer tools, straight from the plan after a build in the same session). It also tells the placing screen when the room is found, so that a door can be saved. Retries, tracking loss and corrections follow [Keeping the doorway in place](#keeping-the-doorway-in-place). |
 
-The ViroReact plugin is currently configured with `provider: "none"` and
-`telemetry: false` (no anchor back-end, no usage ping); no API keys or accounts are used.
-The only network traffic of the app is the health check to the server address you set.
+Without a key file the ViroReact plugin is configured with `provider: "none"` and
+`telemetry: false` (no anchor back-end, no usage ping), and no API keys or accounts are
+used: the app talks only to the server address you set. With the key file of
+[the second connection method](#the-second-connection-method-reactvision-advanced-vps)
+the build carries a ReactVision client key, and with that method chosen the app also
+talks to ReactVision's servers.
 
 ## How the portal works
 
@@ -1210,6 +1300,10 @@ has never been installed.
   light and dark, with the largest system font; that leaving and re-entering the AR
   screen starts a new AR session cleanly; the plan drawing against the real room; the
   amber outline of an unconfirmed doorway; the AR-support query;
+- **ReactVision Advanced VPS**: everything - the build with `provider: "reactvision"`
+  (does AR, the recording and the room mesh still work?), "Not set up in this build" in a
+  build without keys, finding a place, the door from the place's map, the door staying
+  put while somebody walks through it, saving a door for this way, the Connection page;
 - **placing the door**: the whole pass "staff scan the room, place and save the door,
   the app is closed, a visitor opens it, the door stands where it was saved" - the
   assignment's main question; that the door being placed is drawn (the portal with

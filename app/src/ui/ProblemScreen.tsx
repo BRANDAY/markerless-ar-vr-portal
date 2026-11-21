@@ -52,6 +52,17 @@ export function ProblemScreen({ kind }: { kind: ProblemKind }) {
       body = t('connect.version.body');
       primary = { label: 'common.searchAgain', onPress: search };
       break;
+    case 'cloud':
+      title = 'problem.cloud.title';
+      body = t('problem.cloud.body');
+      primary = { label: 'visitor.tryAgain', onPress: back };
+      secondary = { label: 'problem.server.secondary', onPress: () => appActions.replace('connection') };
+      break;
+    case 'cloudSetup':
+      title = 'problem.cloudSetup.title';
+      body = t('problem.cloudSetup.body');
+      primary = { label: 'problem.server.secondary', onPress: () => appActions.replace('connection') };
+      break;
     case 'server':
       title = 'problem.server.title';
       body = serverName ? t('problem.server.body', { server: serverName }) : t('problem.server.body.unnamed');
