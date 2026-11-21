@@ -452,8 +452,10 @@ service whose map lies in the room in a known way): the room gets a place, 8 sam
 the app would take them (with a centimetre and a third of a degree of noise) go to the
 server, the bridge it returns puts the door 2.0 cm from the truth (its own estimate:
 1.5 cm, 0.21 degrees), `GET /maps` then lists the room as recognisable both ways, and
-the same door record placed through the bridge stands 1.6 cm and 0.3 degrees from where
-it was placed through the server.
+the same door record placed through the bridge stands 1.7 cm and 0.3 degrees from where
+it was placed through the server. The run also checks that the frame the answer of
+`/localize` names is the frame of the door record: the door layer refuses to put a door of
+one scan into the frame of another.
 
 **What is assumed about the service and not verified:** that `renderPose` uses the AR
 engine's camera convention (X right, Y up, -Z forward) and that the map's Y axis is the
@@ -967,7 +969,7 @@ localisation on was run again against server 0.5.0 after the door layer was intr
 | A second localisation in that session, as a visitor: the app's own sum, room transform x door record | the door stands **0.0 cm and 0.0 degrees** from where it was placed, with its size; the app's decision: **place** |
 | The app's own sum against the door the server multiplied out for the same answer | **0.0 mm, 0.00 degrees** apart, on both rooms |
 | The door removed | ok; the room has no door for visitors again |
-| The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth; the door through the second way stands **1.6 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run6`) |
+| The second way with a made-up service (place, bridge from 8 samples, the same door through the bridge, place removed) | the bridge puts the door **2.0 cm** from the truth; the door through the second way stands **1.7 cm and 0.3 degrees** from where it was placed; `GET /maps` lists the room as recognisable through `self-hosted, reactvision` (server 0.6.0, `run6`) |
 | The same clip against an existing map with a door set by hand (`--localize-only`, map `tum_room`) | answered in 2.5 s, "good", 1075 inliers; the app's decision: **place**; the door stands **2.3 cm** from where the recording's known transform puts it |
 
 The zero in the second localisation is expected and says less than it seems: the door

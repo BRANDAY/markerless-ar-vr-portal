@@ -224,6 +224,15 @@ async function main(): Promise<number> {
     // is read apart, the sum is the app's. A door is one that staff saved; a doorway the
     // server only found is a suggestion.
     check(outcome.alignmentStatus !== 'ok' || outcome.transform !== null, 'the answer says where the room is (alignment.T_arworld_from_map)');
+    // The door layer refuses to put a door of one scan into the frame of another: the two names must agree.
+    if (portal.ok && (outcome.frameId || portal.value.frameId)) {
+      check(
+        outcome.frameId === portal.value.frameId,
+        `the frame the answer refers to is the frame of the door record: "${outcome.frameId}" / "${portal.value.frameId}"`,
+      );
+    } else {
+      console.log('      this server does not name the frames of its rooms');
+    }
     const settled =
       outcome.transform && portal.ok ? settle(null, false, outcome.transform, portal.value, outcome.quality === 'good') : null;
     const mine = settled?.portal ?? null;
