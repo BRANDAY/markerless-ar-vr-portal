@@ -14,6 +14,7 @@ import { type ClientIdentity, identityHeaders, type LogReceipt, parseLogReceipt 
 import { type ServerInfo, validateHealth } from './health';
 import {
   parseJob,
+  parseJobs,
   parseLocalize,
   parseMaps,
   parsePortal,
@@ -113,8 +114,11 @@ export async function probeHealth(baseUrl: string, options: ProbeOptions): Promi
 
 export type ApiResult<T> =
   | { ok: true; value: T }
-  /** `status` is the HTTP status, or null when there was no HTTP answer at all. */
-  | { ok: false; status: number | null; reason: string };
+  /**
+   * `status` is the HTTP status, or null when there was no HTTP answer at all. `code` is
+   * the server's `X-Error-Code` header, where it sent one (a fixed word for the cause).
+   */
+  | { ok: false; status: number | null; reason: string; code?: string };
 
 export interface RequestOptions {
   timeoutMs?: number;
@@ -137,14 +141,30 @@ function errorReason(status: number, body: unknown): string {
   return typeof detail === 'string' && detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`;
 }
 
-function parsed<T>(status: number, body: unknown, parse: (body: unknown) => T | null): ApiResult<T> {
+function parsed<T>(
+  status: number,
+  body: unknown,
+  parse: (body: unknown) => T | null,
+  errorCode?: string | null,
+): ApiResult<T> {
   if (status < 200 || status >= 300) {
-    return { ok: false, status, reason: errorReason(status, body) };
+    const failure = { ok: false as const, status, reason: errorReason(status, body) };
+    return errorCode ? { ...failure, code: errorCode } : failure;
   }
   const value = parse(body);
   return value === null
     ? { ok: false, status, reason: 'the answer does not have the expected shape' }
     : { ok: true, value };
+}
+
+const ERROR_CODE_HEADER = 'X-Error-Code';
+
+function errorCodeOf(response: { headers?: { get?: (name: string) => string | null } }): string | null {
+  try {
+    return response.headers?.get?.(ERROR_CODE_HEADER) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function requestJson<T>(
@@ -179,7 +199,7 @@ async function requestJson<T>(
       signal: controller.signal,
     });
     const body: unknown = await response.json().catch(() => null);
-    return parsed(response.status, body, parse);
+    return parsed(response.status, body, parse, errorCodeOf(response));
   } catch (error) {
     const reason = timedOut
       ? `no answer within ${timeoutMs} ms`
@@ -199,6 +219,7 @@ interface XhrLike {
   setRequestHeader(name: string, value: string): void;
   send(body: unknown): void;
   abort(): void;
+  getResponseHeader?(name: string): string | null;
   status: number;
   responseText: string;
   onload: (() => void) | null;
@@ -226,7 +247,7 @@ async function postMultipart<T>(
         signal: options.signal,
       });
       const body: unknown = await response.json().catch(() => null);
-      return parsed(response.status, body, parse);
+      return parsed(response.status, body, parse, errorCodeOf(response));
     } catch (error) {
       const reason = options.signal?.aborted
         ? 'cancelled'
@@ -256,7 +277,13 @@ async function postMultipart<T>(
       } catch {
         // not JSON: `parsed` reports the status or the wrong shape
       }
-      finish(parsed(xhr.status, body, parse));
+      let errorCode: string | null = null;
+      try {
+        errorCode = xhr.getResponseHeader?.(ERROR_CODE_HEADER) ?? null;
+      } catch {
+        // no header, no code
+      }
+      finish(parsed(xhr.status, body, parse, errorCode));
     };
     xhr.onerror = () => finish({ ok: false, status: null, reason: 'network error during the upload' });
     xhr.ontimeout = () => finish({ ok: false, status: null, reason: 'the upload timed out' });
@@ -284,6 +311,11 @@ export function uploadRecording(
 
 export function getJob(baseUrl: string, jobId: string, options?: RequestOptions): Promise<ApiResult<ServerJob>> {
   return requestJson(`${baseUrl}/jobs/${enc(jobId)}`, { method: 'GET' }, parseJob, options);
+}
+
+/** `GET /jobs?map_id=`: the jobs of a room, newest first. */
+export function getJobs(baseUrl: string, mapId: string, options?: RequestOptions): Promise<ApiResult<ServerJob[]>> {
+  return requestJson(`${baseUrl}/jobs?map_id=${enc(mapId)}`, { method: 'GET' }, parseJobs, options);
 }
 
 export function cancelJob(baseUrl: string, jobId: string, options?: RequestOptions): Promise<ApiResult<ServerJob>> {

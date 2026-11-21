@@ -9,6 +9,7 @@ import { Directory, File } from 'expo-file-system';
 import {
   cancelJob,
   getJob,
+  getJobs,
   getPortal,
   getRoom,
   localize,
@@ -17,11 +18,14 @@ import {
 import { describeJob, isFinalJobState, type LocalizeOutcome, type ServerJob } from '../server/core/roomPlan';
 import { getDeviceId } from '../server/identity';
 import { serverConnection } from '../server/ServerConnection';
-import { appActions } from '../state/appStore';
-import { roomActions, type ServerPlan } from './roomStore';
-import { getLastCaptureDir, recordClip } from './scanController';
+import { appActions, getAppState } from '../state/appStore';
+import { getPrefs, prefsActions } from '../state/prefs';
+import { type BuildFailure, failureFromJobError, failureFromUpload } from '../ui/core/buildView';
+import { getRoomScanState, isBuilding, roomActions, type ScanTarget, type ServerPlan } from './roomStore';
+import { roomsActions } from './roomsStore';
+import { findCaptureDir, getLastCaptureDir, recordClip } from './scanController';
 
-/** The map this app scans into and localises against. */
+/** The map the developer tools scan into (the product screens name their rooms). */
 export const DEFAULT_MAP_ID = 'room';
 const JOB_POLL_INTERVAL_MS = 1500;
 /** This many polls in a row without an answer end the waiting (the build itself goes on). */
@@ -43,9 +47,15 @@ function megabytes(bytes: number): string {
   return `${(bytes / 1e6).toFixed(0)} MB`;
 }
 
-function fail(text: string): void {
+/**
+ * The end of a build that did not work: `failure` chooses the screen
+ * (`ui/core/buildView.ts`), `text` is the technical line for the log and the developer
+ * tools.
+ */
+function fail(failure: BuildFailure, text: string): void {
+  roomActions.setBuild({ phase: 'failed', failure });
   roomActions.setUpload({ phase: 'failed', text, progress: null });
-  log(`upload/build: ${text}`);
+  log(`upload/build failed (${failure}): ${text}`);
 }
 
 /** Room plan and doorway of a map, in the map frame. */
@@ -60,6 +70,7 @@ async function fetchPlan(baseUrl: string, mapId: string, origin: ServerPlan['ori
   return { mapId, origin, room: room.ok ? room.value : null, portal: portal.ok ? portal.value : null };
 }
 
+/** Follows a build to its end. Null when contact was lost for too long (already reported). */
 async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob | null> {
   let job = first;
   let failedPolls = 0;
@@ -67,7 +78,16 @@ async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob |
   activeJobId = job.jobId;
   try {
     while (!isFinalJobState(job.state)) {
-      roomActions.setUpload({ phase: 'building', text: describeJob(job), progress: job.progress });
+      if (failedPolls === 0) {
+        roomActions.setBuild({
+          phase: job.state === 'queued' ? 'queued' : 'running',
+          jobId: job.jobId,
+          jobProgress: job.progress,
+          queuePosition: job.queuePosition,
+          etaSeconds: job.etaSeconds,
+        });
+        roomActions.setUpload({ phase: 'building', text: describeJob(job), progress: job.progress });
+      }
       if (job.stage && job.stage !== lastStage) {
         lastStage = job.stage;
         log(`build: step ${job.stageIndex}/${job.stageCount} ${job.stage}`);
@@ -78,8 +98,10 @@ async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob |
         job = next.value;
         failedPolls = 0;
       } else if (++failedPolls >= MAX_FAILED_POLLS) {
-        fail(`lost contact with the server while it was building (${next.reason}). The build may still finish.`);
+        fail('lost-contact', `lost contact with the server while it was building (${next.reason}). The build may still finish.`);
         return null;
+      } else {
+        roomActions.setBuild({ phase: 'lost-contact' });
       }
     }
     return job;
@@ -88,96 +110,215 @@ async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob |
   }
 }
 
+/** What the end of a followed build means for the app. */
+async function finishBuild(baseUrl: string, target: ScanTarget, job: ServerJob, startedAt: number): Promise<void> {
+  if (job.state === 'cancelled') {
+    roomActions.setBuild({ phase: 'cancelled' });
+    roomActions.setUpload({ phase: 'failed', text: 'cancelled', progress: null });
+    log('build cancelled');
+    return;
+  }
+  if (job.state !== 'succeeded') {
+    // The server's own words go to the log, not to the screen.
+    fail(failureFromJobError(job.error?.code), `${job.error?.code ?? 'no code'}: ${job.error?.message ?? describeJob(job)}`);
+    return;
+  }
+  for (const warning of job.result?.warnings ?? []) {
+    log(`build warning: ${warning}`);
+  }
+  roomActions.setBuild({
+    phase: 'done',
+    jobProgress: 1,
+    frames: job.result?.numImages ?? null,
+    seconds: job.result?.buildSeconds ?? (Date.now() - startedAt) / 1000,
+  });
+  roomActions.setUpload({ phase: 'done', text: describeJob(job), progress: 1 });
+  log(`build ${describeJob(job)}`);
+
+  // The new room is the one the app works with from now on.
+  prefsActions.set({ lastRoomId: target.mapId, lastCapture: null });
+  void roomsActions.refresh();
+  if (getAppState().screen === 'ar') {
+    // Developer tools: the recording was made in the AR session that is still running,
+    // so the new map's frame is this session's frame and the plan can be drawn at once.
+    roomActions.setServerPlan(await fetchPlan(baseUrl, target.mapId, 'build'));
+    appActions.setProvider('self-hosted');
+  }
+}
+
+/** A build of this room that the server is still working on, if there is one. */
+async function runningJobOf(baseUrl: string, mapId: string): Promise<ServerJob | null> {
+  const jobs = await getJobs(baseUrl, mapId);
+  return jobs.ok ? (jobs.value.find((job) => !isFinalJobState(job.state)) ?? null) : null;
+}
+
 /**
- * Sends the newest capture, waits for the map and shows the result: the room plan is
- * drawn and the doorway handed to the self-hosted provider. The recording was made in
- * the running AR session, so the new map's frame is this session's frame.
+ * Sends a capture as the map of a room, waits for the build and reports every step to the
+ * room store: the product's build screen and the developer tools both read it there.
  */
-export async function uploadLastCapture(): Promise<void> {
+export async function sendCapture(target: ScanTarget, dir: Directory | null): Promise<void> {
   if (uploadAbort || activeJobId) {
     return;
   }
+  const startedAt = Date.now();
+  roomActions.resetBuild();
+  roomActions.setBuild({ phase: 'uploading', target });
+  roomActions.setUpload({ phase: 'uploading', text: 'starting...', progress: 0 });
+
   const baseUrl = serverConnection.getBaseUrl();
   const info = serverConnection.getView().connection.info;
-  const dir = getLastCaptureDir();
   if (!baseUrl || !info) {
-    fail('the server is not connected - tap the server chip');
+    fail('upload-interrupted', 'the server is not connected');
     return;
   }
   if (!info.capabilities.includes('recording_upload')) {
-    fail('this server does not accept recordings - update the localization server');
+    fail('internal', 'this server does not accept recordings - update the localization server');
     return;
   }
   if (!dir) {
-    fail('nothing to send yet - record the room first');
+    fail('bad_recording', 'nothing to send - there is no recording on the phone');
     return;
   }
   const video = new File(dir, 'video.mp4');
   const session = new File(dir, 'session.jsonl');
   if (!video.exists || !session.exists) {
-    fail(`${dir.name} has no video.mp4 / session.jsonl`);
+    fail('bad_recording', `${dir.name} has no video.mp4 / session.jsonl`);
     return;
   }
+  // "Send again" finds the scan by this, also after a restart of the app.
+  prefsActions.set({ lastCapture: JSON.stringify({ dir: dir.name, ...target }) });
 
   const form = new FormData();
   form.append('video', filePart(video, 'video.mp4', 'video/mp4') as never);
   form.append('session_jsonl', filePart(session, 'session.jsonl', 'application/x-ndjson') as never);
   // The engine's own mesh file (world_mesh.bin) is not sent: the app converts it to PLY.
   const mesh = new File(dir, 'world_mesh.ply');
+  let total = Number(video.size ?? 0) + Number(session.size ?? 0);
   if (mesh.exists) {
     form.append('mesh', filePart(mesh, mesh.name, 'application/octet-stream') as never);
     form.append('mesh_format', 'ply');
+    total += Number(mesh.size ?? 0);
   }
-  form.append('replace', 'true');
+  if (target.replace) {
+    form.append('replace', 'true');
+  }
   form.append('device_id', getDeviceId());
-  form.append('label', `phone scan ${dir.name}`);
+  form.append('label', target.label);
 
-  const total = Number(video.size ?? 0) + Number(session.size ?? 0);
-  log(`sending ${dir.name} (${megabytes(total)}) as map "${DEFAULT_MAP_ID}"`);
+  log(`sending ${dir.name} (${megabytes(total)}) as map "${target.mapId}"${target.replace ? ' (replacing it)' : ''}`);
+  roomActions.setBuild({ megabytes: Math.max(1, Math.round(total / 1e6)) });
   roomActions.setUpload({ phase: 'uploading', text: `sending ${megabytes(total)}...`, progress: 0 });
 
-  uploadAbort = new AbortController();
+  const abort = new AbortController();
+  uploadAbort = abort;
   let lastPercent = -1;
-  const accepted = await uploadRecording(baseUrl, DEFAULT_MAP_ID, form, {
-    signal: uploadAbort.signal,
+  const accepted = await uploadRecording(baseUrl, target.mapId, form, {
+    signal: abort.signal,
     onProgress: (sent, all) => {
       const fraction = all > 0 ? sent / all : 0;
       const percent = Math.round(fraction * 100);
       if (percent !== lastPercent) {
         lastPercent = percent;
-        roomActions.setUpload({
-          phase: 'uploading',
-          text: `sending ${percent} % of ${megabytes(all)}`,
-          progress: fraction,
-        });
+        roomActions.setBuild({ uploadFraction: fraction });
+        roomActions.setUpload({ phase: 'uploading', text: `sending ${percent} % of ${megabytes(all)}`, progress: fraction });
       }
     },
   });
   uploadAbort = null;
-  if (!accepted.ok) {
-    fail(`the server did not take the recording: ${accepted.reason}`);
-    return;
-  }
-  log(`recording accepted, build job ${accepted.value.jobId}`);
 
-  const job = await followJob(baseUrl, accepted.value);
-  if (!job) {
+  let job: ServerJob | null = null;
+  if (accepted.ok) {
+    job = accepted.value;
+    log(`recording accepted, build job ${job.jobId}`);
+  } else if (abort.signal.aborted) {
+    roomActions.setBuild({ phase: 'cancelled' });
+    roomActions.setUpload({ phase: 'failed', text: 'cancelled', progress: null });
+    log('upload cancelled');
     return;
+  } else {
+    if (accepted.status === 409) {
+      // Either a build for this room is already running, and then that one is followed...
+      job = await runningJobOf(baseUrl, target.mapId);
+    }
+    if (!job) {
+      fail(failureFromUpload(accepted.status, accepted.code), `the server did not take the recording: ${accepted.reason}`);
+      return;
+    }
+    log(`a build for "${target.mapId}" is already running (job ${job.jobId}); following it`);
   }
-  if (job.state !== 'succeeded') {
-    fail(describeJob(job));
-    return;
-  }
-  for (const warning of job.result?.warnings ?? []) {
-    log(`build warning: ${warning}`);
-  }
-  roomActions.setUpload({ phase: 'done', text: describeJob(job), progress: 1 });
-  log(`build ${describeJob(job)}`);
+  roomActions.setBuild({ uploadFraction: 1 });
 
-  const plan = await fetchPlan(baseUrl, DEFAULT_MAP_ID, 'build');
-  roomActions.setServerPlan(plan);
-  // The doorway is placed by the self-hosted provider, which watches the plan.
-  appActions.setProvider('self-hosted');
+  const finished = await followJob(baseUrl, job);
+  if (finished) {
+    await finishBuild(baseUrl, target, finished, startedAt);
+  }
+}
+
+/** Developer tools: the newest capture as the map "room". */
+export function uploadLastCapture(): Promise<void> {
+  const dir = getLastCaptureDir();
+  return sendCapture({ mapId: DEFAULT_MAP_ID, label: `phone scan ${dir?.name ?? ''}`.trim(), replace: true }, dir);
+}
+
+/** The scan that was sent last and has not become a map yet, as remembered between launches. */
+export function pendingCapture(): { dir: Directory; target: ScanTarget } | null {
+  const saved = getPrefs().lastCapture;
+  if (!saved) {
+    return null;
+  }
+  try {
+    const json = JSON.parse(saved) as Record<string, unknown>;
+    if (typeof json.dir !== 'string' || typeof json.mapId !== 'string') {
+      return null;
+    }
+    const dir = findCaptureDir(json.dir);
+    if (!dir) {
+      return null;
+    }
+    return {
+      dir,
+      target: { mapId: json.mapId, label: typeof json.label === 'string' ? json.label : '', replace: json.replace === true },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** "Send again": the same scan once more, for the same room. */
+export function sendAgain(): Promise<void> {
+  const pending = pendingCapture();
+  const target = getRoomScanState().build.target ?? pending?.target ?? null;
+  if (!target) {
+    fail('bad_recording', 'nothing to send again');
+    return Promise.resolve();
+  }
+  return sendCapture(target, pending?.dir ?? getLastCaptureDir());
+}
+
+/**
+ * Takes up a build again after contact with the server was lost: asks for the job and,
+ * if the server answers, follows it to its end.
+ */
+export async function resumeBuild(): Promise<void> {
+  const { build } = getRoomScanState();
+  const baseUrl = serverConnection.getBaseUrl();
+  if (uploadAbort || activeJobId || !baseUrl || !build.jobId || !build.target) {
+    return;
+  }
+  if (build.phase !== 'failed' || build.failure !== 'lost-contact') {
+    return;
+  }
+  const job = await getJob(baseUrl, build.jobId);
+  if (!job.ok || uploadAbort || activeJobId) {
+    return;
+  }
+  log(`contact with the server is back; build job ${job.value.jobId} is ${job.value.state}`);
+  roomActions.setBuild({ phase: 'running', failure: null });
+  const startedAt = Date.now();
+  const finished = await followJob(baseUrl, job.value);
+  if (finished) {
+    await finishBuild(baseUrl, build.target, finished, startedAt);
+  }
 }
 
 /** Stops an upload in progress, or asks the server to cancel the running build. */
@@ -190,6 +331,9 @@ export async function cancelUploadOrBuild(): Promise<void> {
   if (activeJobId && baseUrl) {
     const result = await cancelJob(baseUrl, activeJobId);
     log(result.ok ? `build ${result.value.state}` : `could not cancel the build: ${result.reason}`);
+  } else if (isBuilding(getRoomScanState().build)) {
+    // Nothing is in flight any more: only the screen is behind.
+    roomActions.setBuild({ phase: 'cancelled' });
   }
 }
 

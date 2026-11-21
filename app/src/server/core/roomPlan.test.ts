@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, test } from 'node:test';
 
-import { getJob, getPortal, getRoom, localize, uploadRecording } from './client';
+import { getJob, getJobs, getPortal, getRoom, localize, uploadRecording } from './client';
 import { validateHealth } from './health';
 import {
   describeJob,
@@ -227,6 +227,12 @@ describe('room-scan requests against a local mock', () => {
         };
         if (request.method === 'POST' && url === '/maps/room/recording') return send(202, { job: { ...JOB, state: 'queued' } });
         if (request.method === 'POST' && url === '/maps/taken/recording') return send(409, { detail: 'map exists' });
+        if (request.method === 'POST' && url === '/maps/short/recording') {
+          response.writeHead(422, { 'Content-Type': 'application/json', 'X-Error-Code': 'recording_too_short' });
+          response.end(JSON.stringify({ detail: 'the recording is too short to build a map' }));
+          return;
+        }
+        if (url === '/jobs?map_id=room') return send(200, { jobs: [{ ...JOB, state: 'succeeded' }, JOB, 'junk'] });
         if (url === '/jobs/b3f9c2a17d04') return send(200, JOB);
         if (url === '/jobs/unknown') return send(404, { detail: 'no such job' });
         if (url === '/maps/room/room') return send(200, { map_id: 'room', room: ROOM });
@@ -259,6 +265,16 @@ describe('room-scan requests against a local mock', () => {
   test('upload: the server\'s refusal is passed on with its reason', async () => {
     const result = await uploadRecording(baseUrl, 'taken', form());
     assert.deepEqual(result, { ok: false, status: 409, reason: 'HTTP 409: map exists' });
+  });
+  test('upload: a recording that is refused at once carries the error code of the server', async () => {
+    const result = await uploadRecording(baseUrl, 'short', form());
+    assert.equal(result.ok, false);
+    assert.equal(result.ok ? null : result.status, 422);
+    assert.equal(result.ok ? null : result.code, 'recording_too_short');
+  });
+  test('the jobs of a room, newest first, without what is not a job', async () => {
+    const jobs = await getJobs(baseUrl, 'room');
+    assert.deepEqual(jobs.ok && jobs.value.map((job) => job.state), ['succeeded', 'running']);
   });
   test('job, room and portal', async () => {
     const job = await getJob(baseUrl, 'b3f9c2a17d04');

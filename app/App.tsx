@@ -18,6 +18,7 @@ import { serverConnection } from './src/server/ServerConnection';
 import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
 import { prefsActions, usePrefs } from './src/state/prefs';
 import { ArScreen } from './src/ui/ArScreen';
+import { BuildScreen } from './src/ui/BuildScreen';
 import { ConnectScreen } from './src/ui/ConnectScreen';
 import { homeScreen } from './src/ui/flows';
 import { HomeScreen } from './src/ui/HomeScreen';
@@ -25,6 +26,8 @@ import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
 import { PermissionScreen } from './src/ui/PermissionScreen';
 import { ProblemScreen } from './src/ui/ProblemScreen';
+import { ScanPrepareScreen } from './src/ui/ScanPrepareScreen';
+import { ScanScreen } from './src/ui/ScanScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
@@ -294,6 +297,12 @@ export default function App() {
     case 'problem':
       plain = <ProblemScreen kind={problem ?? 'server'} />;
       break;
+    case 'scanPrepare':
+      plain = <ScanPrepareScreen />;
+      break;
+    case 'build':
+      plain = <BuildScreen />;
+      break;
     case 'ar':
     case 'scan':
       // The AR view is mounted only once the camera permission is granted: starting an
@@ -319,7 +328,9 @@ export default function App() {
           initialScene={{ scene: PortalARScene as unknown as () => React.JSX.Element }}
           // Room scan: the AR engine fuses its depth images into a mesh of the room.
           worldMeshEnabled={scanning}
-          worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe }}
+          // The guided scan shows the engine's mesh lines: they are the feedback where no
+          // wall planes are found (`ui-spec.md`, 3.4). In the developer tools it is a button.
+          worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe || (screen === 'scan' && scanning) }}
         />
       ) : null}
       {screen === 'ar' ? (
@@ -328,6 +339,7 @@ export default function App() {
           <Overlay />
         </>
       ) : null}
+      {screen === 'scan' && permission === 'granted' ? <ScanScreen /> : null}
       {plain ? <View style={styles.cover}>{plain}</View> : null}
     </View>
   );

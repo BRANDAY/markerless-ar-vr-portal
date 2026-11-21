@@ -178,7 +178,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (125 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (140 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -188,7 +188,7 @@ textures and the simple door model).
 ## The interface
 
 Since 21 November 2026 the app has product screens, built step by step from
-[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 3 of its section 10 so
+[`docs/product/ui-spec.md`](../docs/product/ui-spec.md) (steps 0 to 4 of its section 10 so
 far). **None of these screens has been seen on a phone**; the build on the phone is still
 `546697d`. "Vrata" and the amber and teal colours are working choices, kept in one file
 (`src/brand.ts`).
@@ -201,8 +201,8 @@ What a user meets, in order:
 2. **Home.** The app name, a server chip (green dot and the server's name when
    connected), the settings button, and one card with one amber button:
    - a room on the server: its plan drawing, name and doorway size, and **Open the door**;
-   - connected, no room yet: **Scan this room** (for now this opens the scan panel of the
-     developer tools, see below; the guided scan is step 4 of the spec);
+   - connected, no room yet: **Scan this room**, which starts the guided scan (below);
+   - a scan is being sent or built: the percentage and **See progress**;
    - server offline or never set up: **Search again** or **Find the server**;
    - always available: **Try a door without a server**, which puts the door two metres in
      front of the user.
@@ -215,6 +215,41 @@ What a user meets, in order:
    banner ("Lost track of the room"). A first door position that the server is not sure of
    is drawn as an amber dashed outline until a second look confirms it.
 4. **Settings:** server, automatic search, privacy, "How it works", the version line.
+
+### Scanning a room
+
+One flow in place of the buttons **Scan room**, **Record** and **Upload** of the tools:
+
+1. **Before you start**: three reminders (lights on, doorway clear, a path along the
+   walls), how long it takes, and the name of a new room ("Room 1"...). The name becomes
+   the room's label on the server and, made safe, its id (`room_1`); an id that exists
+   gets `_2`, `_3`, so a new room never replaces another one. A scan started with **Scan
+   again** replaces the map of the room it is for.
+2. **Scanning**, over the camera. The room mesh is switched on before the AR view starts
+   and the recording begins by itself once tracking is ready. A coach card says what to do,
+   three counters show floor, walls and metres walked, and there is one button:
+   - step 1, "Walk slowly along the walls": the button counts down from 60 s and stays
+     disabled until a minute has passed, a floor has been found and 6 m have been walked;
+   - step 2, "Now show the doorway", with amber corner brackets as an aiming aid: **I showed
+     the doorway**;
+   - step 3, "That's enough": **Finish scan**. From 150 s on the scan can be finished in any
+     case; at 180 s it finishes by itself.
+   Tracking warnings ("Slow down", "It's too dark here"...) replace the step text while
+   they apply. Closing asks first and then discards the scan. The thresholds are in
+   `src/ui/core/scanFlow.ts` (`SCAN`); they are starting values.
+3. **Building your room**: the upload and the server's build as one percentage (the upload
+   is the first 8 %), five steps, and a time line ("Sending 40% of 180 MB", "About 6
+   minutes left", "Step 3 of 5"). The screen can be closed; Home then shows the percentage.
+   **Cancel** asks, then stops the upload or the server's build. At the end: "The map is
+   ready", or one of the problem screens with **Send again** or **Scan again**. The scan
+   stays on the phone (`captures/<name>` in the app's documents folder) in every case.
+
+What the server says goes to the log; the screen gets one of nine prepared texts
+(`src/ui/core/buildView.ts`). A recording the server refuses at once (`X-Error-Code:
+recording_too_short` or `too_little_motion`, server 0.3.0 and later) is shown as "The scan
+was too short". If a build for the room is already running (HTTP 409), that build is
+followed. If the server stops answering for eight checks in a row, the screen says so; the
+build is taken up again when the server answers.
 
 ### Developer options and the developer tools
 
@@ -254,7 +289,14 @@ Kept as a list for the product side; nothing here was decided silently.
 | Blur behind elements over the camera | translucent fill only | the spec allows it |
 | Status panel and event log only on a Diagnostics screen | also the former overlay as **Tools** over the camera | the measurement mode needs crosshair, marks and log over the live view |
 | Door fades in over 300 ms; door dimmed while tracking is lost | the door appears at once and is not dimmed | not tried inside ViroReact's portal |
-| "This is a different room", "Choose another room", "Scan this room" in the AR problem sheet | only "Keep looking" | the rooms list and the guided scan are later steps |
+| "This is a different room", "Choose another room" in the AR problem sheet | "Keep looking" and "Scan this room" only | the rooms list is a later step |
+| A ring with the percentage | the number in a plain circle, and a bar | no vector-drawing module (the spec allows the bar) |
+| Floor painted as a dot grid, corners as a dot with a ring | the floor's edge only; a white dot on a small square | kept to a few scene nodes |
+| Room mesh as thin lines in the scan colour | the AR engine's own mesh lines, in its colour | the engine draws them; the colour is not ours to set |
+| Scan and build texts | a few lines the spec does not have: "Saving the scan…", "The scan could not start", "Stopped" after **Cancel**, "Keep going" once the minute is over, "Floor" before it is found | moments the spec's tables do not cover |
+| Home while a build is running | also shows a build that failed while the user was elsewhere, until it has been looked at | otherwise a failure would go unnoticed |
+| "Send again" after a restart of the app | the scan and its room are remembered, but no screen offers it | the spec has no place for it |
+| "See the room" opens the room result | opens Home | the room result is step 5 |
 | "Place the door by hand" | not offered | the spec itself postpones it |
 | AR menu: only "Find the door again" for a door without a room | "Put the door in front of me" instead | the door placed without a server has nothing to be found by |
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
@@ -312,8 +354,9 @@ door in front of me** from the menu (top right).
 Connection, scanning, portal, with the developer tools. Steps 1 to 4 have been seen on a
 phone with the build before the product screens (step 4 only with a recording too short
 to build a map from); steps 5 to 7 have not. With the product screens the connection is
-made on **Find the server** and the door is opened from Home; scanning still uses the
-tools (Home, **Scan this room**) until the guided scan exists.
+made on **Find the server**, a room is scanned with the guided scan (Home, **Scan this
+room**) and the door is opened from Home; the scan panel described here is still in the
+tools and sends its recording as the room `room`.
 
 1. **Start the server** on a computer in the same network (project `localization-server`,
    its README: `uv run locserver-serve`). It prints its address.
@@ -490,7 +533,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 125 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 140 tests in all with those of `src/room/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -729,7 +772,9 @@ src/
   state/prefs.ts              what is remembered between launches (onboarding, developer options...)
   room/roomsStore.ts          rooms of the server, plan and doorway of the current one (map frame)
   ui/theme.ts, kit.tsx, icons.tsx   sizes and type, shared pieces, icons
-  ui/core/                    pure, unit-tested: what the AR screen shows (arView), Home situations, plan layout
+  ui/core/                    pure, unit-tested: what the AR screen shows (arView), Home situations, plan layout,
+                              the steps of the guided scan (scanFlow), percentage, steps and problems of a build (buildView)
+  ui/ScanPrepareScreen.tsx, ScanScreen.tsx, BuildScreen.tsx   the guided scan and the build of its map
   ui/ArScreen.tsx             the product's AR screen: coach card, pills, banner, menu, problem sheets
   ui/HomeScreen.tsx, ConnectScreen.tsx, SettingsScreen.tsx, WelcomeScreen.tsx, PermissionScreen.tsx,
   ui/ProblemScreen.tsx, MoreScreens.tsx, PlanDrawing.tsx, flows.ts   the other screens and the paths between them
@@ -1014,6 +1059,12 @@ has never been installed.
   light and dark, with the largest system font; that leaving and re-entering the AR
   screen starts a new AR session cleanly; the plan drawing against the real room; the
   amber outline of an unconfirmed doorway; the AR-support query;
+- **the guided scan**: that the recording starts by itself, the counters (floor, walls,
+  metres) against a real walk, whether a minute and six metres are sensible thresholds,
+  the corner brackets, the scan paint and the engine's mesh lines (look and frame rate),
+  closing and discarding, the automatic finish at three minutes, saving (how long "Saving
+  the scan…" stays), the upload percentage of a real 100-300 MB recording, every problem
+  screen, **Send again**, leaving and coming back during a build;
 - **the measurement mode**: whether the crosshair is the middle of the camera image,
   how repeatable a mark is (the protocol starts with that check), the posts staying on
   the marked corners, the records and their file, the lines reaching the server; and

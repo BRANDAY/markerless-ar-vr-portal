@@ -66,6 +66,11 @@ ViroMaterials.createMaterials({
   scanSurfaceLine: { ...SCAN_LINE, diffuseColor: '#facc15' },
   scanCorner: { lightingModel: 'Constant', diffuseColor: '#ff3b6b' },
 
+  // ---- Room scan as the product draws it (ui-spec 3.4): one colour, walls and floor only ----
+  scanPaintWall: { ...SCAN_FILL, diffuseColor: 'rgba(63, 224, 212, 0.20)' },
+  scanPaintLine: { ...SCAN_LINE, diffuseColor: HUD.scan },
+  scanPaintDot: { lightingModel: 'Constant', diffuseColor: '#ffffff' },
+
   // ---- Room plan computed by the server ----
   planWall: { ...SCAN_FILL, diffuseColor: 'rgba(255, 159, 28, 0.22)' },
   planWallLine: { ...SCAN_LINE, diffuseColor: '#ff9f1c' },

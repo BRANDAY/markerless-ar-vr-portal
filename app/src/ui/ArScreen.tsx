@@ -7,7 +7,7 @@ import { roomName as nameOfRoom, useRooms } from '../room/roomsStore';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
 import { arView } from './core/arView';
-import { homeScreen } from './flows';
+import { homeScreen, openGuidedScan } from './flows';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle } from './kit';
 import { useServerView } from './ServerPanel';
 import { HUD, TYPE, useInsets } from './theme';
@@ -158,13 +158,17 @@ export function ArScreen() {
           <SheetTitle>{t('problem.unknown.title', { room: source === 'room' ? roomName : t('ar.room.fallback') })}</SheetTitle>
           <Body dim>{t('problem.unknown.body')}</Body>
           <AppButton label={t('problem.unknown.keep')} onPress={appActions.requestRelocalize} />
+          {source === 'room' ? (
+            <AppButton kind="text" label={t('problem.unknown.scan')} onPress={() => openGuidedScan('again')} />
+          ) : null}
         </Sheet>
       ) : null}
       {sheet === 'noDoorway' ? (
         <Sheet onClose={() => setClosedSheet('noDoorway')}>
           <SheetTitle>{t('problem.noDoorway.title')}</SheetTitle>
           <Body dim>{t('problem.noDoorway.body')}</Body>
-          <AppButton kind="ghost" label={t('common.close')} onPress={() => setClosedSheet('noDoorway')} />
+          <AppButton label={t('problem.noDoorway.scan')} onPress={() => openGuidedScan('again')} />
+          <AppButton kind="text" label={t('common.close')} onPress={() => setClosedSheet('noDoorway')} />
         </Sheet>
       ) : null}
     </View>

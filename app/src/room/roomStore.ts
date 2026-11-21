@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { ServerPortal, ServerRoom } from '../server/core/roomPlan';
+import type { BuildFailure } from '../ui/core/buildView';
 import { buildRoom, EMPTY_ROOM, type PlaneAnchorData, type RoomModel } from './roomGeometry';
 
 /** What the AR engine says about its fused room mesh. */
@@ -43,6 +44,58 @@ export interface UploadState {
   progress: number | null;
 }
 
+/** The room a scan is for. */
+export interface ScanTarget {
+  mapId: string;
+  /** The name the user gave it; stored on the server as the room's label. */
+  label: string;
+  /** The room exists and this scan replaces its map. */
+  replace: boolean;
+}
+
+/**
+ * Sending a scan and building its map, in the form the product screens read
+ * (`ui/core/buildView.ts`). `upload` above is the same thing as one line of text for the
+ * developer tools.
+ */
+export interface BuildProgress {
+  phase: 'idle' | 'uploading' | 'queued' | 'running' | 'lost-contact' | 'done' | 'failed' | 'cancelled';
+  target: ScanTarget | null;
+  /** Size of what is sent. */
+  megabytes: number;
+  /** 0..1 */
+  uploadFraction: number;
+  jobId: string | null;
+  /** The server's own progress of the build, 0..1. */
+  jobProgress: number;
+  queuePosition: number;
+  etaSeconds: number | null;
+  /** Why it failed, when `phase` is `failed`. */
+  failure: BuildFailure | null;
+  /** Of a finished build: frames used and seconds taken (null when not known). */
+  frames: number | null;
+  seconds: number | null;
+}
+
+export const NO_BUILD: BuildProgress = {
+  phase: 'idle',
+  target: null,
+  megabytes: 0,
+  uploadFraction: 0,
+  jobId: null,
+  jobProgress: 0,
+  queuePosition: 0,
+  etaSeconds: null,
+  failure: null,
+  frames: null,
+  seconds: null,
+};
+
+/** A scan is being sent or its map is being built. */
+export function isBuilding(build: BuildProgress): boolean {
+  return build.phase === 'uploading' || build.phase === 'queued' || build.phase === 'running' || build.phase === 'lost-contact';
+}
+
 export interface RoomScanState {
   /** Scan mode: highlights drawn, world mesh switched on. */
   scanning: boolean;
@@ -59,6 +112,9 @@ export interface RoomScanState {
   /** Name of the newest capture that has a video, i.e. can be uploaded. */
   lastCapture: string | null;
   upload: UploadState;
+  build: BuildProgress;
+  /** The room the guided scan is for; null outside the scan flow. */
+  scanTarget: ScanTarget | null;
   serverPlan: ServerPlan | null;
   /** Draw the server's plan in the scene. */
   planVisible: boolean;
@@ -78,6 +134,8 @@ let state: RoomScanState = {
   recordingSince: null,
   lastCapture: null,
   upload: { phase: 'idle', text: '', progress: null },
+  build: NO_BUILD,
+  scanTarget: null,
   serverPlan: null,
   planVisible: true,
 };
@@ -171,6 +229,19 @@ export const roomActions = {
 
   setUpload(upload: UploadState): void {
     setState({ upload });
+  },
+
+  /** Changes parts of the build's progress; `phase: 'uploading'` with a target starts a new one. */
+  setBuild(patch: Partial<BuildProgress>): void {
+    setState({ build: { ...state.build, ...patch } });
+  },
+
+  resetBuild(): void {
+    setState({ build: NO_BUILD });
+  },
+
+  setScanTarget(scanTarget: ScanTarget | null): void {
+    setState({ scanTarget });
   },
 
   setServerPlan(serverPlan: ServerPlan | null): void {

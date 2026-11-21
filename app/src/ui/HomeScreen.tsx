@@ -2,10 +2,12 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { t, type TextKey } from '../i18n';
+import { resumeBuild } from '../room/roomServer';
 import { roomName, roomsActions, useRooms } from '../room/roomsStore';
-import { useRoomScan } from '../room/roomStore';
+import { isBuilding, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
+import { buildProblem, percentOf } from './core/buildView';
 import { chipState, homeSituation } from './core/homeView';
 import { openDoor, openGuidedScan } from './flows';
 import { Icon } from './icons';
@@ -23,13 +25,22 @@ export function HomeScreen() {
   const currentId = useRooms((s) => s.currentId);
   const detail = useRooms((s) => s.detail);
   const lastRoomId = usePrefs((s) => s.lastRoomId);
-  const upload = useRoomScan((s) => s.upload);
+  const build = useRoomScan((s) => s.build);
   const environment = useAppState((s) => s.environment);
-  const building = upload.phase === 'uploading' || upload.phase === 'building';
+  // A build that failed while the user was elsewhere stays on Home until it has been seen.
+  const building = isBuilding(build) || build.phase === 'failed';
 
   useEffect(() => {
     void roomsActions.refresh();
   }, []);
+
+  // A build that was lost sight of is taken up again when the server answers.
+  const connected = connection.state === 'connected';
+  useEffect(() => {
+    if (connected) {
+      void resumeBuild();
+    }
+  }, [connected]);
 
   const situation = homeSituation({
     connection: connection.state,
@@ -91,7 +102,7 @@ export function HomeScreen() {
       footer = (
         <>
           <AppButton label={t('home.openDoor')} onPress={() => openDoor('room')} />
-          <AppButton kind="text" label={t('home.scanAnother')} onPress={openGuidedScan} />
+          <AppButton kind="text" label={t('home.scanAnother')} onPress={() => openGuidedScan('new')} />
         </>
       );
       break;
@@ -105,7 +116,7 @@ export function HomeScreen() {
       );
       footer = (
         <>
-          <AppButton label={t('home.scanThis')} onPress={openGuidedScan} />
+          <AppButton label={t('home.scanThis')} onPress={() => openGuidedScan('new')} />
           <AppButton kind="text" label={t('home.tryWithoutScan')} onPress={() => openDoor('free')} />
         </>
       );
@@ -114,11 +125,23 @@ export function HomeScreen() {
       content = (
         <Card>
           <IconTile icon="door" tone="amber" />
-          <Text style={[TYPE.cardTitle, { color: theme.ink }]}>{roomName(roomId) || t('home.room.eyebrow')}</Text>
-          <Body dim>{t('home.build.line', { p: Math.round((upload.progress ?? 0) * 100) })}</Body>
+          <Text style={[TYPE.cardTitle, { color: theme.ink }]}>
+            {build.target?.label || roomName(build.target?.mapId ?? null) || t('home.room.eyebrow')}
+          </Text>
+          <Body dim>
+            {build.phase === 'failed'
+              ? t(buildProblem(build.failure ?? 'internal').title)
+              : t('home.build.line', {
+                  p: percentOf({
+                    phase: build.phase === 'uploading' ? 'uploading' : 'running',
+                    uploadFraction: build.uploadFraction,
+                    jobProgress: build.jobProgress,
+                  }),
+                })}
+          </Body>
         </Card>
       );
-      footer = <AppButton label={t('home.build.see')} onPress={openGuidedScan} />;
+      footer = <AppButton label={t('home.build.see')} onPress={() => appActions.go('build')} />;
       break;
     case 'offline':
       content = (

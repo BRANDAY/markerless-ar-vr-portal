@@ -27,3 +27,33 @@ export function roomIdFromName(name: string): string {
     .slice(0, 40);
   return id || 'room';
 }
+
+/**
+ * The id for a NEW room with this name: the name made safe, with "_2", "_3"... appended
+ * while a room with that id exists (a new scan must not replace another room).
+ */
+export function newRoomId(name: string, existingIds: readonly string[]): string {
+  const base = roomIdFromName(name);
+  if (!existingIds.includes(base)) {
+    return base;
+  }
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base.slice(0, 36)}_${n}`;
+    if (!existingIds.includes(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+/**
+ * The number for the default name of a new room ("Room {n}"): one more than the rooms
+ * there are, raised until neither the name's id nor the name itself is taken.
+ */
+export function nextRoomNumber(existingIds: readonly string[], existingNames: readonly string[], nameOf: (n: number) => string): number {
+  for (let n = existingIds.length + 1; ; n += 1) {
+    const name = nameOf(n);
+    if (!existingIds.includes(roomIdFromName(name)) && !existingNames.includes(name)) {
+      return n;
+    }
+  }
+}

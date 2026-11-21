@@ -201,6 +201,22 @@ export function getLastCaptureDir(): Directory | null {
   return lastCaptureDir;
 }
 
+/**
+ * A capture folder by its name, if it still has a recording: what "Send again" uses for a
+ * scan made before the app was restarted.
+ */
+export function findCaptureDir(name: string): Directory | null {
+  if (!/^capture-[0-9-]+$/.test(name)) {
+    return null;
+  }
+  try {
+    const dir = new Directory(Paths.document, 'captures', name);
+    return dir.exists && new File(dir, 'video.mp4').exists ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -301,42 +317,110 @@ export const scanController = {
       await stopRecording();
     }
   },
+
+  startRecording: (): Promise<boolean> => startRecording(),
+  stopRecording: (): Promise<CaptureSummary | null> => stopRecording(),
+  discardRecording: (): Promise<void> => discardRecording(),
 };
 
-async function startRecording(): Promise<void> {
+/** What a finished recording left on the phone. */
+export interface CaptureSummary {
+  dir: Directory;
+  seconds: number;
+  frames: number | null;
+}
+
+/** The user left while the recording was still starting: it is thrown away once it runs. */
+let discardWhenStarted = false;
+
+/** Starts a recording into a new capture folder. False when it did not start (the log says why). */
+async function startRecording(): Promise<boolean> {
   if (!navigator?.startRecording) {
     log('recording is not offered by this ViroReact build');
-    return;
+    return false;
   }
+  if (getRoomScanState().recording !== 'idle') {
+    return false;
+  }
+  discardWhenStarted = false;
   roomActions.setRecording('starting');
   try {
     const supported = await navigator.isRecordingSupported?.();
     if (supported === false) {
       log('recording not supported right now (the AR session must be tracking)');
       roomActions.setRecording('idle');
-      return;
+      return false;
     }
     const dir = newCaptureDir();
     const result = await navigator.startRecording(nativePath(dir.uri));
     if (!result.success) {
       log(`recording did not start: ${result.error ?? 'no reason given'}`);
+      removeQuietly(dir);
       roomActions.setRecording('idle');
-      return;
+      return false;
     }
     captureDir = dir;
     captureStartedUtc = new Date().toISOString();
     roomActions.setRecording('recording');
     log(`recording into ${dir.name}`);
+    if (discardWhenStarted) {
+      await discardRecording();
+      return false;
+    }
+    return true;
   } catch (error) {
     log(`recording failed to start: ${String(error)}`);
+    roomActions.setRecording('idle');
+    return false;
+  }
+}
+
+function removeQuietly(dir: Directory): void {
+  try {
+    dir.delete();
+  } catch {
+    // a leftover folder does no harm
+  }
+}
+
+/** Stops the running recording and deletes what it wrote. */
+async function discardRecording(): Promise<void> {
+  const phase = getRoomScanState().recording;
+  if (phase === 'starting') {
+    discardWhenStarted = true;
+    return;
+  }
+  if (phase !== 'recording') {
+    return;
+  }
+  roomActions.setRecording('stopping');
+  const dir = captureDir;
+  captureDir = null;
+  try {
+    await navigator?.stopRecording?.();
+  } catch (error) {
+    log(`recording failed to stop: ${String(error)}`);
+  } finally {
+    if (dir) {
+      removeQuietly(dir);
+      log(`recording discarded (${dir.name})`);
+    }
     roomActions.setRecording('idle');
   }
 }
 
-async function stopRecording(): Promise<void> {
+/**
+ * Stops the running recording and completes its capture folder (planes, mesh, summary).
+ * Null when there is no usable recording.
+ */
+async function stopRecording(): Promise<CaptureSummary | null> {
+  if (getRoomScanState().recording !== 'recording') {
+    return null;
+  }
   roomActions.setRecording('stopping');
   const dir = captureDir;
   captureDir = null;
+  let summary: CaptureSummary | null = null;
   try {
     const result = await navigator?.stopRecording?.();
     if (!result?.success) {
@@ -350,6 +434,7 @@ async function stopRecording(): Promise<void> {
     if (dir && result?.success) {
       lastCaptureDir = dir;
       roomActions.setLastCapture(dir.name);
+      summary = { dir, seconds: Number(result.durationSec ?? 0), frames: typeof result.frames === 'number' ? result.frames : null };
     }
     if (dir) {
       writePlanes(dir);
@@ -377,4 +462,5 @@ async function stopRecording(): Promise<void> {
   } finally {
     roomActions.setRecording('idle');
   }
+  return summary;
 }

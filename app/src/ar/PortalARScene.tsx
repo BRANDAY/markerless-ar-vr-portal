@@ -197,6 +197,9 @@ export function PortalARScene(props: SceneProps) {
       roomActions.setServerPlan(null);
       roomActions.setScanning(false);
       measureController.resetSession();
+      // The next AR view starts from "not tracking, no floor", not from this one's last word.
+      appActions.setTracking('unavailable', '');
+      appActions.setFloorY(null);
     },
     [],
   );

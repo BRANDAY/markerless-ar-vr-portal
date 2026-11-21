@@ -58,6 +58,10 @@ export interface ServerJob {
     numOpenings: number;
     portalSource: string;
     warnings: string[];
+    /** Frames of the recording the map was built from; null when the server did not say. */
+    numImages: number | null;
+    /** How long the build took, in seconds; null when the server did not say. */
+    buildSeconds: number | null;
   } | null;
 }
 
@@ -99,9 +103,20 @@ export function parseJob(body: unknown): ServerJob | null {
           numOpenings: asNumber(room?.num_openings) ?? 0,
           portalSource: asString(portal?.source) || 'none',
           warnings: asList(result.warnings).filter((w): w is string => typeof w === 'string'),
+          numImages: asNumber(result.num_images),
+          buildSeconds: asNumber(result.build_time_s),
         }
       : null,
   };
+}
+
+/** The `{"jobs": [Job, ...]}` answer of `GET /jobs`; entries that are not jobs are dropped. */
+export function parseJobs(body: unknown): ServerJob[] | null {
+  const jobs = asObject(body)?.jobs;
+  if (!Array.isArray(jobs)) {
+    return null;
+  }
+  return jobs.map(parseJob).filter((job): job is ServerJob => job !== null);
 }
 
 /** What a failed build means for the person holding the phone. */
