@@ -22,15 +22,17 @@ export function DiagnosticsScreen() {
 }
 
 /**
- * Privacy and data: the statements of the camera permission screen. The third one
- * ("You can delete a room and its video at any time") is left out until the server can
- * delete a room (spec section 9, S1).
+ * Privacy and data (`ui-spec.md`, 5.12): the statements of the camera permission screen
+ * and the way to Rooms, where a room is deleted. The third statement ("You can delete a
+ * room and its video at any time") stays left out: the server moves a deleted room to its
+ * trash folder and erases nothing (spec, 13.3).
  */
 export function PrivacyScreen() {
   return (
     <ScreenFrame title={t('settings.privacy')} onBack={() => appActions.back()}>
       <Row long icon="camera" tone="teal" title={t('permission.line.video')} />
       <Row long icon="lock" tone="teal" title={t('permission.line.network')} />
+      <Row icon="door" title={t('rooms.title')} arrow onPress={() => appActions.go('rooms')} />
     </ScreenFrame>
   );
 }

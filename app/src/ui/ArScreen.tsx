@@ -260,7 +260,11 @@ function DiagnosticsLine() {
   const status = useAppState((s) => s.providerStatus);
   const door = useAppState((s) => s.door);
   const placement = useMeasure((s) => s.placement);
+  const meta = useAppState((s) => s.providerMeta);
   const parts = [tracking.toUpperCase(), `${providerId}: ${status}`];
+  if (meta.attempt !== undefined && meta.attempts !== undefined) {
+    parts.push(`attempt ${meta.attempt}/${meta.attempts}`);
+  }
   if (placement) {
     parts.push(`${placement.quality ?? placement.reason}${placement.inliers === null ? '' : ` ${placement.inliers}`}`);
     if (placement.elapsedMs !== null) {

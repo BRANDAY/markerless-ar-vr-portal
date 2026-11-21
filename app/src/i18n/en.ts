@@ -334,7 +334,7 @@ export const en = {
   'rooms.rename': 'Rename',
   'rooms.rename.save': 'Save',
   'rooms.delete': 'Delete',
-  'rooms.delete.ask': 'Delete “{name}”? Its map and video are removed from the server. This can’t be undone.',
+  'rooms.delete.ask': 'Delete “{name}”? The room and its door are removed. This can’t be undone in the app.',
   'rooms.delete.building': 'A map is being built for this room. Try again when it is done.',
   'rooms.failed': 'That did not work. Try again.',
   'rooms.footer': 'Rooms live on the server “{server}”. Every phone that connects to it sees the same rooms.',

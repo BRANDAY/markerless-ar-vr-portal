@@ -5,6 +5,8 @@
  * send and what the answers mean for the app.
  */
 import { Directory, File } from 'expo-file-system';
+import { useEffect } from 'react';
+import { AppState } from 'react-native';
 
 import {
   cancelJob,
@@ -29,8 +31,18 @@ import { findCaptureDir, getLastCaptureDir, recordClip } from './scanController'
 /** The map the developer tools scan into (the product screens name their rooms). */
 export const DEFAULT_MAP_ID = 'room';
 const JOB_POLL_INTERVAL_MS = 1500;
-/** This many polls in a row without an answer end the waiting (the build itself goes on). */
-const MAX_FAILED_POLLS = 8;
+/**
+ * A computer that is busy building a map may answer slowly, and a build may take twenty
+ * minutes and more: an answer has this long...
+ */
+const JOB_POLL_TIMEOUT_MS = 8000;
+/**
+ * ...and this many polls in a row without one end the waiting (the build itself goes on,
+ * and `useBuildFollowUp` takes it up again when the server answers): about two minutes.
+ */
+const MAX_FAILED_POLLS = 12;
+/** How often a build that was lost sight of is asked for again. */
+const FOLLOW_UP_INTERVAL_MS = 5000;
 const CLIP_SECONDS = 2.5;
 
 const log = (text: string) => appActions.log(`server: ${text}`);
@@ -94,7 +106,7 @@ async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob |
         log(`build: step ${job.stageIndex}/${job.stageCount} ${job.stage}`);
       }
       await wait(JOB_POLL_INTERVAL_MS);
-      const next = await getJob(baseUrl, job.jobId);
+      const next = await getJob(baseUrl, job.jobId, { timeoutMs: JOB_POLL_TIMEOUT_MS });
       if (next.ok) {
         job = next.value;
         failedPolls = 0;
@@ -111,8 +123,31 @@ async function followJob(baseUrl: string, first: ServerJob): Promise<ServerJob |
   }
 }
 
+/**
+ * The scan sent last stays remembered for "Send again", but its build is over: a restarted
+ * app (`recoverBuild`) must not look the same job up again.
+ */
+function forgetJobOfCapture(): void {
+  const saved = getPrefs().lastCapture;
+  if (!saved) {
+    return;
+  }
+  try {
+    const json = JSON.parse(saved) as Record<string, unknown>;
+    if ('jobId' in json) {
+      delete json.jobId;
+      prefsActions.set({ lastCapture: JSON.stringify(json) });
+    }
+  } catch {
+    prefsActions.set({ lastCapture: null });
+  }
+}
+
 /** What the end of a followed build means for the app. */
 async function finishBuild(baseUrl: string, target: ScanTarget, job: ServerJob, startedAt: number): Promise<void> {
+  if (job.state !== 'succeeded') {
+    forgetJobOfCapture();
+  }
   if (job.state === 'cancelled') {
     roomActions.setBuild({ phase: 'cancelled' });
     roomActions.setUpload({ phase: 'failed', text: 'cancelled', progress: null });
@@ -241,6 +276,7 @@ export async function sendCapture(target: ScanTarget, dir: Directory | null): Pr
   if (accepted.ok) {
     job = accepted.value;
     log(`recording accepted, build job ${job.jobId}`);
+    prefsActions.set({ lastCapture: JSON.stringify({ dir: dir.name, ...target, jobId: job.jobId }) });
   } else if (abort.signal.aborted) {
     roomActions.setBuild({ phase: 'cancelled' });
     roomActions.setUpload({ phase: 'failed', text: 'cancelled', progress: null });
@@ -272,7 +308,7 @@ export function uploadLastCapture(): Promise<void> {
 }
 
 /** The scan that was sent last and has not become a map yet, as remembered between launches. */
-export function pendingCapture(): { dir: Directory; target: ScanTarget } | null {
+export function pendingCapture(): { dir: Directory; target: ScanTarget; jobId: string | null } | null {
   const saved = getPrefs().lastCapture;
   if (!saved) {
     return null;
@@ -289,6 +325,7 @@ export function pendingCapture(): { dir: Directory; target: ScanTarget } | null 
     return {
       dir,
       target: { mapId: json.mapId, label: typeof json.label === 'string' ? json.label : '', replace: json.replace === true },
+      jobId: typeof json.jobId === 'string' && json.jobId ? json.jobId : null,
     };
   } catch {
     return null;
@@ -319,8 +356,10 @@ export async function resumeBuild(): Promise<void> {
   if (build.phase !== 'failed' || build.failure !== 'lost-contact') {
     return;
   }
-  const job = await getJob(baseUrl, build.jobId);
-  if (!job.ok || uploadAbort || activeJobId) {
+  const job = await getJob(baseUrl, build.jobId, { timeoutMs: JOB_POLL_TIMEOUT_MS });
+  // Asked again by several callers: only the first answer takes the build up.
+  const now = getRoomScanState().build;
+  if (!job.ok || uploadAbort || activeJobId || now.phase !== 'failed' || now.failure !== 'lost-contact') {
     return;
   }
   log(`contact with the server is back; build job ${job.value.jobId} is ${job.value.state}`);
@@ -330,6 +369,98 @@ export async function resumeBuild(): Promise<void> {
   if (finished) {
     await finishBuild(baseUrl, build.target, finished, startedAt);
   }
+}
+
+let recovering = false;
+
+/**
+ * After a restart of the app (Android may end an app that was put aside for the twenty
+ * minutes a build can take): the build that was started for the scan sent last is looked
+ * up on the server by its job id. Still running - it is followed again and Home shows
+ * its progress; finished - the room is there; failed - Home says so. Nothing is asked
+ * when no such build is remembered, or one is being followed already.
+ */
+export async function recoverBuild(): Promise<void> {
+  const baseUrl = serverConnection.getBaseUrl();
+  const pending = pendingCapture();
+  if (recovering || uploadAbort || activeJobId || !baseUrl || !pending?.jobId) {
+    return;
+  }
+  if (getRoomScanState().build.phase !== 'idle') {
+    return;
+  }
+  recovering = true;
+  try {
+    const { target, jobId, dir } = pending;
+    const answer = await getJob(baseUrl, jobId, { timeoutMs: JOB_POLL_TIMEOUT_MS });
+    if (uploadAbort || activeJobId || getRoomScanState().build.phase !== 'idle') {
+      return;
+    }
+    if (!answer.ok) {
+      if (answer.status !== 404) {
+        return; // no answer now: asked again later
+      }
+      // The server no longer knows the job. If it has the room, the build did finish.
+      forgetJobOfCapture();
+      const listed = (serverConnection.getView().connection.info?.maps ?? []).includes(target.mapId);
+      if (listed && !target.replace) {
+        log(`build job ${jobId} is not known to the server any more, and room "${target.mapId}" is there: taken as built`);
+        prefsActions.set({ lastRoomId: target.mapId, lastCapture: null });
+        void roomsActions.refresh();
+      } else {
+        roomActions.setBuild({ phase: 'failed', target, jobId, uploadFraction: 1 });
+        fail('server_restarted', `build job ${jobId} is not known to the server any more`);
+      }
+      return;
+    }
+    const job = answer.value;
+    log(`after a restart of the app: build job ${job.jobId} of "${target.mapId}" is ${job.state}`);
+    roomActions.resetBuild();
+    roomActions.setBuild({
+      phase: 'running',
+      target,
+      jobId: job.jobId,
+      uploadFraction: 1,
+      jobProgress: job.progress,
+      megabytes: Math.max(1, Math.round(Number(new File(dir, 'video.mp4').size ?? 0) / 1e6)),
+    });
+    const startedAt = Date.now();
+    const finished = isFinalJobState(job.state) ? job : await followJob(baseUrl, job);
+    if (finished) {
+      await finishBuild(baseUrl, target, finished, startedAt);
+    }
+  } finally {
+    recovering = false;
+  }
+}
+
+/**
+ * For Home and the build screen: a build that was lost sight of - contact with the
+ * server lost for a while, the phone put aside with its screen off, the app restarted -
+ * is taken up again as soon as the server answers, when the app comes to the front, and
+ * every few seconds in between. Asks the server only when there is such a build.
+ */
+export function useBuildFollowUp(connected: boolean): void {
+  useEffect(() => {
+    if (!connected) {
+      return undefined;
+    }
+    const again = () => {
+      void resumeBuild();
+      void recoverBuild();
+    };
+    again();
+    const timer = setInterval(again, FOLLOW_UP_INTERVAL_MS);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        again();
+      }
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, [connected]);
 }
 
 /** Stops an upload in progress, or asks the server to cancel the running build. */

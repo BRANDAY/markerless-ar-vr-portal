@@ -346,7 +346,7 @@ export const hr: Record<TextKey, string> = {
   'rooms.rename': 'Preimenuj',
   'rooms.rename.save': 'Spremi',
   'rooms.delete': 'Izbriši',
-  'rooms.delete.ask': 'Izbrisati prostoriju „{name}”? Njezina karta i snimka uklanjaju se s poslužitelja. To se ne može poništiti.',
+  'rooms.delete.ask': 'Izbrisati prostoriju „{name}”? Prostorija i njezina vrata uklanjaju se. To se u aplikaciji ne može poništiti.',
   'rooms.delete.building': 'Za ovu se prostoriju izrađuje karta. Pokušajte ponovno kad bude gotova.',
   'rooms.failed': 'To nije uspjelo. Pokušajte ponovno.',
   'rooms.footer': 'Prostorije se čuvaju na poslužitelju „{server}”. Svaki telefon koji se na njega poveže vidi iste prostorije.',

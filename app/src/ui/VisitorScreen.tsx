@@ -246,7 +246,15 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
       </View>
 
       {aboutOpen ? <AboutSheet space={space} onClose={() => setAboutOpen(false)} /> : null}
-      {sheet ? <ProblemSheet sheet={sheet} onRetry={retry} onClose={() => setClosedSheet(sheet)} /> : null}
+      {sheet ? (
+        <ProblemSheet
+          sheet={sheet}
+          onRetry={retry}
+          // Closing a sheet that offers "Try again" (a tap beside it, Android's back) tries
+          // again: otherwise the visitor is left with the bare camera and nothing to press.
+          onClose={() => (visitorSheetText(sheet).button === 'retry' ? retry() : setClosedSheet(sheet))}
+        />
+      ) : null}
     </View>
   );
 }

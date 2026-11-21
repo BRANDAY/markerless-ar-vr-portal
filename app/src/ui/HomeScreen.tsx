@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { getLanguage, t, type TextKey } from '../i18n';
-import { resumeBuild } from '../room/roomServer';
+import { useBuildFollowUp } from '../room/roomServer';
 import { roomName, roomsActions, useRooms } from '../room/roomsStore';
 import { isBuilding, useRoomScan } from '../room/roomStore';
 import { appActions, useAppState } from '../state/appStore';
@@ -39,11 +39,7 @@ export function HomeScreen() {
 
   // A build that was lost sight of is taken up again when the server answers.
   const connected = connection.state === 'connected';
-  useEffect(() => {
-    if (connected) {
-      void resumeBuild();
-    }
-  }, [connected]);
+  useBuildFollowUp(connected);
 
   const currentRoom = rooms.find((room) => room.mapId === currentId);
   const situation = homeSituation({

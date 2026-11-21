@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { t } from '../i18n';
-import { cancelUploadOrBuild, resumeBuild, sendAgain } from '../room/roomServer';
+import { cancelUploadOrBuild, sendAgain, useBuildFollowUp } from '../room/roomServer';
 import { roomName } from '../room/roomsStore';
 import { type BuildProgress, isBuilding, roomActions, useRoomScan } from '../room/roomStore';
 import { appActions } from '../state/appStore';
@@ -40,11 +40,7 @@ export function BuildScreen() {
   const [confirmStop, setConfirmStop] = useState(false);
 
   // A build that was lost sight of is taken up again when the server answers.
-  useEffect(() => {
-    if (connected) {
-      void resumeBuild();
-    }
-  }, [connected]);
+  useBuildFollowUp(connected);
 
   // Nothing to show (the app was restarted, or the build was dealt with): Home.
   const nothing = build.phase === 'idle';

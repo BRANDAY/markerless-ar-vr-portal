@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import type { LocalizationStatus } from '../localization/types';
+import { describePlacement } from '../measure/core/measurement';
 import { measureController, useMeasure } from '../measure/measureController';
 import { putTestRoom } from '../spaces/spaceChoice';
 import { appActions, useAppState } from '../state/appStore';
@@ -98,7 +99,15 @@ export function StatusPanel() {
   const providerId = useAppState((s) => s.providerId);
   const providerStatus = useAppState((s) => s.providerStatus);
   const providerDetail = useAppState((s) => s.providerDetail);
+  const providerMeta = useAppState((s) => s.providerMeta);
+  const placement = useMeasure((s) => s.placement);
   const attachMode = useAppState((s) => s.attachMode);
+  // How the recognition of the room is going: the attempt that is running, and how the
+  // latest search ended (the server's quality and inliers, attempts, seconds to the door).
+  const attempt =
+    providerMeta.attempt !== undefined && providerMeta.attempts !== undefined
+      ? `attempt ${providerMeta.attempt} of ${providerMeta.attempts}`
+      : null;
 
   return (
     <View style={styles.panel} pointerEvents="none">
@@ -116,6 +125,10 @@ export function StatusPanel() {
       <Text style={styles.line}>
         provider {providerId}: {providerStatus}
         {providerDetail ? ` - ${providerDetail}` : ''}
+      </Text>
+      <Text style={styles.line}>
+        search   {attempt ?? '-'}
+        {placement ? `  last: ${describePlacement(placement)}` : '  last: none yet'}
       </Text>
       <Text style={styles.line}>
         door pos {door ? `${formatVec3(door.pose.position)} m` : 'not placed'}

@@ -388,8 +388,13 @@ What the server says goes to the log; the screen gets one of nine prepared texts
 (`src/ui/core/buildView.ts`). A recording the server refuses at once (`X-Error-Code:
 recording_too_short` or `too_little_motion`, server 0.3.0 and later) is shown as "The scan
 was too short". If a build for the room is already running (HTTP 409), that build is
-followed. If the server stops answering for eight checks in a row, the screen says so; the
-build is taken up again when the server answers.
+followed. A build may take twenty minutes and more on a slow computer, and the phone may be put
+aside meanwhile: there is no time limit on the wait. If the server stops answering (each
+check waits up to 8 s) for twelve checks in a row, the screen says so; the build is taken
+up again when the server answers, when the app comes back to the front, and every 5 s in
+between. After a restart of the app (Android may end an app that waits in the background)
+the build is found again on the server by its job id, which is kept with the scan: Home
+shows its progress, or the finished room, or the failure. Not tried on a phone.
 
 ### Placing the door
 
@@ -651,7 +656,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | Room mesh as thin lines in the scan colour | the AR engine's own mesh lines, in its colour | the engine draws them; the colour is not ours to set |
 | Scan and build texts | a few lines the spec does not have: "Saving the scan…", "The scan could not start", "Stopped" after **Cancel**, "Keep going" once the minute is over, "Floor" before it is found | moments the spec's tables do not cover |
 | Home while a build is running | also shows a build that failed while the user was elsewhere, until it has been looked at | otherwise a failure would go unnoticed |
-| "Send again" after a restart of the app | the scan and its room are remembered, but no screen offers it | the spec has no place for it |
+| "Send again" after a restart of the app | the scan and its room are remembered, but no screen offers it (a build that the server is still working on is taken up again by itself) | the spec has no place for it; accepted in section 13 of the spec |
 | Inside the space: only "Door is behind you" and the info button | the close button stays as well | a way out that does not depend on Android's back button |
 | AR screen, room without a saved door: "go to Place the door" (5.9) and a sheet "This room has no door yet" (7.3) | the sheet, whose button opens the placing screen | the two places of the spec differ; the sheet says why the screen changes |
 | **Save door** is enabled once the room is found | for a door that is already saved it stays disabled until something was changed | saving an unchanged door through a new alignment would move it by that alignment's error |
@@ -660,15 +665,12 @@ Kept as a list for the product side; nothing here was decided silently.
 | Coach lines once the room is found | shown until a control is used, and hidden while the adjust panel is open | they would cover the door that is being placed |
 | The door "as it will look to visitors" | the same, but it cannot be walked through while it is being placed | walking into a space that is still being moved |
 | **Remove the door** | a failed removal says "The door could not be removed. Try again." | the spec has no text for it |
-| **Move the door**, **Remove the door** in the Rooms row menu | in the staff AR menu only | the Rooms screen is step I |
-| Home: arrow to Rooms, "Change" next to the space | not shown | steps I and G |
 | Adjust panel: ⟲ ⟳ | one drawn turn icon and its mirror image; the other step buttons are the characters ← → ↑ ↓ − + | no icon set in the build |
-| "Scan another room" lives on the Rooms screen | no product screen offers a second room | the Rooms screen is step I; the scan panel of the tools still records one |
 | Visitor: "This phone can't show the door" has no button | the sheet can be closed, and the app goes on | the AR engine's answer has not been tried on a device |
 | Staff PIN sheets | one title the spec does not have: "Enter the current PIN" (changing the PIN) | the spec names the step, not its words |
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
-| Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
+| Third privacy line (delete a room) | left out; the privacy page has the way to **Rooms** | the server moves a deleted room to its trash folder and erases nothing (spec, 13.3) |
 | Settings > Language "opens a list" | the list holds the languages only; there is no entry "same as the phone" | once a language is chosen in the app it stays chosen; before that the phone's is used |
 | Croatian | written by the assistant, not reviewed by a native speaker | no reviewer; see the notes in `src/i18n/hr.ts` |
 | The chosen space "stored per room", the same on every phone | stored per room on the phone that chose it | the server has no place for it (S5) |
@@ -701,7 +703,12 @@ What is on the screen:
   and trusted.
 - *Hide tools*: closes the developer tools and returns to the product's AR screen.
 - Status panel: tracking state and reason, camera position and forward vector in
-  AR-world coordinates, detected floor height, provider status, door pose, attach mode.
+  AR-world coordinates, detected floor height, provider status, door pose, attach mode,
+  and a line `search` about recognising the room: the attempt that is running ("attempt 2
+  of 5") and how the latest search ended - event, seconds of the search, attempts, seconds
+  from app start to the door, the server's quality and number of inliers. The same
+  figures are in the log (`server: localize: good, 741 inliers, alignment ok` per answer,
+  `measure <test> #n placed: ...` per search).
 - Event log: tracking changes, provider status, door poses, portal enter/exit, everything
   the scan and the server do. The same lines go to Android's log (tag `ReactNativeJS`,
   prefix `[portal]`) and, when the server supports it, to the server's monitoring panel

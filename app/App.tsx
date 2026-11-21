@@ -248,8 +248,14 @@ export default function App() {
     appActions.showProblem('camera');
   }, []);
   useEffect(() => {
-    // A "no" in Android's dialog while the permission screen is up.
-    if ((permission === 'denied' || permission === 'blocked') && (screen === 'permission' || usesCamera(screen, visitorStarted))) {
+    // A "no" in Android's dialog while the permission screen is up. Not on the visitor
+    // screen: that one says it in a visitor's words itself (`ui-spec.md`, 5.13), and a
+    // visitor must not land on the staff's Home.
+    if (
+      (permission === 'denied' || permission === 'blocked') &&
+      screen !== 'visitor' &&
+      (screen === 'permission' || usesCamera(screen, visitorStarted))
+    ) {
       cameraRefused();
     }
   }, [permission, screen, visitorStarted, cameraRefused]);
