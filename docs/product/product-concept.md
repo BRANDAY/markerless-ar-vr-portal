@@ -10,6 +10,12 @@ a staff member places the door and saves it to the server; a visitor's phone hol
 the door and the room come from the server; ReactVision Advanced VPS is added as a second way to connect.
 Sections 2, 4, 5.1, 5.2, 5.7, 5.8 and 6 carry this decision.
 
+**Update, later on 21 November 2026.** The owner decided that the aim now is an app that works and shows that
+the room is recognised; work on wider use waits. The paid ReactVision service will not be used: the second
+connection method is built in the app but stays outside the demonstration. The app chat has built the
+interface steps of `ui-spec.md`; the one step left is the full pass on a phone. Nothing in this document was
+changed below this note.
+
 Related documents: [competitors.md](competitors.md), [ui-spec.md](ui-spec.md), [mockups/](mockups/index.html).
 
 ## 1. What exists today

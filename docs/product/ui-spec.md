@@ -12,8 +12,13 @@ of that day. "Vrata" is a working name.
 and saves it to the server; a visitor's phone holds nothing but the app and gets the door and the room from
 the server; ReactVision Advanced VPS is added as a second way to connect.
 
-Steps 0–3 of the first revision are built (not yet seen on a phone). Points that need a device check are
-marked **Check**.
+**Revision 3, 21 November 2026 (later the same day).** The app chat has built steps A, B and D–J of section
+10. This revision brings the text in line with what was built and answers the app chat's later reports
+(section 13). It adds no functions. The owner will not use the paid ReactVision service: section 5.15 now
+describes what is built and is outside the demonstration.
+
+By the app chat's reports nothing has been seen on a phone yet. Points that need a device check are marked
+**Check**.
 
 ## 1. Principles
 
@@ -120,7 +125,7 @@ fonts is postponed, the system font is an acceptable stand-in with the same size
 | Thing | Today | Target |
 |---|---|---|
 | Walls while scanning | cyan fill `#22d3ee` α 0.30 | `scan` fill α 0.20 with a thin `scan` edge |
-| Floor while scanning | green fill | `scan` dot grid, no fill |
+| Floor while scanning | green fill | `scan` outline, no fill (a dot grid is optional polish) |
 | Ceiling and other surfaces | violet and yellow fills | not painted |
 | Corners | red-pink cubes with posts | small white dot with a `scan` ring at floor level |
 | Depth mesh | engine wireframe behind a debug button | on during scanning, thin `scan` lines. It carries the feedback when no wall planes are found |
@@ -198,7 +203,9 @@ In the app's own settings file (the existing `prefs`), next to `server-connectio
 | `developerOptions` | developer options switched on |
 | `lastRoomId` | room to try first |
 | `spaceByRoom` | chosen space per room, until the server stores it |
-| `lastCapture` | folder of the newest scan, so "Send again" survives a restart |
+| `missedByRoom` | per room, how many AR sessions in a row did not find it; drives "Scan again · the room has changed" (5.11) |
+| `doorRecords` | the phone's copy of each room's saved door, as last read from the server |
+| `lastCapture` | folder of the newest scan, so "Send again" survives a restart. Built so far: the folder is kept, but after a restart no screen offers to send it again (13) |
 | `language` | chosen language, else the phone's |
 
 ### 4.3 Two modes
@@ -455,7 +462,7 @@ Close button (top left); room name pill (top right). The door is not shown.
 | `localized` | — | — | the door appears; hint "Walk through the door" for 5 s |
 | `error` after the attempts | sheet, problem `unknown` | | |
 | `waiting-for-server` | problem `server` | | |
-| the room has no saved door | go to Place the door (5.14) | | |
+| the room has no saved door | sheet "This room has no door yet" with **Place the door** (7.3) | | |
 | the server has no room | go Home, "No room here yet" | | |
 
 Tracking warnings from section 5.6 replace the coach line while they apply.
@@ -467,7 +474,8 @@ Tracking warnings from section 5.6 replace the coach line while they apply.
 - Menu sheet: **Find the door again** / "If it has slipped out of place" (the existing "Re-localize");
   **Move the door**; **Remove the door**; **Change the space**.
 - Shutter: takes a photo of the view without the interface, saves it, then shows a small preview with
-  **Share** for 4 s. Uses the AR view's screenshot call. **Check**
+  the line "Saved to your photos" for 4 s. Uses the AR view's screenshot call. **Check**. Sharing is left
+  out: it needs a native module
 
 Small states, shown as a pill under the top row, never as a blocking screen:
 
@@ -503,6 +511,8 @@ is labelled "Not tied to the room".
   a download button, or "On this phone".
 - Tapping a card opens a sheet: picture, eyebrow (place and date), name, two sentences, a line
   "{size} MB · on this phone · {credit and licence}", primary **Put behind my door**, text **Close**.
+  For the space that is already behind the door the sheet shows the tag "Behind your door" in place of
+  the button.
 - A notice at the bottom of the list: "Walk-in spaces have depth: you can step inside and look around
   corners. 360° views surround you but stay flat."
 - Data: a list in the app for the built-in spaces (id, name, place, date, type, size, description, credit,
@@ -524,7 +534,10 @@ Staff mode only.
 
 - Row menu: **Move the door** (or **Place the door**), **Remove the door**, **Change the space**,
   **Scan again**, **Rename**, **Delete**.
-- Delete asks: "Delete “{name}”? Its map and video are removed from the server. This can’t be undone."
+- Delete asks: "Delete “{name}”? The room and its door are removed. This can’t be undone in the app."
+  The server moves the room's files to its `.trash` folder and does not erase them, so the text must not
+  say that the map and the video are gone. To change in the app (English and Croatian).
+- A tap on a row makes that room the current one and goes Home.
   with **Delete** / **Keep**.
 - Footer: "Rooms live on the server “{server_name}”. Every phone that connects to it sees the same rooms."
 - Primary: **Scan a new room**.
@@ -605,7 +618,7 @@ the table says otherwise, and a small grey reason line that a staff member can r
 | no room on the server, or no room with a saved door | The door isn't ready | Please ask a member of staff. | No door has been placed yet |
 | room not recognised after the tries | Can't find the door from here | Stand in the room with the door and point the phone at it. If it still doesn't appear, please ask a member of staff. | Room not recognised |
 | camera refused | The camera is off | The door can't be shown without the camera. Button: **Open phone settings** | — |
-| phone cannot run AR | This phone can't show the door | Please ask a member of staff for a device. No button | — |
+| phone cannot run AR | This phone can't show the door | Please ask a member of staff for a device. The sheet can be closed; there is nothing else to press | — |
 
 Tracking loss shows the red banner of 7.3 and clears by itself.
 
@@ -667,7 +680,9 @@ Adjust panel:
 Saving:
 
 - **Save door** sends the door's place in the current AR session, with the same `session_id` that found the
-  room: `PUT /maps/{id}/anchors/portal` with `ar_pose`, `session_id`, `width` and `height`.
+  room: `PUT /maps/{id}/anchors/portal` with the door's `position` and `quaternion_xyzw` in the room's own
+  frame, plus `width` and `height` when the server lists `door_size` in its `capabilities`. No
+  `session_id` is sent: the app turns the place into the room's frame itself once the room is found.
 - While sending, the button reads "Saving…".
 - Saved: a sheet. Title **Door saved**. Body "Every phone that opens this room will see the door here."
   Primary **See it as a visitor** (switches to visitor mode). Text button **Done** (goes Home).
@@ -684,7 +699,7 @@ Move and remove, for a room that already has a saved door:
 | Action | Where | What happens |
 |---|---|---|
 | **Move the door** | Rooms row menu; staff AR menu | opens this screen with the door at its saved place |
-| **Remove the door** | Rooms row menu; staff AR menu | asks "Remove the door from “{room name}”? Visitors will not see a door in this room until you place a new one." with **Remove** / **Keep**. Removes the saved place on the server (`DELETE /maps/{id}/anchors/portal`, and the doorway choice set back to automatic). The room then counts as having no door |
+| **Remove the door** | Rooms row menu; staff AR menu | asks "Remove the door from “{room name}”? Visitors will not see a door in this room until you place a new one." with **Remove** / **Keep**. Removes the saved place on the server (`DELETE /maps/{id}/portal`, which removes the door however it was set; the found doorway stays as a hint). The room then counts as having no door |
 
 **Check** on the phone: saving right after the map is built, in a fresh AR session; the door's place after
 the app is closed and opened on a second phone.
@@ -693,6 +708,11 @@ the app is closed and opened on a second phone.
 
 Decided by the owner on 21 November 2026: the venue's own server stays the main way; ReactVision Advanced
 VPS is added as a second way. Staff choose between them in Settings. Visitors never see the choice.
+
+**State, 21 November 2026.** The owner will not use the service, because it is paid. The method is built
+in the app (provider, Connection page, linking a room to its place in the cloud) and has never run. Only a
+build made with ReactVision keys offers it, so the demonstration build shows one method and no choice. No
+further work on it is planned.
 
 Nothing about the cloud method has been tried: it needs the owner's ReactVision account and a paid plan.
 The facts below come from the library's code and the vendor's documentation, as summarised in the project's
@@ -718,7 +738,7 @@ What changes behind the screens:
 | Finding the room | a short clip goes to the server (`/localize`) | the library's `ViroVPS` with `startTracking` for the room's location, or `"visual"`. Never `"auto"`: it relies on GPS |
 | Where the scan goes | to the server | the same recording goes to ReactVision. The upload needs a per-user key that the venue's server hands out (S12) |
 | Building the map | the server, with the five steps of 5.7 | ReactVision. Show the same screen with three steps: Sending the scan, Building the map in the cloud, Ready. How long it takes is not documented, so show no time estimate |
-| Where the door's place is kept | on the server | open decision for the owner: on the venue's server (proposed) or in the vendor's web editor. The screens are the same either way |
+| Where the door's place is kept | on the server | built: on the venue's server, one door record per room, the same for both methods. The cloud method only says where the room is; a one-time "Link to the room" step measures how the cloud's map sits against the server's |
 | How the door is drawn | through the existing door placement | proposal from the service review: take the camera's place in the map (`onLocalized`) and place the door through the existing mechanism, so the rule "do not move the door while someone is inside" keeps working. **Check** on the phone |
 | Words on screen | as written in this document | the same. "Server" in problem texts becomes "the cloud service": "Can’t reach the cloud service" / "Check that this phone is online." |
 | Privacy lines | 5.2, left column | 5.2, right column |
@@ -772,7 +792,7 @@ The scan stays on the phone in every case. "Send again" uploads the same scan.
 | upload interrupted | Upload stopped | The scan is saved on this phone. Check the Wi‑Fi and send it again. | **Send again** | **Not now** |
 | upload refused, too large (413) | The scan is too large | Scan again and finish within 3 minutes. | **Scan again** | — |
 | a build for this room is already running (409) | — | open `build` for that job | | |
-| `too_few_frames` | The scan was too short | Walk for at least a minute, slowly, and pass every wall. | **Scan again** | **Not now** |
+| `too_few_frames`, `recording_too_short`, `too_little_motion` | The scan was too short | Walk for at least a minute, slowly, and pass every wall. | **Scan again** | **Not now** |
 | `sfm_failed` | This scan didn’t work | The server could not build a map from it. This happens when the walk was too fast or the walls are very plain. Tip: "Walk for at least a minute, slowly, and pass every wall." | **Scan again** | **Not now** |
 | `bad_recording` | This scan can’t be read | Something went wrong while recording. Please scan the room again. | **Scan again** | — |
 | `out_of_memory` | The server ran out of memory | Close other programs on the server PC, then send the scan again. | **Send again** | **Not now** |
@@ -837,9 +857,10 @@ Listed here so both chats see the same picture. None of it is part of the app wo
 
 ## 10. Order of work
 
-Steps 0–3 of the first revision are built: theme and shared pieces, the staff AR screen, Home, Settings,
-Find the server, the problem screens, the welcome cards and the permission screen. None of it has been seen
-on a phone yet.
+**State, 21 November 2026.** Steps 0–3 of the first revision and steps A, B, D, E, F, G, H, I and J below are
+built in the app. None of it has been seen on a phone. **Step C, the full pass on the phone, is the one
+step left and the next thing to do.** Step E is built and will not be run (5.15). The "Later" row is not
+being worked on.
 
 The order from here follows the owner's decision of 21 November 2026: the two modes and the staff-placed
 door come first, then the full pass on the phone, then everything else. Each step ends with an app that can
@@ -854,7 +875,7 @@ be installed and used.
 | E | Second connection method: ReactVision Advanced VPS (5.15) | the owner's ReactVision account and plan; S12 | The same room found by both methods; compare offset and time |
 | F | Inside the space: "Door is behind you", info sheet, wall warning | A | Walk towards a real wall inside the space: the grid appears before the wall does |
 | G | Spaces screen, choice remembered per room; credits page | A; S5 for all phones | Change the space; a second phone shows the same one |
-| H | Photo and share | A | The photo shows the scene without buttons and can be shared |
+| H | Photo (sharing is left out, 5.9) | A | The photo shows the scene without buttons and is in the phone's gallery |
 | I | Rooms list, several rooms | B, S1, S2, S6 | Two rooms on one server; the app opens the right door in each |
 | J | Croatian; language chips on the visitor welcome panel | A | A person who has never seen the app gets through the door with no help |
 | Later | Notifications, rings to move to, downloadable spaces, threshold sound, more languages, staff PIN on the server | | |
@@ -897,3 +918,79 @@ The report listed 16 places where the built app differs from the first revision.
 | 14 | "Scan this room" opens the old scan panel in Tools | Accepted until step D. The full pass (step C) uses it |
 | 15 | AR view created and destroyed with the screen, unverified | Accepted; "Keep the AR view running" is the documented fallback (4.1) |
 | 16 | A restart ends on Home, so "launch to door" includes Home | Resolved by visitor mode: a later launch opens the camera at once, so "launch to door" has no screen in between. Measure it in visitor mode |
+
+## 13. Answers to the app chat's reports on steps A–J
+
+The reports are `app_ui_report_steps_A_D_F.md`, `app_ui_report_step_B.md`, `app_ui_report_item4.md`,
+`app_ui_report_door_layer.md` and `app_ui_report_steps_gij.md` in the shared notes folder. Everything the app
+does differently from the text above is accepted as built, with one exception marked **To change**: a single text.
+No other work follows from this section.
+
+### 13.1 Behaviour
+
+| Where | What the app does | Answer |
+|---|---|---|
+| 5.9, 7.3 | A room without a saved door opens the sheet "This room has no door yet" with **Place the door** | Accepted. 5.9 now says the same as 7.3 |
+| 5.14 | **Save door** is off for an already saved door until something is changed | Accepted |
+| 5.14 | "The door wasn’t saved" is shown also when the server answers and refuses | Accepted |
+| 5.14 | **Put it here** with the phone not aimed at the floor (less than 8° down, or the spot is farther than 6 m) puts the door 2 m ahead | Accepted |
+| 5.14 | Coach lines disappear after the first control is used and while **Adjust** is open | Accepted |
+| 5.14 | The door being placed cannot be walked through | Accepted |
+| 5.14 | In a room without a door a weak match counts as "room found"; the log says "weak match" | Accepted for the first full pass. Note the match quality when the door's offset is measured |
+| 5.14 | "Use the found doorway" takes the doorway from the room plan, because the server gives no suggestion once a door was removed | Accepted |
+| 5.14 | Save and remove calls | The text of 5.14 is corrected to the calls the app makes |
+| 5.6, 3.4 | Floor shown as an outline; progress as a number with a bar; a corner as a white dot on a square; mesh lines in the engine's own colour | Accepted |
+| 5.6, 5.9 | Starting values: 60 s, 6 m, 150 s, 180 s for the scan; 35° for "Door is behind you" | Accepted as starting values; change only after the phone check |
+| 5.6 | A scan cannot start without a connected server | Accepted |
+| 5.7 | A failed build stays on Home until it has been seen | Accepted |
+| 4.2 | After a restart nothing offers to send the last scan again | Accepted. Scans stay on the phone after a successful build: keep it so until the full pass is done, they are needed when a build or a search fails |
+| 7.2 | `recording_too_short` and `too_little_motion` show "The scan was too short" | Accepted, added to 7.2 |
+| 5.9 | Staff keep a close button inside the space | Accepted |
+| 5.9 | No **Share** after a photo | Accepted, 5.9 and step H corrected |
+| 5.9 | Opening Spaces from the AR screen leaves the camera; the room is found again on return | Accepted |
+| 5.13 | "This phone can't show the door" can be closed | Accepted, 5.13 corrected |
+| 5.10 | One space, so no filter chips and no download button; the chosen space shows the tag "Behind your door" | Accepted. One space is enough; a second one is not being worked on |
+| 5.10 | The developer switch "Test room" and the **World** button set the same per-room choice | Accepted |
+| 5.10 | The space of a room is kept on the phone only (S5 is not done) | Accepted. The check "a second phone shows the same space" of step G is dropped |
+| 5.11 | A tap on a row makes the room current and goes Home; rooms are chosen by hand | Accepted, added to 5.11. The server's own choice of room (S6) is not used |
+| 5.11 | "Three sessions in a row" is counted on the phone in `missedByRoom`: one AR session counts once, not when the room was found in it, not when the server never answered | Accepted, added to 4.2 |
+| 5.11 | The delete question says the map and the video are removed from the server, but the server only moves the room to its trash folder | **To change:** new text in 5.11 |
+| 5.11 | Rename and Delete are shown only when the server lists `rooms_admin` | Accepted |
+| 12, #9 | "Put the door in front of me" in the normal menu | Done: the app's dictionary no longer has this item |
+| J | Croatian is not reviewed by a native speaker; developer options, the server's own words, names of works, authors and licences are not translated | Accepted. Say so if the Croatian text is shown to anyone |
+| 4.2 | New things kept on the phone: `missedByRoom`, `doorRecords`, the cloud place and link of a room | Accepted, the first two added to 4.2 |
+| 8 | Every request carries the header `X-Device-Role` (staff or visitor) | Accepted |
+
+### 13.2 Texts the app chat wrote
+
+Read and accepted as written. The app's dictionary (`app/src/i18n/en.ts`) is their source.
+
+- **Scan (5.6):** "Saving the scan…", "The scan could not start", "Stopped", "Keep going", "Floor".
+- **PIN (4.3):** "Enter the current PIN".
+- **Place the door (5.14):** "The door could not be removed. Try again."; "Door placed · {w} × {h} m"; row
+  labels "Move", "Turn", "Width", "Height"; value "{v} m"; screen-reader labels "Move left", "Move right",
+  "Move away from the room", "Move towards the room", "Turn left", "Turn right", "Less", "More".
+- **Photo (5.9):** "Take a photo", "Saved to your photos", "Photo taken", "The photo could not be taken".
+- **Spaces (5.10):** "{place} · walk-in 3D · {size} MB", "{place} · 360° view · {size} MB", "Behind your door".
+- **Sponza (5.9, 5.10):** place "Dubrovnik, Croatia", date "1516–1522", the summary, the "about" paragraph
+  and the credit line. The paragraph says plainly that this is an artist's model and not a survey of the
+  building; keep that sentence.
+- **Rooms (5.11):** "Save", "A map is being built for this room. Try again when it is done.", "That did not
+  work. Try again.", screen-reader label "More about {name}".
+- **Credits (5.12):** the page's headings and lines as built.
+- **Connection and linking a room (5.15):** as built. They appear only in a build with ReactVision keys.
+
+### 13.3 What the server does today, as the app chat reports it
+
+Not checked by the product chat; the server chat's notes are the source.
+
+| Need | State |
+|---|---|
+| S1 delete a room | The room is moved to the server's `.trash` folder; nothing is erased. The third privacy line (5.2) stays left out |
+| S2 rename a room | Works |
+| S5 space kept with the room | Not done; the space is kept per phone |
+| S6 the server picks the room | In the server since 0.6.0; the app does not use it |
+| S10 staff PIN on the server | Not done; the PIN is local |
+| S11 door width and height | Works when `capabilities` lists `door_size`; otherwise the door is 0.90 × 2.00 m |
+| S12 ReactVision | Not needed: the service is not used |
+| S13 saving a door right after the build | Checked by the app chat against a real server, not on a phone |
