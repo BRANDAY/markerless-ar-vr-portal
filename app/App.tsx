@@ -15,6 +15,7 @@ import { roomsActions } from './src/room/roomsStore';
 import { useRoomScan } from './src/room/roomStore';
 import { setClientRole } from './src/server/core/client';
 import { deviceLogger } from './src/server/deviceLogger';
+import { useSpaceOfRoom } from './src/spaces/spaceChoice';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
 import { prefsActions, usePrefs } from './src/state/prefs';
@@ -25,7 +26,7 @@ import { ConnectionScreen } from './src/ui/ConnectionScreen';
 import { ConnectScreen } from './src/ui/ConnectScreen';
 import { homeScreen } from './src/ui/flows';
 import { HomeScreen } from './src/ui/HomeScreen';
-import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
+import { CreditsScreen, DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
 import { PermissionScreen } from './src/ui/PermissionScreen';
 import { BridgeScreen } from './src/ui/BridgeScreen';
@@ -35,6 +36,7 @@ import { RoomResultScreen } from './src/ui/RoomResultScreen';
 import { ScanPrepareScreen } from './src/ui/ScanPrepareScreen';
 import { ScanScreen } from './src/ui/ScanScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
+import { SpacesScreen } from './src/ui/SpacesScreen';
 import { VisitorScreen } from './src/ui/VisitorScreen';
 import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
@@ -166,6 +168,9 @@ export default function App() {
   const prefsLoaded = usePrefs((state) => state.loaded);
   const keepArView = usePrefs((state) => state.keepArView);
   const visitorMode = usePrefs((state) => state.visitorMode);
+
+  // Behind the door stands the space chosen for the room (`ui-spec.md`, 5.10).
+  useSpaceOfRoom();
 
   // The server's panel shows which mode each phone is in (it is not a permission).
   useEffect(() => {
@@ -319,6 +324,12 @@ export default function App() {
       break;
     case 'privacy':
       plain = <PrivacyScreen />;
+      break;
+    case 'credits':
+      plain = <CreditsScreen />;
+      break;
+    case 'spaces':
+      plain = <SpacesScreen />;
       break;
     case 'problem':
       plain = <ProblemScreen kind={problem ?? 'server'} />;

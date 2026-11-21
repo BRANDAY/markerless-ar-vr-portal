@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (198 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (201 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -258,7 +258,31 @@ What staff meet, in order:
    on a device**: that the picture is without the interface, where it lands, and whether
    the gallery needs a permission. The spec's **Share** is not offered, see below.
 4. **Settings:** server, automatic search, **Switch to visitor mode**, **Change staff
-   PIN**, privacy, "How it works", the version line.
+   PIN**, privacy, **Credits and licences**, "How it works", the version line.
+5. **Spaces** (`src/ui/SpacesScreen.tsx`; spec 5.10): what can stand behind the door.
+   Opened by **Change** on Home's card "Behind the door", by the space's name at the top
+   of the staff AR screen, and by **Change the space** in its menu. One card per space
+   (picture, name, "{place} · walk-in 3D · {size} MB", the tag "Behind your door" or "On
+   this phone"); a tap opens a sheet with two sentences, the size and the credit line,
+   and **Put behind my door**. Under the list: what walk-in spaces and 360° views are.
+   - **The choice is kept per room** (`src/spaces/core/choice.ts`, tested;
+     `src/spaces/spaceChoice.ts`), in the phone's preferences. **On this phone only**:
+     the server has no place for a room's space yet (spec section 9, S5), so a second
+     phone shows the first space of the list, whatever was chosen on the first one.
+   - **There is one space**: the Sponza atrium. With developer options on, the test room
+     is listed as well (the developer switch "Test room" and the tools' **World** button
+     now make the same choice for the room). The filter chips of the spec appear from
+     seven spaces on and are therefore never seen; nothing can be downloaded, so there
+     is no download button.
+   - The screen is not over the camera: opened from the AR screen it ends that AR view,
+     and coming back the room is found again before the door stands with the new space.
+6. **Credits and licences** (`CreditsScreen` in `src/ui/MoreScreens.tsx`, facts in
+   `src/spaces/credits.ts`; spec 5.12): the model and the sky of the atrium with author,
+   licence, source and the changes made (CC BY 3.0 asks for those), the two wood
+   photographs behind the door frame and the door, and the packages the app depends on
+   directly with the copyright lines of their licence files. Not listed: software that
+   comes in indirectly (the AR engine among it) and the full texts of the licences.
+   Nothing of 5 and 6 has been seen on a device.
 
 ### Scanning a room
 
@@ -567,7 +591,12 @@ Kept as a list for the product side; nothing here was decided silently.
 | A screen for a server that is still connecting | the coach says "Connecting…" | the spec has no text for this moment |
 | "This phone can't show AR" blocks | shown once, then the user may go on | the AR engine's answer has not been tried on a device |
 | Third privacy line (delete a room) | left out | waits for the server (S1), as the spec says |
-| Language, Credits rows in Settings | not shown | steps G and J |
+| Language row in Settings | not shown | step J |
+| The chosen space "stored per room", the same on every phone | stored per room on the phone that chose it | the server has no place for it (S5) |
+| Spaces: filter chips, a download button | neither is shown | one space is built in (the chips are for more than six), and nothing can be downloaded (S7) |
+| Spaces sheet: **Put behind my door** | for the space that already stands behind the door the sheet shows the tag "Behind your door" in place of the button | there is nothing to put |
+| Spaces sheet: "two sentences" | a text of this app for the atrium ("The arcaded courtyard of the old customs house of Dubrovnik. Walk in under the arches and look up at the open sky.") | the spec gives no text |
+| Credits page | its headings and lines are texts of this app ("The door", "Software", "Licence: …", "From …", what was changed in the model) | the spec names the page, not its words |
 | Photo preview with **Share** | the preview has no Share; it says "Saved to your photos" / "Photo taken" instead, and "The photo could not be taken" when the engine refuses (texts of this app) | handing a picture file to another app needs a native module the build does not have (React Native's own share sheet takes text only on Android); the spec lists it among the additions that need a native rebuild |
 | Connection page: two options, the server row, "Recognise in the cloud" | also a field "ReactVision location ID of {room}" with **Save**, the line about the room's link and **Link to the room** / **Link again**, and the "Server" row stays in Settings as well | sending a scan to ReactVision from the app is not built, so the id has to be typed in somewhere; the room has to be linked to that place once |
 | (not in the spec) linking a room to its place in the cloud | an AR screen of its own: "Go to another part of the room" (three looks by the server), "Walk slowly around the room", "{n} of 8 views taken", **Finish**, "Linked" with the server's warnings / "Not linked" with three reasons | one door for both ways needs the bridge between the two maps (api-v2, section 11) |
@@ -806,7 +835,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 198 tests in all with those of `src/room/`, `src/door/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 201 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -1120,6 +1149,10 @@ src/
                               the steps of the guided scan (scanFlow), percentage, steps and problems of a build (buildView)
   ui/ScanPrepareScreen.tsx, ScanScreen.tsx, BuildScreen.tsx   the guided scan and the build of its map
   spaces/spaces.ts            the spaces that can stand behind the door, and what is said about them
+  spaces/core/choice.ts       pure, unit-tested: which spaces are offered, which one stands behind a room's door
+  spaces/spaceChoice.ts       the choice tied to the stores: kept per room in the preferences, shown by the scene
+  spaces/pictures.ts, credits.ts   the picture of each space; whose work the spaces, the door and the software are
+  ui/SpacesScreen.tsx         the list of spaces, the sheet of one, "Put behind my door"
   ui/VisitorScreen.tsx        the whole of visitor mode: welcome panel, coach lines, "ask a member of staff" sheets
   ui/modeSheets.tsx           the staff PIN pad, and the question before switching to visitor mode
   ui/core/modes.ts, visitorView.ts   pure: start screen by mode, which doors a visitor may see, PIN hash and lock, visitor texts

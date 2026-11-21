@@ -111,6 +111,11 @@ export function ArScreen() {
     setMenuOpen(false);
     openPlaceDoor();
   };
+  // The Spaces screen is not over the camera: coming back, the room is found again.
+  const changeSpace = () => {
+    setMenuOpen(false);
+    appActions.go('spaces');
+  };
   const removeDoor = async () => {
     if (!currentRoom || removeAsk === 'removing') {
       return;
@@ -136,7 +141,7 @@ export function ArScreen() {
           {view.situation === 'finding' && source === 'room' ? <HudPill text={roomName} icon="door" /> : null}
           {view.situation === 'door' ? (
             <>
-              <HudPill text={spaceName} />
+              <HudPill text={spaceName} onPress={changeSpace} />
               {source === 'room' ? <HudButton icon="more" label={t('ar.menu.findAgain')} onPress={() => setMenuOpen(true)} /> : null}
             </>
           ) : null}
@@ -192,6 +197,7 @@ export function ArScreen() {
               setRemoveAsk('ask');
             }}
           />
+          <Row icon="forward" title={t('ar.menu.changeSpace')} onPress={changeSpace} />
         </Sheet>
       ) : null}
 

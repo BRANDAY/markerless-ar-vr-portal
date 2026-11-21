@@ -5,6 +5,7 @@ import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import type { LocalizationStatus } from '../localization/types';
 import { measureController, useMeasure } from '../measure/measureController';
+import { putTestRoom } from '../spaces/spaceChoice';
 import { appActions, useAppState } from '../state/appStore';
 import { Crosshair, MeasurePanel } from './MeasurePanel';
 import { ScanPanel } from './ScanPanel';
@@ -184,7 +185,7 @@ function Controls() {
       <Button label={`Provider: ${providerId === 'manual' ? 'manual (not tied to the room)' : providerId}`} onPress={nextProvider} />
       <Button
         label={`World: ${environment}`}
-        onPress={() => appActions.setEnvironment(environment === 'sponza' ? 'test-room' : 'sponza')}
+        onPress={() => putTestRoom(environment !== 'test-room')}
       />
       <Button
         label={`Frame: ${frame}`}

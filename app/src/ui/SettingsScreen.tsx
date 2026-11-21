@@ -5,6 +5,7 @@ import appConfig from '../../app.json';
 import { t } from '../i18n';
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { roomActions, useRoomScan } from '../room/roomStore';
+import { putTestRoom } from '../spaces/spaceChoice';
 import { appActions, useAppState } from '../state/appStore';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { chipState } from './core/homeView';
@@ -55,6 +56,7 @@ export function SettingsScreen() {
       <Row icon="door" title={t('settings.switch')} arrow onPress={() => setSheet('switch')} />
       <Row icon="lock" title={t('settings.changePin')} arrow onPress={() => setSheet('pin')} />
       <Row icon="lock" title={t('settings.privacy')} arrow onPress={() => appActions.go('privacy')} />
+      <Row icon="info" title={t('settings.credits')} arrow onPress={() => appActions.go('credits')} />
       <Row icon="info" title={t('settings.how')} arrow onPress={() => appActions.go('welcome')} />
 
       <Pressable onPress={onVersionTap} style={styles.version} accessibilityRole="text">
@@ -109,8 +111,8 @@ function DeveloperOptions() {
       <Row title="Room plan in AR" toggle={{ value: planVisible, onChange: () => roomActions.togglePlan() }} />
       <Row
         title="Test room"
-        sub="The small room of primitives instead of the chosen space"
-        toggle={{ value: environment === 'test-room', onChange: (value) => appActions.setEnvironment(value ? 'test-room' : 'sponza') }}
+        sub="The small room of primitives behind this room's door (the same as choosing it under Spaces)"
+        toggle={{ value: environment === 'test-room', onChange: putTestRoom }}
       />
       <Row title="Test objects" sub="Box and sphere near the session origin" toggle={{ value: testObjects, onChange: (value) => prefsActions.set({ testObjects: value }) }} />
       <Row

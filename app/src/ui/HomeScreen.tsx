@@ -105,6 +105,9 @@ export function HomeScreen() {
             <View style={styles.spaceRow}>
               <IconTile icon="door" tone="amber" />
               <Text style={[TYPE.rowTitle, styles.flex, { color: theme.ink }]}>{t(`space.${environment}.name` as TextKey)}</Text>
+              <Pressable onPress={() => appActions.go('spaces')} accessibilityRole="button" hitSlop={10} style={styles.change}>
+                <Text style={[TYPE.rowTitle, { color: theme.teal }]}>{t('home.space.change')}</Text>
+              </Pressable>
             </View>
           </Card>
         </>
@@ -260,4 +263,5 @@ const styles = StyleSheet.create({
   settings: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   spaceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  change: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
 });
