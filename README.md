@@ -44,7 +44,8 @@ The app finds the server on the local network by itself (it probes the phone's s
 for `GET /health`) or takes an address typed by the user; nothing is tied to a
 particular network. The app is built around a small `LocalizationProvider` interface,
 so the self-hosted server is one option next to ready-made services (ReactVision VPS,
-ARCore Cloud Anchors), which are planned and not implemented yet.
+ARCore Cloud Anchors). Provider code for those two is written but has never been run
+against the services, so the self-hosted server is the only path that is actually used.
 
 The doorway is placed once, not in every session. A staff member scans the room, the server
 builds a map of it from the recording, and the staff member puts the virtual door where it
