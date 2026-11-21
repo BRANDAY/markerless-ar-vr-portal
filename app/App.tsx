@@ -1,19 +1,15 @@
-import { ViroARSceneNavigator } from '@reactvision/react-viro';
+import { isARSupportedOnDevice, ViroARSceneNavigator } from '@reactvision/react-viro';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
   BackHandler,
-  Linking,
   PermissionsAndroid,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 
 import { PortalARScene } from './src/ar/PortalARScene';
-import { BRAND } from './src/brand';
 import { measureController } from './src/measure/measureController';
 import { roomsActions } from './src/room/roomsStore';
 import { useRoomScan } from './src/room/roomStore';
@@ -27,8 +23,10 @@ import { homeScreen } from './src/ui/flows';
 import { HomeScreen } from './src/ui/HomeScreen';
 import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
+import { PermissionScreen } from './src/ui/PermissionScreen';
 import { ProblemScreen } from './src/ui/ProblemScreen';
 import { SettingsScreen } from './src/ui/SettingsScreen';
+import { WelcomeScreen } from './src/ui/WelcomeScreen';
 
 /**
  * 'pending'  - the user has not answered the system dialog yet (it may not even have been shown);
@@ -76,9 +74,9 @@ function useCameraPermission() {
           update('granted');
           return;
         }
-        // Show the dialog automatically only once: closing it makes the app `active`
-        // again, and asking on every `active` would loop for a user who said no.
-        if (!byUser && permissionRef.current !== 'pending') {
+        // The dialog is shown only when the user asked for it (the "Allow camera" button
+        // of the permission screen); everything else only checks.
+        if (!byUser) {
           return;
         }
         if (AppState.currentState !== 'active') {
@@ -146,6 +144,7 @@ export default function App() {
   const wireframe = useRoomScan((state) => state.wireframe);
   const screen = useAppState((state) => state.screen);
   const problem = useAppState((state) => state.problem);
+  const history = useAppState((state) => state.history);
   const prefsLoaded = usePrefs((state) => state.loaded);
   const keepArView = usePrefs((state) => state.keepArView);
 
@@ -157,8 +156,62 @@ export default function App() {
     roomsActions.start();
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
-    void prefsActions.load();
+    // The first screen: the welcome cards on the first launch, Home afterwards.
+    void prefsActions.load((prefs) => {
+      if (!prefs.onboardingDone) {
+        appActions.resetTo('welcome');
+      }
+    });
+    // Whether this phone can run AR at all. A failed query is no answer.
+    isARSupportedOnDevice().then(
+      (answer) => {
+        appActions.setArSupported(answer.isARSupported);
+        appActions.log(`AR supported on this phone: ${answer.isARSupported ? 'yes' : 'NO'}`);
+      },
+      (error) => appActions.log(`AR support query failed: ${String(error)}`),
+    );
   }, []);
+
+  // "The camera is off" goes away by itself once the permission has been given in the
+  // phone's settings.
+  useEffect(() => {
+    if (permission === 'granted' && screen === 'problem' && problem === 'camera') {
+      if (!appActions.back()) {
+        appActions.resetTo(homeScreen());
+      }
+    }
+  }, [permission, screen, problem]);
+
+  // First launch: once the camera is allowed, the permission screen leads on to the server.
+  useEffect(() => {
+    if (permission === 'granted' && screen === 'permission') {
+      prefsActions.set({ onboardingDone: true });
+      appActions.resetTo('connect');
+    }
+  }, [permission, screen]);
+
+  /** "Allow camera": Android's dialog, or the problem screen when Android no longer shows it. */
+  const allowCamera = useCallback(() => {
+    if (permission === 'blocked') {
+      prefsActions.set({ onboardingDone: true });
+      appActions.resetTo(homeScreen());
+      appActions.showProblem('camera');
+    } else {
+      ask();
+    }
+  }, [permission, ask]);
+  /** "Not now", and a refusal in the dialog. */
+  const cameraRefused = useCallback(() => {
+    prefsActions.set({ onboardingDone: true });
+    appActions.resetTo(homeScreen());
+    appActions.showProblem('camera');
+  }, []);
+  useEffect(() => {
+    // A "no" in Android's dialog while the permission screen is up.
+    if ((permission === 'denied' || permission === 'blocked') && (screen === 'permission' || usesCamera(screen))) {
+      cameraRefused();
+    }
+  }, [permission, screen, cameraRefused]);
 
   // Android's back button (`ui-spec.md`, 4.1). Sheets and menus register their own
   // handlers, which run before this one.
@@ -203,40 +256,31 @@ export default function App() {
     return <View style={styles.root} />;
   }
 
-  // The AR view is mounted only once the camera permission is granted: starting an
-  // ARCore session without it is a known source of a black camera image.
-  if (cameraScreen && permission !== 'granted') {
-    return (
-      <View style={styles.center}>
-        <StatusBar style="light" />
-        <Text style={styles.title}>{BRAND.name}</Text>
-        <Text style={styles.text}>
-          {permission === 'pending'
-            ? 'Waiting for camera access...'
-            : permission === 'blocked'
-              ? 'The camera permission is required for AR and has been blocked. Enable it in the system settings of the app.'
-              : 'The camera permission is required for AR.'}
-        </Text>
-        {permission === 'blocked' ? (
-          <Pressable style={styles.button} onPress={() => Linking.openSettings()}>
-            <Text style={styles.buttonText}>Open app settings</Text>
-          </Pressable>
-        ) : (
-          <Pressable style={styles.button} onPress={ask}>
-            <Text style={styles.buttonText}>Grant camera access</Text>
-          </Pressable>
-        )}
-      </View>
-    );
-  }
-
   let plain: React.ReactNode = null;
   switch (screen) {
+    case 'welcome':
+      plain = (
+        <WelcomeScreen
+          onDone={() => {
+            // From Settings ("How it works") the cards lead back; on the first launch, on.
+            if (!appActions.back()) {
+              appActions.resetTo(permission === 'granted' ? 'connect' : 'permission');
+              if (permission === 'granted') {
+                prefsActions.set({ onboardingDone: true });
+              }
+            }
+          }}
+        />
+      );
+      break;
+    case 'permission':
+      plain = <PermissionScreen onAllow={allowCamera} onNotNow={cameraRefused} />;
+      break;
     case 'home':
       plain = <HomeScreen />;
       break;
     case 'connect':
-      plain = <ConnectScreen firstRun={false} />;
+      plain = <ConnectScreen firstRun={history.length === 0} />;
       break;
     case 'settings':
       plain = <SettingsScreen />;
@@ -252,6 +296,11 @@ export default function App() {
       break;
     case 'ar':
     case 'scan':
+      // The AR view is mounted only once the camera permission is granted: starting an
+      // ARCore session without it is a known source of a black camera image.
+      if (permission !== 'granted') {
+        plain = <PermissionScreen onAllow={allowCamera} onNotNow={cameraRefused} />;
+      }
       break;
     default:
       // A screen of a later step of the interface work: Home stands in for it.
@@ -288,21 +337,4 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   // Other screens cover the AR view when it is kept mounted.
   cover: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  center: {
-    flex: 1,
-    backgroundColor: '#101018',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  title: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 12 },
-  text: { color: '#c8c8d8', fontSize: 15, textAlign: 'center', lineHeight: 21 },
-  button: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#2d6cdf',
-  },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 });

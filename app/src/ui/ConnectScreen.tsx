@@ -150,8 +150,8 @@ export function ConnectScreen({ firstRun }: { firstRun: boolean }) {
           <IconTile icon="wifi" tone="neutral" size={56} />
           <Title>{t('connect.none.title')}</Title>
           <Body dim>{t('connect.none.body')}</Body>
-          <Row icon="check" title={t('connect.none.check.pc')} />
-          <Row icon="check" title={t('connect.none.check.wifi')} />
+          <Row long icon="check" title={t('connect.none.check.pc')} />
+          <Row long icon="check" title={t('connect.none.check.wifi')} />
         </>
       );
       footer = (

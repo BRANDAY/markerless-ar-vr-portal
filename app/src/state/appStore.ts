@@ -95,6 +95,8 @@ export interface AppState {
   history: Screen[];
   /** Which problem the `problem` screen shows. */
   problem: ProblemKind | null;
+  /** Whether this phone can run AR; null until the AR engine has answered. */
+  arSupported: boolean | null;
 
   door: PoseUpdate | null;
   providerId: ProviderId;
@@ -130,6 +132,7 @@ let state: AppState = {
   screen: 'home',
   history: [],
   problem: null,
+  arSupported: null,
 
   door: null,
   providerId: 'manual',
@@ -258,6 +261,10 @@ export const appActions = {
     }
     setState({ screen: previous, history: state.history.slice(0, -1) });
     return true;
+  },
+
+  setArSupported(arSupported: boolean): void {
+    setState({ arSupported });
   },
 
   showProblem(problem: ProblemKind): void {

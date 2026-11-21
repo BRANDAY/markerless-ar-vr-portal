@@ -99,8 +99,11 @@ function save(): void {
 }
 
 export const prefsActions = {
-  /** Reads the saved choices. Never throws; without a file the defaults apply. */
-  async load(): Promise<void> {
+  /**
+   * Reads the saved choices. Never throws; without a file the defaults apply.
+   * `onLoaded` runs before anything is drawn with the loaded values (to choose the first screen).
+   */
+  async load(onLoaded?: (prefs: Prefs) => void): Promise<void> {
     if (state.loaded) {
       return;
     }
@@ -124,6 +127,7 @@ export const prefsActions = {
       // A broken file only means the defaults.
     }
     state = { ...DEFAULTS, ...(saved as Partial<Prefs>), loaded: true };
+    onLoaded?.(state);
     emit();
   },
 

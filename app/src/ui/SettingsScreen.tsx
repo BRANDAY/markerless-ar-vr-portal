@@ -40,6 +40,7 @@ export function SettingsScreen() {
       <Row icon="wifi" tone={chip === 'connected' ? 'teal' : 'neutral'} title={t('settings.server')} value={serverValue} arrow onPress={() => appActions.go('connect')} />
       <Row icon="search" title={t('settings.auto')} toggle={{ value: auto, onChange: (value) => prefsActions.set({ findAutomatically: value }) }} />
       <Row icon="lock" title={t('settings.privacy')} arrow onPress={() => appActions.go('privacy')} />
+      <Row icon="info" title={t('settings.how')} arrow onPress={() => appActions.go('welcome')} />
 
       <Pressable onPress={onVersionTap} style={styles.version} accessibilityRole="text">
         <Text style={[TYPE.small, { color: theme.ink2 }]}>{t('settings.version', { version: appConfig.expo.version })}</Text>

@@ -28,8 +28,8 @@ export function DiagnosticsScreen() {
 export function PrivacyScreen() {
   return (
     <ScreenFrame title={t('settings.privacy')} onBack={() => appActions.back()}>
-      <Row icon="camera" tone="teal" title={t('permission.line.video')} />
-      <Row icon="lock" tone="teal" title={t('permission.line.network')} />
+      <Row long icon="camera" tone="teal" title={t('permission.line.video')} />
+      <Row long icon="lock" tone="teal" title={t('permission.line.network')} />
     </ScreenFrame>
   );
 }

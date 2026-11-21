@@ -64,6 +64,8 @@ export function ScreenFrame(props: {
   right?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  /** The body lays itself out (a pager): no scrolling and no side padding around it. */
+  plain?: boolean;
 }) {
   const theme = useTheme();
   const insets = useInsets();
@@ -82,9 +84,13 @@ export function ScreenFrame(props: {
           {props.right ?? null}
         </View>
       ) : null}
-      <ScrollView style={styles.flex} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        {props.children}
-      </ScrollView>
+      {props.plain ? (
+        <View style={styles.flex}>{props.children}</View>
+      ) : (
+        <ScrollView style={styles.flex} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          {props.children}
+        </ScrollView>
+      )}
       {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}
     </View>
   );
@@ -143,13 +149,15 @@ export function Row(props: {
   onPress?: () => void;
   toggle?: { value: boolean; onChange: (value: boolean) => void };
   arrow?: boolean;
+  /** The title is a sentence, not a name: body weight. */
+  long?: boolean;
 }) {
   const theme = useTheme();
   const content = (
     <View style={[styles.row, { borderColor: theme.line }]}>
       {props.icon ? <IconTile icon={props.icon} tone={props.tone} /> : null}
       <View style={styles.rowText}>
-        <Text style={[TYPE.rowTitle, { color: theme.ink }]}>{props.title}</Text>
+        <Text style={[props.long ? TYPE.body : TYPE.rowTitle, { color: theme.ink }]}>{props.title}</Text>
         {props.sub ? <Text style={[TYPE.small, { color: theme.ink2 }]}>{props.sub}</Text> : null}
       </View>
       {props.value ? (
