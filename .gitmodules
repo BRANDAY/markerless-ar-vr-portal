@@ -1,0 +1,3 @@
+[submodule "localization-server"]
+	path = localization-server
+	url = https://github.com/BRANDAY/arportal-localization-server.git

@@ -6,14 +6,27 @@ physically walk through it into VR and come back — and aims to restore that do
 at the same real-world position in every app session **without markers, QR codes,
 GPS or manual placement**, by recognising the previously scanned room.
 
-The repository has two parts that work together over the local Wi-Fi:
+## Two projects — you need both
 
-| Folder | What it is | Stack |
-|---|---|---|
-| [`app/`](app/README.md) | The Android app: AR scene, walk-through portal, pluggable localisation layer, connection to the server | React Native 0.88, Expo SDK 58, ViroReact 3.2 (ARCore) |
-| [`localization-server/`](localization-server/README.md) | A self-hosted visual-localisation server: builds a map of a room from a capture and returns the camera pose for an image sent by the phone | Python, FastAPI, ALIKED + LightGlue, COLMAP (`pycolmap`) |
+The work is split into two repositories that work together over the local Wi-Fi:
 
-Each folder has its own README with setup, build and run instructions for Windows.
+| Project | Where | What it is | Stack |
+|---|---|---|---|
+| **App** (this repository) | [`app/`](app/README.md) | The Android app: AR scene, walk-through portal, staff and visitor modes, connection to the server | React Native 0.88, Expo SDK 58, ViroReact 3.2 (ARCore) |
+| **Localisation server** (a separate repository) | [BRANDAY/arportal-localization-server](https://github.com/BRANDAY/arportal-localization-server), linked here as the git submodule `localization-server/` | A self-hosted visual-localisation server that runs on a PC: builds a map of a room from a recording and tells the phone where the room is | Python, FastAPI, ALIKED + LightGlue, COLMAP (`pycolmap`) |
+
+The app does not restore the door without the server: the server is the part that recognises
+the room. Get both with one command:
+
+```
+git clone --recurse-submodules https://github.com/BRANDAY/markerless-ar-vr-portal.git
+```
+
+If the repository was cloned without that option, the `localization-server/` folder is empty;
+fill it with `git submodule update --init`. The server can also be cloned and run on its own
+from its repository.
+
+Each project has its own README with setup, build and run instructions for Windows.
 
 ## How the pieces fit
 
@@ -64,7 +77,9 @@ reliably.
 
 ## Quick start
 
-1. **Server** — on a Windows PC: follow [`localization-server/README.md`](localization-server/README.md)
+1. **Server** — on a Windows PC: follow the
+   [server README](https://github.com/BRANDAY/arportal-localization-server#readme) (the same file is
+   `localization-server/README.md` after a clone with submodules)
    (install with `uv`, start the server, allow the port in the firewall). The server prints
    the addresses it can be reached at.
 2. **App** — follow [`app/README.md`](app/README.md) to build the debug APK and install it on an
