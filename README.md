@@ -31,18 +31,29 @@ The app finds the server on the local network by itself (it probes the phone's s
 for `GET /health`) or takes an address typed by the user; nothing is tied to a
 particular network. The app is built around a small `LocalizationProvider` interface,
 so the self-hosted server is one option next to ready-made services (ReactVision VPS,
-ARCore Cloud Anchors), which are planned and currently stubs.
+ARCore Cloud Anchors), which are planned and not implemented yet.
 
-## Status (20 November 2026)
+The doorway is not placed by hand: the user scans the room once, the server builds a map
+and a simple plan of the room (floor, walls, corners) from the recording, finds a real door
+opening in it and stores it. In later sessions the server recognises the room from a camera
+frame and the virtual door is put into that same opening.
+
+## Status (21 November 2026)
+
+"On the phone" means a Xiaomi 14 Ultra (Android 16, ARCore 1.57).
 
 | Part | State |
 |---|---|
-| AR scene with camera feed and 3D objects | Done, checked on a Xiaomi 14 Ultra (Android 16, ARCore 1.57) |
-| Walk-through portal, AR ↔ VR switching | Done, checked on the same phone; doorway is placed in front of the camera for now |
-| Localisation server: map building, `/localize`, evaluation | Done and tested on a public indoor dataset (TUM RGB-D `freiburg1_room`); not yet tested with a phone capture |
-| Phone ↔ server connection over Wi-Fi | Server side done; app side implemented, on-device check pending |
-| Room scanning in the app and persistent doorway placement | Not started |
-| Ready-made localisation services | Stubs only |
+| AR scene with camera feed and 3D objects | Done, checked on the phone |
+| Walk-through portal, AR ↔ VR switching | Done, checked on the phone with the first test room |
+| Virtual space behind the door: atrium of the Sponza Palace (Dubrovnik) with a wooden door casing | Implemented; the models load on the phone without errors, the look has not been reviewed on the device yet |
+| Phone ↔ server connection over Wi-Fi | Done, checked on the phone: automatic search and reconnection work; typing the address by hand has not been confirmed on the device |
+| Localisation server: map building, `/localize`, evaluation | Done and tested on a public indoor dataset (TUM RGB-D `freiburg1_room`) |
+| Room scan in the app (planes, depth mesh, recording, upload with progress) | Implemented; on the phone the depth mesh, the recording and the upload work, a full room scan has not been made yet |
+| Room plan on the server (floor, walls, corners, door openings) and automatic doorway placement | Implemented and covered by tests on dataset and synthetic data; not yet run on a recording of a real room |
+| Keeping the doorway in place (tracking loss, repeated localisation) | Implemented, not checked on the phone |
+| Server monitoring panel and phone simulator | In progress |
+| Ready-made localisation services | Not implemented (interface only) |
 | Persistence tests (restart, angles, lighting, tracking loss) | Not started |
 
 ## Quick start
