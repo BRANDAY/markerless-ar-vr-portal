@@ -9,9 +9,10 @@ import { useCallback, useMemo } from 'react';
 
 import { add, rotateByViroEuler } from '../localization/math';
 import type { Pose, Vec3 } from '../localization/types';
-import { DoorCasing, DoorLeaf, doorCasingOriginHeight } from '../environments/DoorCasing';
+import { DoorLeaf, doorCasingOriginHeight } from '../environments/DoorCasing';
 import { SponzaAtrium } from '../environments/SponzaAtrium';
 import { appActions, type AttachMode, type EnvironmentId, type FrameId } from '../state/appStore';
+import { CASING_WINDOW_MARGIN, CasingWood } from './CasingWood';
 import { DOOR, DOOR_ORIGIN_HEIGHT } from './doorGeometry';
 import { VirtualRoom } from './VirtualRoom';
 import { WallGridLayer } from './WallGridLayer';
@@ -100,13 +101,21 @@ export function DoorPortal({ pose, attachMode, environment, frame, opening, pass
     >
       <ViroPortal>
         {casing ? (
-          <DoorCasing
-            width={width}
-            height={height}
-            onLoadEnd={() =>
-              appActions.log(`door casing loaded (${width.toFixed(2)} x ${height.toFixed(2)} m)`)
+          // The window is the portal's ONLY child, and it is the kind of window that has
+          // been seen working on a phone: a flat face sampling the transparent texels of
+          // `door_frame.png`. The wood is drawn beside the portal (below).
+          <Viro3DObject
+            source={require('../../assets/models/portal_window.obj')}
+            type="OBJ"
+            materials={['doorFrame']}
+            position={[0, CASING_WINDOW_MARGIN / 2, 0]}
+            scale={[width + 2 * CASING_WINDOW_MARGIN, height + CASING_WINDOW_MARGIN, 1]}
+            onError={(event) =>
+              appActions.log(`door window ERROR: ${JSON.stringify(event?.nativeEvent ?? {})}`)
             }
-            onError={(message) => appActions.log(`door casing ERROR: ${message}`)}
+            onLoadEnd={() =>
+              appActions.log(`door window loaded (${width.toFixed(2)} x ${height.toFixed(2)} m, flat, wood beside the portal)`)
+            }
           />
         ) : (
           <Viro3DObject
@@ -146,12 +155,31 @@ export function DoorPortal({ pose, attachMode, environment, frame, opening, pass
     </ViroPortalScene>
   );
 
+  // The wooden casing: ordinary objects of the AR scene standing around the window, in
+  // the frame of the portal scene (origin in the centre of the opening).
+  const wood = (position: Vec3, rotation: Vec3) =>
+    casing ? (
+      <ViroNode position={position} rotation={rotation}>
+        <CasingWood
+          width={width}
+          height={height}
+          onError={(message) => appActions.log(`door casing ERROR: ${message}`)}
+        />
+      </ViroNode>
+    ) : null;
+
   if (attachMode === 'parent') {
     return (
       <ViroNode position={pose.position} rotation={pose.rotation}>
+        {wood(originOffset, [0, 0, 0])}
         {portal(originOffset, [0, 0, 0])}
       </ViroNode>
     );
   }
-  return portal(directPosition, pose.rotation);
+  return (
+    <>
+      {wood(directPosition, pose.rotation)}
+      {portal(directPosition, pose.rotation)}
+    </>
+  );
 }
