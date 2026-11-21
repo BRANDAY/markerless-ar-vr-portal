@@ -8,7 +8,12 @@ of that day. "Vrata" is a working name.
   mockups differ, this document wins.
 - Why these features: [product-concept.md](product-concept.md). What others do: [competitors.md](competitors.md).
 
-Nothing here has been built or tried on a phone. Points that need a device check are marked **Check**.
+**Revision 2, 21 November 2026.** The owner decided: the app has two modes; a staff member places the door
+and saves it to the server; a visitor's phone holds nothing but the app and gets the door and the room from
+the server; ReactVision Advanced VPS is added as a second way to connect.
+
+Steps 0–3 of the first revision are built (not yet seen on a phone). Points that need a device check are
+marked **Check**.
 
 ## 1. Principles
 
@@ -153,7 +158,7 @@ flowchart TD
 
 The app has no navigation library, and one is not needed. Add a `screen` value to the app store:
 
-`welcome | permission | connect | home | scanPrepare | scan | build | roomResult | ar | spaces | rooms | settings | visitor | problem`
+`welcome | permission | connect | home | scanPrepare | scan | build | roomResult | placeDoor | ar | spaces | rooms | settings | visitor | problem`
 
 - `ar` covers three situations of one screen: finding the room, door in the room, inside the space. They are
   derived from the localisation status and the existing AR / VR mode, not separate screens.
@@ -188,21 +193,61 @@ New file next to the existing `server-connection.json` and `device-id.json`:
 | `lastCapture` | folder of the newest scan, so "Send again" survives a restart |
 | `language` | chosen language, else the phone's |
 
+### 4.3 Two modes
+
+Decided by the owner on 21 November 2026. The app is always in one of two modes.
+
+| | Visitor mode | Staff mode |
+|---|---|---|
+| Who | a member of the public | venue staff |
+| A fresh install starts in | this mode | — |
+| Sees | one screen: the camera, the door, the space | Home, scanning, placing the door, rooms, spaces, settings |
+| Where the door comes from | only from the server: the place a staff member saved | the staff member puts it there and saves it |
+| Can change anything | no | yes |
+| How to get in | "Switch to visitor mode" in Settings | the lock on the visitor screen, then the staff PIN |
+
+Rules:
+
+- At start the app finds the room through the server, or through the cloud service chosen in Settings. It
+  never starts with a door that is simply put in front of the camera. That kind of door exists only in the
+  developer tools, labelled "Not tied to the room".
+- In visitor mode the phone holds nothing but the app. The room map, the room plan and the door come from
+  the server.
+- A visitor sees a door only where a staff member saved one (`portal.source` is `manual` or `selected`).
+  A doorway the server found by itself (`auto`) is a suggestion for staff and is never shown to visitors.
+- Closing and reopening the app keeps the mode.
+
+Staff PIN:
+
+| Situation | Sheet |
+|---|---|
+| First use of the lock on this device | Title **Create a staff PIN**. Body "Four digits. You will need it to change anything on this device." Then **Enter it again**. Mismatch: "The PINs don't match. Try again." |
+| Later | Title **Staff only**. Body "Enter the staff PIN." Four dots, a number pad, **Cancel** |
+| Wrong PIN | "Wrong PIN" under the dots. After 5 wrong tries: "Try again in 30 seconds." |
+| First time in staff mode | the welcome cards (5.1), then Find the server (5.3), then Home |
+
+The PIN is kept on the device as a hash (the existing `pinHash`). Until the server keeps the PIN (S10 in
+section 9), anyone who installs the app on their own phone can create a PIN and enter staff mode. That is
+acceptable while the venue lends the devices. It has to be closed before visitors use their own phones.
+
 ## 5. Screens
 
 Element order is top to bottom. Texts are final unless marked.
 
 ### 5.1 Welcome (`welcome`)
 
-Shown on the first launch only. Three cards, swipe or "Continue".
+Shown once, the first time staff mode is opened on a device. Visitors never see it. Three cards, swipe or
+"Continue".
 
 | Card | Title | Body |
 |---|---|---|
-| 1 | A door to somewhere else | Vrata puts a virtual door into a real doorway. Walk through it and you are standing in another place. |
-| 2 | Scan the room once | Walk around the room for about two minutes. Vrata learns the walls and finds the doorway by itself. |
-| 3 | The door stays put | Next time, point the phone at the room. The door comes back to the same doorway. No markers, nothing to place by hand. |
+| 1 | A door to somewhere else | Vrata puts a virtual door into a real room. Walk through it and you are standing in another place. |
+| 2 | Scan the room, place the door | Walk around the room for about two minutes, then put the door where you want it. You do this once. |
+| 3 | Visitors just open the app | The door comes from the server and stands in the same place for everyone. No markers, and nothing for a visitor to set up. |
 
-Buttons: **Continue** (card 3: **Get started**), text button **Skip**. Both lead to the permission screen.
+Buttons: **Continue** (card 3: **Get started**), text button **Skip**. Both lead to Find the server (5.3).
+The camera is usually allowed already at this point, because the visitor screen asked for it. If it is not,
+the permission screen (5.2) comes first.
 
 ### 5.2 Camera permission (`permission`)
 
@@ -348,22 +393,25 @@ Time line:
 - Success: title **The map is ready**, line "Built in {time} from {n} frames.", primary **See the room**.
 - Failure: problem screen (section 7.2). The scan stays on the phone.
 
-### 5.8 Room and doorway (`roomResult`)
+### 5.8 Room result (`roomResult`)
 
-- Top bar: back, "Your room". Plan drawing with wall lengths, a 1 m scale bar and letters on the doorways.
+Shows what the server understood about the room, then sends the staff member on to place the door. Staff
+mode only.
 
-| Server result | Title | Body | Buttons |
-|---|---|---|---|
-| one doorway (`portal.source` is `auto`) | Doorway found | The door will stand here. {w} × {h} m. | primary **Use this doorway**; text **Not right · scan again** |
-| two or three doorways | {Two / Three} doorways found | The door will stand in the one you pick. Options "Doorway A · {w} × {h} m · open / closed", the server's best marked "Best match" | primary **Use doorway {X}**; text **None of these · scan again** |
-| plan exists, no doorway (`portal.source` is `none`) | No doorway found | The room map is fine, but Vrata could not see a doorway clearly. Scan again and look at the whole doorway from two spots, or place the door yourself. | primary **Scan again**; text **Place the door by hand** |
-| no plan (`room.status` is `unavailable`) | The room’s shape could not be measured | Vrata can find this room again, but it does not know where the doorway is. | primary **Scan again**; text **Place the door by hand** |
+- Top bar: back, "Your room". Plan drawing with wall lengths and a 1 m scale bar. Doorways the server found
+  are marked in amber with letters.
 
-- Choosing a doorway sends `PUT /maps/{id}/portal {"opening_id": …}`.
-- "Place the door by hand" needs the manual anchor call with an AR pose. It can ship later; until then show
-  only "Scan again".
+| Server result | Title | Body |
+|---|---|---|
+| plan with one doorway | The room is ready | Vrata found a doorway, {w} × {h} m. You can put the door in it or anywhere else in the room. |
+| plan with two or three doorways | The room is ready | Vrata found {n} doorways. You can put the door in one of them or anywhere else in the room. |
+| plan, no doorway | The room is ready | Next, put the door where you want it. |
+| no plan (`room.status` is `unavailable`) | The room is ready | The room's shape could not be measured, so there is no drawing. The door will still stay where you put it. |
+
+- Primary button in every case: **Place the door**. It opens 5.14.
+- Text button: **Scan again**.
+- A found doorway is a suggestion. Nothing is saved on this screen.
 - Openings with `height_measured: false` show the width only.
-- This screen is also reached from Rooms ("Change doorway") and from the AR menu ("Use another doorway").
 
 ### 5.9 AR screen (`ar`)
 
@@ -470,15 +518,142 @@ Developer options (visible only when on): Diagnostics on the AR screen; Localisa
 (self-hosted / manual); Door frame (casing / simple); Attach mode; Room plan in AR; Mesh lines; Test room;
 Test objects; Event log; Save mesh; Turn developer options off.
 
-### 5.13 Visitor welcome (`visitor`)
+### 5.13 Visitor screen (`visitor`)
 
-- Top: venue name (the server's name); a small lock icon.
-- Door drawing; title **Step into {space name}**; body "Hold up the phone and point it at this room. A door
-  will appear in the doorway. Walk through it."
-- Notice: "Walk slowly and mind other visitors. The app shows you where the real walls are."
-- Primary **Start** opens `ar`. Language chips below.
-- The lock asks for the PIN and switches visitor mode off.
-- In visitor mode the app starts here, and closing the AR screen returns here.
+The whole of visitor mode is this one screen. It is the AR view, with a welcome panel in front of it on the
+first launch. No scanning, no placing, no settings, no Home.
+
+Launch:
+
+| Launch | What happens |
+|---|---|
+| First launch, or the camera is not allowed yet | the welcome panel |
+| Every later launch | the camera opens at once and the app starts looking for the door. No button to press |
+
+Welcome panel (plain background, both themes):
+
+- Top: venue name, once the server is known (the server's name); a small lock icon on the right.
+- Door drawing. Title **Step through the door**. Body "Point the phone at the room. A door will appear.
+  Walk through it."
+- Notice: "Walk slowly and mind the people around you. The app shows you where the real walls are."
+  The second sentence appears only once the wall warning exists.
+- Primary **Start**. It asks Android for the camera and then shows the camera.
+- Small line under the button, by connection method (5.12). Own server: "To find the door, the camera
+  picture is sent to this venue's server." Cloud service: "To find the door, the app compares the camera
+  picture with a map of this room."
+- Language chips at the bottom, once more than one language exists.
+
+Over the camera, in order of appearance:
+
+| Situation | Coach line 1 | Line 2 |
+|---|---|---|
+| looking for the server, loading the room | One moment… | Getting the door for this room. |
+| camera not ready | Getting ready… | Move the phone a little. |
+| first try | Point at the room and hold still | Looking for the door… |
+| tries 2–3 | Try another view | Aim at furniture, shelves or pictures, not a bare wall. Hold still. |
+| tries 4–5 | Still looking | Move to the middle of the room and try again. |
+| door placed | — | hint pill "Walk through the door" for 5 s |
+
+Tracking warnings (5.6) replace the coach line while they apply.
+
+Controls over the camera: a help button (top right) that brings the welcome panel back, and the shutter
+once photos exist. Nothing else. The lock is on the welcome panel only. Inside the space the visitor gets
+the same as staff: "Door is behind you", the info button, the wall warning.
+
+When it does not work, a sheet appears over the camera. Every sheet has one button, **Try again**, unless
+the table says otherwise, and a small grey reason line that a staff member can read at a glance:
+
+| Trigger | Title | Body | Reason line |
+|---|---|---|---|
+| no server found, or it stopped answering | The door isn't ready | Please ask a member of staff. | No server on this Wi‑Fi |
+| phone not on Wi‑Fi | Connect to the venue's Wi‑Fi | The door works only on the venue's Wi‑Fi. A member of staff can help. | Not on Wi‑Fi |
+| app and server versions differ | The door isn't ready | Please ask a member of staff. | The app and the server are different versions |
+| no room on the server, or no room with a saved door | The door isn't ready | Please ask a member of staff. | No door has been placed yet |
+| room not recognised after the tries | Can't find the door from here | Stand in the room with the door and point the phone at it. If it still doesn't appear, please ask a member of staff. | Room not recognised |
+| camera refused | The camera is off | The door can't be shown without the camera. Button: **Open phone settings** | — |
+| phone cannot run AR | This phone can't show the door | Please ask a member of staff for a device. No button | — |
+
+Tracking loss shows the red banner of 7.3 and clears by itself.
+
+In visitor mode the provider is always the server (or the chosen cloud service). The developer tools, the
+menu, "Find the door again", "Change the space" and every staff action are absent. A door correction from
+the server is applied the same way as in staff mode.
+
+Leaving visitor mode: the lock icon on the welcome panel, then the staff PIN (4.3).
+
+### 5.14 Place the door (`placeDoor`)
+
+The main way a door gets its place. A staff member puts the door where it should stand and saves it to the
+server. This is done once per room; visitors then get the door from the server. Staff mode only.
+
+Reached from: Room result (**Place the door**), the Rooms row menu and the staff AR menu (**Move the door**).
+
+Before the door can be saved the app must have found the room in this AR session, because the server
+converts the door's place through that. So the screen opens like the AR screen:
+
+| Situation | Coach line 1 | Line 2 |
+|---|---|---|
+| finding the room | Point at the room and hold still | Finding your room… (then the texts of 5.9 for later tries) |
+| found; the room already has a saved door | Move the door | It stands where it was saved. Put it somewhere else, or adjust it. |
+| found; the server suggests a doorway | Vrata found a doorway | The door is standing in it. Save it, or move it. |
+| found; no suggestion | Put the door where you want it | Aim at a spot on the floor and tap Put it here. |
+
+Where the door first appears: at the saved place if there is one; else in the doorway the server suggests;
+else on the floor 2 m in front of the camera, facing it.
+
+Layout over the camera:
+
+- Top: close button; pill "{room name}".
+- A small cross in the middle of the view marks the spot on the floor the phone is aimed at.
+- The door is drawn as it will look to visitors, with an amber outline on the floor under it and a short
+  amber arrow on the floor pointing from the room into the space.
+- Bottom, three controls: ghost **Put it here**; ghost **Adjust**; primary **Save door**.
+
+| Control | Does |
+|---|---|
+| **Put it here** | moves the door to the aimed spot on the floor, turned to face the camera. The side the staff member stands on is the room side |
+| **Adjust** | opens the adjust panel in place of the two ghost buttons |
+| **Save door** | saves (below). Disabled, with the label "Finding your room…", until the room is found |
+
+Adjust panel:
+
+| Row | Controls | Step |
+|---|---|---|
+| Move | ← → (along the door), ↑ ↓ (away from the room, towards the room) | 5 cm per tap; holding repeats |
+| Turn | ⟲ ⟳, and **Turn around** | 5° per tap; Turn around is 180° |
+| Width | − {w} m + | 5 cm, from 0.60 to 1.40 m |
+| Height | − {h} m + | 5 cm, from 1.80 to 2.40 m |
+| only if the server suggests a doorway | **Use the found doorway**; with several, each tap goes to the next one | — |
+| | **Done** closes the panel | — |
+
+- Size starts at the suggested doorway's size, else 0.90 × 2.00 m.
+- The door always stands on the floor. There is no up or down control.
+- A readout above the panel shows the current size: "0.85 × 2.05 m".
+
+Saving:
+
+- **Save door** sends the door's place in the current AR session, with the same `session_id` that found the
+  room: `PUT /maps/{id}/anchors/portal` with `ar_pose`, `session_id`, `width` and `height`.
+- While sending, the button reads "Saving…".
+- Saved: a sheet. Title **Door saved**. Body "Every phone that opens this room will see the door here."
+  Primary **See it as a visitor** (switches to visitor mode). Text button **Done** (goes Home).
+- Failed: a sheet. Title **The door wasn't saved**. Body "The server did not answer. The door is still here.
+  Try again." Primary **Try again**; text **Not now**.
+- Closing without saving after a change asks "Leave without saving? The door stays where it was." with
+  **Keep editing** / **Leave**.
+
+Until the server stores `width` and `height` with a saved door (S11), other phones draw it 0.90 × 2.00 m.
+Hide the Width and Height rows until then.
+
+Move and remove, for a room that already has a saved door:
+
+| Action | Where | What happens |
+|---|---|---|
+| **Move the door** | Rooms row menu; staff AR menu | opens this screen with the door at its saved place |
+| **Remove the door** | Rooms row menu; staff AR menu | asks "Remove the door from “{room name}”? Visitors will not see a door in this room until you place a new one." with **Remove** / **Keep**. Removes the saved place on the server (`DELETE /maps/{id}/anchors/portal`, and the doorway choice set back to automatic). The room then counts as having no door |
+
+**Check** on the phone: saving right after the map is built, in a fresh AR session; the door's place after
+the app is closed and opened on a second phone.
 
 ## 6. Where today's controls go
 
