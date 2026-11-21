@@ -199,15 +199,14 @@ def test_rename_a_room_and_attach_its_place_at_an_external_service(tmp_path):
     c = make_server(tmp_path)
     r = c.patch("/maps/metric_room", json={"label": "  Exhibition 2  "})
     assert r.status_code == 200 and r.json()["label"] == "Exhibition 2"
-    vps = {"location_id": "loc_123", "door": {"position": [1, 0, 2], "quaternion_xyzw": [0, 0, 0, 1], "width": 0.9, "height": 2.0}}
-    r = c.patch("/maps/metric_room", json={"vps": vps})
+    r = c.patch("/maps/metric_room", json={"vps": {"location_id": "loc_123"}})
     assert r.status_code == 200
     got = c.get("/maps/metric_room").json()["vps"]
-    assert got["provider"] == "reactvision" and got["location_id"] == "loc_123" and got["door"]["width"] == 0.9 and got["updated_utc"]
+    assert got["provider"] == "reactvision" and got["location_id"] == "loc_123" and got["bridge"] is None and got["updated_utc"]
     assert {m["map_id"]: m for m in c.get("/maps").json()["maps"]}["metric_room"]["vps"]["location_id"] == "loc_123"
     assert json.loads((tmp_path / "maps" / "metric_room" / "map.json").read_text(encoding="utf-8"))["label"] == "Exhibition 2"
     for bad in ({}, {"map_id": "x"}, {"label": 5}, {"label": "x" * 81}, {"vps": {"door": {}}}, {"vps": {"location_id": ""}},
-                {"vps": {"location_id": "a", "door": {"position": [1, 2], "quaternion_xyzw": [0, 0, 0, 1]}}}, {"vps": {"location_id": "a", "api_key": "secret"}}):
+                {"vps": {"location_id": "a", "door": {"position": [1, 0, 2], "quaternion_xyzw": [0, 0, 0, 1]}}}, {"vps": {"location_id": "a", "api_key": "secret"}}):
         assert c.patch("/maps/metric_room", json=bad).status_code == 422, bad
     assert c.patch("/maps/metric_room", json={"label": None, "vps": None}).status_code == 200
     got = c.get("/maps/metric_room").json()
@@ -244,4 +243,4 @@ def test_delete_a_room_moves_it_to_the_trash(tmp_path):
 
 def test_health_announces_the_new_parts(tmp_path):
     h = make_server(tmp_path).get("/health").json()
-    assert h["api_version"] == 1 and h["api_revision"] == 3 and {"staff_door", "door_size", "rooms_admin"} <= set(h["capabilities"])
+    assert h["api_version"] == 1 and h["api_revision"] >= 3 and {"staff_door", "door_size", "rooms_admin"} <= set(h["capabilities"])

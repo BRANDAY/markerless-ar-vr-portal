@@ -26,8 +26,8 @@ Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-ro
 ```json
 {
   "status": "ok", "service": "arportal-localization-server", "api_version": 1,
-  "api_revision": 3,
-  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"],
+  "api_revision": 4,
+  "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge"],
   "jobs": {"running": 1, "queued": 0},
   "...": "all v1 fields unchanged"
 }
@@ -37,7 +37,9 @@ Contents: [compatibility](#1-compatibility) · [recording upload](#2-upload-a-ro
   server → treat as empty list). `staff_door` (server 0.4.0): the door placed
   by the staff carries its size, can be saved in the recording's own AR session
   and comes with `confirmed` / `suggested` (section 5). `rooms_admin`: rename
-  and delete a room (section 10).
+  and delete a room (section 10). `service_bridge` (revision 4): one door per
+  room for every way of recognising it; `frame_id`; the bridge to an external
+  positioning service (section 11).
 * Errors are unchanged: HTTP status + `{"detail": "text"}`.
 * Units and frames are unchanged: metres, right-handed, `T_a_from_b`,
   quaternions `[x, y, z, w]`, `rotation_euler_deg` = ViroReact Euler degrees
@@ -382,6 +384,31 @@ object is a few kilobytes.
 saved on the server; a visitor's device only receives it. The doorway the
 server finds by itself is a *suggestion* for the staff member, not a door.
 
+**One door per room, whatever recognises the room (revision 4).** The door is
+one record: its pose **in the room's frame**, its width and height, who placed
+it and when. It does not depend on how a phone finds the room. Every way of
+recognising the room answers one question only - *where is the room's frame in
+this phone's AR world* (`T_arworld_from_room`) - and the app puts the door at
+
+```
+T_arworld_from_door = T_arworld_from_room x T_room_from_door        (T_room_from_door: position + quaternion_xyzw below)
+```
+
+* this server: `T_arworld_from_room` is `alignment.T_arworld_from_map` of
+  `/localize` (section 6) - the room's frame **is** this server's map frame;
+* an external service (ReactVision Advanced VPS): `T_arworld_from_room =
+  T_arworld_from_service x T_service_from_map`, the second factor being the
+  room's *bridge* (section 11).
+
+Saving the door is the same sum backwards (door in the AR world → door in the
+room's frame → this one record), so the staff screen is the same for both ways.
+
+The room's frame has a name, **`frame_id`** (in the Door object, in `GET
+/maps` and in the answer of `/localize`). It changes when the room is scanned
+again on this server: door and bridge of the old frame are gone then. A client
+that caches the door or the bridge keeps the `frame_id` next to it and throws
+the cache away when the server reports another one.
+
 The door is the anchor named `portal` of the room. Where the door stands is
 resolved in this order:
 
@@ -399,7 +426,7 @@ DELETE /maps/{map_id}/portal            remove the door, however it was set (the
 
 ```json
 {
-  "map_id": "room", "frame": "map",
+  "map_id": "room", "frame": "map", "frame_id": "2026-11-21T09:31:07Z",
   "source": "manual",
   "confirmed": true,
   "position": [x, y, z], "rotation_euler_deg": [0, 90, 0], "quaternion_xyzw": [0, 0.7071, 0, 0.7071],
@@ -491,8 +518,10 @@ place and size the server measured (`404` if the plan has no such opening).
 Nothing about the AR session is needed for this call.
 
 A new scan of the room (`replace=true`) **removes the door**: it stood in the
-frame of the old scan. The room's `label` and `vps` data are kept. Place the
-door again after the build.
+frame of the old scan (`frame_id` changes). The room's `label` and its place
+at an external service (`vps.provider`, `location_id`, `note`) are kept; the
+bridge to that service is dropped with the door (section 11). Place the door
+again after the build.
 
 ---
 
@@ -528,10 +557,18 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
   selected or auto), so a v1 client that reads `anchors.portal` gets the
   automatic doorway without any change. With `source: "none"` the key
   `anchors.portal` is absent, exactly as in v1 when no anchor was stored.
+* **`alignment.T_arworld_from_map` is the answer of this server to "where is
+  the room"** (4x4, `p_arworld = T x p_map`; v1, unchanged). An app with the
+  common door layer of section 5 reads this matrix and the door record
+  (`GET /maps/{map_id}/portal`, or `alignment.portal` for source, size and
+  `confirmed`) and places the door itself. The top level of the answer carries
+  `"frame_id"` - the frame the matrix refers to.
 * `alignment.portal` is always present when `status == "ok"`; it is the Door
-  object of section 5 in AR-world coordinates (`suggested` included). Check
-  `portal.source != "none"` before using the pose, and in visitor mode
-  `portal.confirmed`.
+  object of section 5 in AR-world coordinates (`suggested` included) - the same
+  door already multiplied out, **kept for clients that do not do the sum
+  themselves**. Check `portal.source != "none"` before using the pose, and in
+  visitor mode `portal.confirmed`. Its `frame` is `"arworld"`; its `frame_id`
+  still names the room's frame the record belongs to.
 * `alignment.room` is `null` when `include_room=false`, when the map has no
   plan, or when the alignment is not complete.
 * All positions are transformed with `T_arworld_from_map`; lengths (`width`,
@@ -542,7 +579,8 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 `GET /maps` and `GET /maps/{map_id}` additionally report
 `"room_status": "ok|partial|unavailable"`, `"portal_source": "manual|selected|auto|none"`,
 `"portal_confirmed": bool`, `"portal_size": [width, height] | null`,
-`"gravity_aligned": bool`, `"label"`, `"vps"` (section 11).
+`"gravity_aligned": bool`, `"label"`, `"frame_id"` (section 5), `"vps"` and
+`"recognition"` (section 11).
 
 ---
 
@@ -567,6 +605,8 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
    session after one accepted `/localize`), `DELETE /maps/{map_id}/portal`
    removes it, `PATCH /maps/{map_id}` renames the room, `DELETE /maps/{map_id}`
    removes the room (section 10).
+8. Only when the room is also registered at an external service: measure the
+   bridge once (section 11), in the same AR session or any later one.
 
 **Visitor: nothing on the device but the app**
 
@@ -576,12 +616,18 @@ When the alignment is complete (`alignment.status == "ok"`), `alignment` gains:
 3. `POST /localize` with frames or a clip + AR poses as in v1, with a
    `session_id` of this AR session.
 4. When `alignment.status == "ok"`:
-   * `alignment.portal.confirmed` → show the door at `alignment.portal`
-     (`position`, rotation, `width`, `height`) - all in this phone's AR world;
+   * `alignment.portal.confirmed` → show the door: `alignment.T_arworld_from_map`
+     x the door record (section 5), or the ready `alignment.portal`
+     (`position`, rotation, `width`, `height`) - both in this phone's AR world;
    * draw `alignment.room` if wanted (walls from `corners`, room corners from
      `corners[].bottom`/`top`, openings from `openings[].corners`).
 5. `portal.confirmed == false` (no door, or only a suggestion) → "ask a staff
    member". A visitor never places or moves the door.
+
+A visitor whose app recognises the room through an external service does
+steps 1-2 here (the door record and the bridge come from this server), gets
+`T_arworld_from_service` from the service, and places the same door (section
+11). Steps 3-4 are not needed then.
 
 Both modes send `X-Device-Role` (section 9.1).
 
@@ -598,7 +644,8 @@ Both modes send `X-Device-Role` (section 9.1).
 | Openings: image detector (closed doors) | done | synthetic boxes in tests; the real detector only looked at on TUM frames (no door ground truth there) |
 | `mesh` input | OBJ/PLY reader done, tested on hand-made files | waits for `app/docs/capture-format.md` and a real snapshot |
 | `/maps/{id}/portal`, `/localize` / `/align` / `/sessions` additions | done | tests |
-| Staff door with size, `confirmed` / `suggested`, saving in the recording's session, `X-Device-Role`, rename / delete a room, `vps` entry (sections 5, 10, 11) | done (server 0.4.0) | `tests/test_staff_door.py`; a run of `scripts/simulate_phone.py` as staff device and as visitor device against the running server. Not with a phone |
+| Staff door with size, `confirmed` / `suggested`, saving in the recording's session, `X-Device-Role`, rename / delete a room (sections 5, 10) | done (server 0.4.0) | `tests/test_staff_door.py`; a run of `scripts/simulate_phone.py` as staff device and as visitor device against the running server. Not with a phone |
+| One door for every way: `frame_id`, the room's place at an external service, the bridge (`PATCH ... vps.bridge`, `POST /maps/{id}/vps/bridge`), dropped on a new scan (section 11) | done (server 0.5.0) | `tests/test_service_bridge.py` (made-up service frame with known truth); `scripts/simulate_phone.py --vps-bridge`. **No real answer of the service has been seen**: its frame conventions are an assumption |
 | Section 9: device headers, `POST /devices/{id}/log`, `GET /devices`, log read-back, `/ui` | done (server 0.3.0) | tests; a run of `scripts/simulate_phone.py` against the running server. No log from the real app has been received yet |
 
 **Not verified: anything on a real room recorded with the phone.** No such
@@ -797,35 +844,197 @@ their role; it is not protection against someone who listens on the Wi-Fi.
 
 ---
 
-## 11. Place at an external positioning service (ReactVision Advanced VPS)
+## 11. A second way to recognise the room: place at an external service and the bridge
 
-The app can be built to recognise the room through ReactVision's Advanced VPS
-instead of this server. For that mode the server only **keeps two facts per
-room** and hands them to every device; it does not talk to the service.
+Capability `service_bridge` (revision 4, server 0.5.0). The app can recognise
+the room through ReactVision's Advanced VPS (or another service) instead of
+this server's `/localize`. The door stays **the one record of section 5**. For
+the other way the room stores two things, and this server hands them to every
+device; it never talks to the service itself:
+
+1. **the place** - which location of the service this room is (`location_id`);
+2. **the bridge** - how the service's map lies in the room's frame.
+
+```
+p_room = T_map_from_service x p_service          (the room's frame is this server's map frame)
+
+T_arworld_from_room = T_arworld_from_service x T_service_from_map
+T_arworld_from_door = T_arworld_from_room x T_room_from_door            (section 5)
+```
+
+`T_arworld_from_service` is what the app gets from the service while it tracks
+(for ReactVision: the pose it reports for the phone in the service's map,
+combined with the phone's own AR pose - see "A sample" below). Nothing about
+the door is stored per service: **moving the door moves it for both ways**.
+For this server itself the bridge is the identity and is not stored.
+
+### What the room carries
+
+`GET /maps`, `GET /maps/{map_id}`:
+
+```json
+{
+  "map_id": "hall", "frame_id": "2026-11-21T09:31:07Z",
+  "recognition": ["self-hosted", "reactvision"],
+  "vps": {
+    "provider": "reactvision",
+    "location_id": "<the service's location id>",
+    "note": "scanned 2026-11-22",
+    "updated_utc": "2026-11-22T10:05:00Z",
+    "bridge": {
+      "T_map_from_service": [[4x4]],
+      "T_service_from_map": [[4x4]],
+      "scale": 1.0,
+      "frame_id": "2026-11-21T09:31:07Z", "valid": true,
+      "method": "dual_localization",
+      "samples": 10, "samples_total": 12,
+      "position_error_m": 0.031, "rotation_error_deg": 0.4,
+      "position_spread_m": 0.024, "rotation_spread_deg": 0.4,
+      "alignment_used": "session_alignment", "alignment_position_rms_m": 0.019, "alignment_frames": 9,
+      "compared_at": "door", "warnings": ["measured through this session's own alignment with the room (9 frames): ..."],
+      "measured_utc": "2026-11-22T10:05:00Z", "measured_by": "staff-phone"
+    }
+  }
+}
+```
+
+* `vps` is `null` when the room has no place at a service; `vps.bridge` is
+  `null` while the place is known and the bridge is not measured (or was
+  dropped - then `vps.bridge_dropped` says why: `{"reason": "room_rescanned" |
+  "scale_changed", "utc": "..."}`).
+* **`recognition`**: the ways this room can be recognised right now, in the
+  app's provider ids. `"self-hosted"` is always there; the service's `provider`
+  is listed only with a valid bridge. The app takes the way set in its
+  settings and falls back to another one of the list.
+* `T_map_from_service` and its inverse `T_service_from_map` (given so that
+  nobody has to invert): 4x4, metres, same conventions as everywhere here.
+  `scale` is 1 for rooms built from a phone recording.
+* **The estimate of the error**: `position_error_m` (at the place named by
+  `compared_at`: the door, or the map origin when the room has no door yet) and
+  `rotation_error_deg`. For a bridge measured by the server it is the spread
+  of the samples combined with the rms of this server's own alignment in that
+  session; `null` when only one sample was sent. **This error adds to the
+  service's own error** for every visitor who comes in through the service.
+* **The estimate is a lower bound.** It shows how well the samples agree, not
+  how right they are together: an error of this server's own alignment in the
+  measuring session is shared by all samples and goes into the bridge
+  unseen. `warnings` says so in words (show them to the staff). In the
+  simulator (made-up service, known truth) a bridge measured in a *later*
+  session through one clip's alignment was estimated at 2.8 cm and was really
+  11 cm off at the door. **Measure the bridge in the AR session that recorded
+  the room** (`alignment_used: "recording_session"`), right after the build,
+  like the door: there the AR world is the room's frame and this error does
+  not exist. In any other session localise with several clips from different
+  places first.
+* `valid`: the bridge was measured for the room's current frame.
+* `measured_utc`, `measured_by`: when and by which device (`X-Device-Id`).
+
+### Setting the place
 
 ```
 PATCH /maps/{map_id}
-{"vps": {"provider": "reactvision",
-         "location_id": "<the service's location id>",
-         "door": {"position": [x, y, z], "quaternion_xyzw": [x, y, z, w], "width": 0.9, "height": 2.05},
-         "note": "scanned 2026-11-22"}}
+{"vps": {"provider": "reactvision", "location_id": "<id>", "note": "scanned 2026-11-22"}}
 ```
 
-* `location_id` (required, 1-128 characters): what the visitor's app passes to
-  `startTracking(locationId)`.
-* `door` (optional): the door in the frame of **that service's map** (metres,
-  Y up - the frame of `<ViroVPSAnchor>` content), same doorway convention as
-  section 5. The service has no call to store a placed object, so the place
-  the staff chose has to live here.
-* `provider` defaults to `"reactvision"`; `note` is free text (max 200).
-  Unknown fields → `422` (so that a key never ends up here by mistake).
-  `{"vps": null}` removes the entry. The server adds `updated_utc`.
-* Read it back in `GET /maps` and `GET /maps/{map_id}` as `"vps"` (`null` when
-  not set). It survives a new scan of the room on this server.
+* `location_id` (required, 1-128 characters): what the app passes to the
+  service to start tracking that place. `provider` defaults to
+  `"reactvision"`; `note` is free text (max 200). `{"vps": null}` removes the
+  entry with its bridge.
+* Unknown fields → `422`, so that a key never ends up here by mistake.
+  **`vps.door` of revision 3 is refused** (`422`): it was a second copy of the
+  door.
+* A `PATCH` without `bridge` keeps a measured bridge as long as `provider`
+  and `location_id` stay the same; another place drops it.
 
-The two frames are unrelated: `vps.door` is **not** the door of section 5 in
-other coordinates, and the server does not convert between them. A staff
-member who wants both ways for one room places the door once per way.
+### Measuring the bridge
+
+Recommended (**way A**): the staff phone is located **both ways in one AR
+session** and sends what the service said; the server does the sum, averages
+and estimates the error.
+
+```
+POST /maps/{map_id}/vps/bridge
+{
+  "session_id": "<this AR session>",
+  "location_id": "<id>",                     // needed only when the room has no place yet
+  "samples": [
+    {"T_arworld_from_service": [[4x4]]},
+    {"camera_in_arworld": {"position": [..], "quaternion_xyzw": [..]},
+     "camera_in_service": {"position": [..], "quaternion_xyzw": [..]}}
+  ]
+}
+-> {"map_id": "hall", "frame_id": "...", "vps": { ...as above... }}
+```
+
+* **`session_id`**: the server uses its own alignment of that session, exactly
+  as for the door (section 5): in the AR session that recorded the room nothing
+  else is needed; in any other session `/localize` must have reached
+  `alignment.status == "ok"` first, otherwise `422`. Instead, the body may
+  carry `"T_arworld_from_map": [[4x4]]`.
+* **A sample** is one moment at which the service tracked. Either
+  `T_arworld_from_service` (if the app already has it), or the same camera
+  seen by both at that moment: `camera_in_arworld` (the AR camera pose) and
+  `camera_in_service` (the pose the service reports). Each pose is a 4x4 or
+  `position` + `quaternion_xyzw`. The camera's own axes cancel out; they only
+  have to be the same in both poses of a sample. 1-200 samples.
+* Send **several samples from different places in the room** (five or more,
+  a few seconds apart, while both ways track well). The server leaves out
+  samples that lie more than 0.25 m or 10° from the rest (`samples` of
+  `samples_total` were used) and refuses with `422` when fewer than half
+  agree. With one sample the bridge is stored and its error is `null`.
+* The answer is the stored entry. Show the staff member the error; a bridge
+  with `position_error_m` above about 0.1 m is worth measuring again.
+
+**Way B** - the app (or a tool) works the bridge out by itself and stores it:
+
+```
+PATCH /maps/{map_id}
+{"vps": {"location_id": "<id>",
+         "bridge": {"T_map_from_service": [[4x4]],          // or {"position": [..], "quaternion_xyzw": [..]}
+                    "position_error_m": 0.04, "rotation_error_deg": 0.8, "samples": 12,
+                    "measured_utc": "2026-11-22T10:05:00Z", "method": "from_recording"}}}
+```
+
+Only `T_map_from_service` is required; `method` defaults to `"client"`,
+`measured_utc` to now. `"bridge": null` removes the bridge and keeps the place.
+This is also the form for a bridge computed from the staff's recording, should
+the service turn out to return camera poses per frame (not established).
+
+### When the room is scanned again
+
+* **On this server** (`POST /maps/{id}/recording` with `replace=true`): the
+  room's frame is new (`frame_id` changes). The door is removed and **the
+  bridge is dropped**; `label`, `provider`, `location_id` and `note` stay,
+  `vps.bridge_dropped.reason` is `"room_rescanned"`, and the service is no
+  longer in `recognition`. After the build the staff places the door and
+  measures the bridge again (both work in the new recording's own session
+  without `/localize`).
+* **At the service** (the location is scanned again there): this server
+  cannot notice it, and whether the service keeps its frame then is **not
+  established**. Treat it as changed: measure the bridge again
+  (`POST .../vps/bridge` replaces the old one). `measured_utc` tells how old
+  the stored bridge is.
+* `PUT /maps/{id}/scale` (v1, maps without metric scale) drops the bridge too
+  (`"scale_changed"`).
+
+Not built, possible later: after a new scan on this server, carrying the door
+over through the service (old door → service's frame → new room frame) and
+offering it to the staff for confirmation instead of placing it from scratch.
+
+### What is not established
+
+* **The frame conventions of the service.** Its documentation does not say
+  where the origin of a location's map is or how its axes are defined. The
+  bridge does not need to know: whatever the frame is, it is measured as a
+  whole. But `camera_in_service` must be the pose of the *same* camera frame
+  as `camera_in_arworld` - check this once on the phone (a wrong convention
+  shows as a `rotation_spread_deg` of tens of degrees, or as a `422`
+  "samples disagree").
+* The error of a real bridge, and whether both ways can track in one build of
+  the app at the same moment. Tests and the simulator use a made-up service
+  frame with known truth.
+* The door record lives on this server, so this server is needed in the
+  service mode too, at least to hand out door and bridge.
 
 **Not built: handing out keys for the scan upload.** Sending a scan to the
 service from the app (`uploadScanRecording`) needs a short-lived *user token*
@@ -874,6 +1083,18 @@ resulting `location_id` in.
   `door_size`, `rooms_admin`. Changed meaning to mind: `width` / `height` of a
   `manual` door are no longer always `null`, and a rebuilt room loses its door.
   Planned and described, not built: staff PIN on the server (section 10).
+* 2026-11-21 — **revision 4, server 0.5.0: one door for every way of
+  recognising the room** (owner: the approach to the door has to fit Advanced
+  VPS so that switching is seamless). Section 11 rewritten: `vps.door` (a
+  second copy of the door in the service's frame, revision 3) is **removed and
+  refused with 422**; the room stores `location_id` and the **bridge**
+  `T_map_from_service` with an error estimate and the time it was measured
+  (`PATCH ... vps.bridge`, new `POST /maps/{id}/vps/bridge`). New fields:
+  `frame_id` (Door object, `GET /maps`, `/localize`), `recognition` in
+  `GET /maps`. A new scan drops the bridge together with the door. Section 5
+  and 6 say that the app places the door from `alignment.T_arworld_from_map`
+  and the door record; `alignment.portal` stays for compatibility. Capability
+  `service_bridge`.
 * 2026-11-21 — room plan with `status: "partial"`: `reason` now names what was
   missing and what to do when wall-like surfaces were seen over too little of
   their height (text for the user, e.g. "fewer than two walls were found: 2 more

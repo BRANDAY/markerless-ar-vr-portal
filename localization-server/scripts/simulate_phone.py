@@ -269,6 +269,47 @@ def send_clip(phone: Phone, map_id: str, session: str, clip_dir: Path) -> tuple[
     return r.json(), ms
 
 
+# A made-up second positioning service ("--vps-bridge"): its map lies 40 m away from the room and is turned.
+# Nothing here talks to a real service; the point is the sum the server and the app have to get right.
+SERVICE_T_MAP_FROM_SERVICE = g.make_T(g.rot_y(np.radians(70.0)), [38.0, -1.5, 12.0])
+SERVICE_PROVIDER, SERVICE_LOCATION = "simulated", "sim-location-1"
+
+
+def service_says(T_arworld_from_map: np.ndarray, near: np.ndarray, rng, pos_m: float = 0.015, deg: float = 0.3) -> np.ndarray:
+    """``T_arworld_from_service`` as the made-up service would report it: the truth with a small error near the phone."""
+    axis = rng.normal(size=3)
+    axis /= np.linalg.norm(axis)
+    angle = np.radians(rng.normal(scale=deg))
+    K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    dR = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * K @ K
+    wobble = g.make_T(np.eye(3), near) @ g.make_T(dR, rng.normal(scale=pos_m, size=3)) @ g.make_T(np.eye(3), -near)
+    return wobble @ T_arworld_from_map @ SERVICE_T_MAP_FROM_SERVICE
+
+
+def measure_bridge(phone: Phone, a, ar_session: str, T_arworld_from_map: np.ndarray, T_cam: np.ndarray, door: dict) -> bool:
+    """The staff phone is located both ways in one AR session and sends what the second way said."""
+    rng = np.random.default_rng(7)
+    samples = [{"T_arworld_from_service": service_says(T_arworld_from_map, T_cam[:3, 3], rng).tolist()} for _ in range(8)]
+    phone.log("portal", f"second way to recognise the room (simulated service, location {SERVICE_LOCATION}): "
+                        f"{len(samples)} moments located both ways - measuring the bridge")
+    r = phone.http.post(f"{phone.server}/maps/{a.map_id}/vps/bridge",
+                        json={"session_id": ar_session, "provider": SERVICE_PROVIDER, "location_id": SERVICE_LOCATION, "samples": samples})
+    if r.status_code != 200:
+        phone.log("portal", f"the bridge was not saved: {r.status_code} {r.text[:200]}", "error")
+        return False
+    b = r.json()["vps"]["bridge"]
+    door_map = np.append(np.array(door["position"], dtype=float), 1.0)
+    in_service = np.linalg.inv(SERVICE_T_MAP_FROM_SERVICE) @ door_map  # where the door truly is in the service's map
+    off = float(np.linalg.norm((np.array(b["T_map_from_service"]) @ in_service - door_map)[:3]))
+    phone.log("portal", f"bridge saved: {b['samples']} of {b['samples_total']} samples, the server estimates "
+                        f"{b['position_error_m'] * 100:.1f} cm and {b['rotation_error_deg']:.2f} deg ({b['alignment_used']}); "
+                        f"against the truth it is {off * 100:.1f} cm off at the door",
+              bridge_error_at_door_m=round(off, 4), position_error_m=b["position_error_m"])
+    for w in b.get("warnings") or []:
+        phone.log("portal", f"bridge: {w}", "warn")
+    return True
+
+
 def staff(phone: Phone, a, folder: Path, info: dict, T_last: np.ndarray, clips: list, S: np.ndarray) -> bool:
     """Staff mode: scan the room, wait for the map, place the door once and save it on the server."""
     h = connect(phone)
@@ -383,6 +424,10 @@ def staff(phone: Phone, a, folder: Path, info: dict, T_last: np.ndarray, clips: 
     phone.log("portal", f"door saved on the server ({door['source']}): {how}; {door['width']:.2f} x {door['height']:.2f} m; "
                         f"alignment used: {saved['alignment_used']}", position=door["position"], alignment_used=saved["alignment_used"])
     phone.set("portal_placed", detail=f"door saved ({saved['alignment_used']})")
+    if a.vps_bridge:
+        W = np.eye(4) if same_session else S  # this AR world <- map
+        if not measure_bridge(phone, a, ar_session, W, W @ T_last, door):
+            return False
     phone.idle(3)
     phone.log("app", "staff part finished")
     phone.flush()
@@ -454,6 +499,16 @@ def visitor(phone: Phone, a, clips: list, S: np.ndarray, what: str) -> tuple[boo
             true_door = S[:3, :3] @ np.array(portal["position"]) + S[:3, 3]  # where the staff's door really is in this AR world
             verdict["door_position_error_m"] = round(float(np.linalg.norm(np.array(door["position"]) - true_door)), 4)
             verdict["door_size_m"] = [door.get("width"), door.get("height")]
+        bridge_info = ((room_info.get("vps") or {}).get("bridge") or {})
+        if bridge_info.get("valid") and room_info["vps"].get("provider") == SERVICE_PROVIDER and portal.get("position"):
+            # the same visit through the other way: the service says where its map is, the bridge leads to the room, the door is the same record
+            T_ar_from_service = service_says(S, last_T[:3, 3], np.random.default_rng(11))
+            T_ar_from_room = T_ar_from_service @ np.array(bridge_info["T_service_from_map"])
+            via = (T_ar_from_room @ np.append(np.array(portal["position"], dtype=float), 1.0))[:3]
+            true_door = S[:3, :3] @ np.array(portal["position"]) + S[:3, 3]
+            verdict["door_position_error_via_service_m"] = round(float(np.linalg.norm(via - true_door)), 4)
+            phone.log("portal", f"the same door through the second way (simulated service + the room's bridge): "
+                                f"{verdict['door_position_error_via_service_m'] * 100:.1f} cm from where the staff put it")
         phone.log("localize", f"alignment against the known offset: {verdict['rotation_error_deg']} deg, "
                               f"{verdict['position_error_at_camera_m'] * 100:.1f} cm at the camera"
                               + (f"; the door stands {verdict['door_position_error_m'] * 100:.1f} cm from where the staff put it"
@@ -491,6 +546,8 @@ def main() -> int:
     ap.add_argument("--door", choices=["pose", "suggested"], default="pose",
                     help="pose: the staff places the door in front of them; suggested: confirm the doorway the server found (if any)")
     ap.add_argument("--door-size", default="0.9,2.0", help="width,height of the door the staff sets, metres")
+    ap.add_argument("--vps-bridge", action="store_true",
+                    help="the staff also measures the bridge to a made-up second positioning service; visitors then check the same door through it")
     ap.add_argument("--localize-count", type=int, default=6, help="number of 2.5 s clips sent to /localize")
     ap.add_argument("--localize-interval", type=float, default=1.0, help="pause between /localize requests, seconds")
     ap.add_argument("--clips-from", type=int, default=None,

@@ -108,7 +108,7 @@ def resolve_portal(lmap: LocMap) -> dict:
     ``suggested`` is the doorway the server found by itself, whatever the door
     is - a hint for the person who places the door. ``_T`` (4x4) is private.
     """
-    out = {"map_id": lmap.map_id, "frame": "map", "source": "none", "opening_id": None, "position": None,
+    out = {"map_id": lmap.map_id, "frame": "map", "frame_id": lmap.meta.get("created_utc"), "source": "none", "opening_id": None, "position": None,
            "rotation_euler_deg": None, "quaternion_xyzw": None, "width": None, "height": None, "confidence": None,
            "confirmed": False, "updated_utc": None, "placed_by": None, "suggested": None, "reason": None, "_T": None}
     room = lmap.room()

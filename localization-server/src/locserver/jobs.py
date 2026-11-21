@@ -283,6 +283,9 @@ class JobManager:
         try:  # what the staff typed in for this room outlives a new scan (the door does not: its frame is gone)
             before = json.loads((final / "map.json").read_text(encoding="utf-8-sig")) if (final / "map.json").exists() else {}
             keep = {k: before[k] for k in ("vps", "label") if before.get(k) is not None}
+            if (keep.get("vps") or {}).get("bridge"):  # measured against the old frame of the room, like the door
+                keep["vps"] = {**keep["vps"], "bridge": None, "bridge_dropped": {
+                    "reason": "room_rescanned", "utc": utc_now(), "frame_id": before.get("created_utc")}}
             if keep:
                 meta = json.loads((new / "map.json").read_text(encoding="utf-8-sig"))
                 meta.update({k: v for k, v in keep.items() if meta.get(k) is None})

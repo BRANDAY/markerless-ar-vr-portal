@@ -52,7 +52,7 @@ git clone <repository url> ; cd localization-server
 
 # 2. environment (Python 3.13 and all packages; ~3 GB download, ~10 GB disk)
 uv sync
-uv run pytest                               # 155 tests, no GPU needed, about 5 minutes (4 of them need the phone captures and are skipped without them)
+uv run pytest                               # 164 tests, no GPU needed, about 5 minutes (4 of them need the phone captures and are skipped without them)
 
 # 3. a map: either your own room video ...
 uv run locserver-build-map data\input\room.mp4 --map-id room
@@ -79,6 +79,14 @@ nothing but the app - it gets the room and the door from the server and only
 has to look around. What the server offers for that: section 5, 7, 10 of
 [`docs/api-v2.md`](docs/api-v2.md); what the simulator shows of it:
 [Without a phone](#without-a-phone-the-simulator).
+
+**One door, several ways to find the room (server 0.5.0).** The door is one
+record in the room's frame. Whatever recognises the room - this server, or an
+external service such as ReactVision Advanced VPS - only says where the room
+is in the phone's AR world; the app puts the same door there. For a second
+way the room stores its place at that service and a *bridge* (how the
+service's map lies in the room's frame, with an error estimate), measured
+once by the staff phone: section 5 and 11 of the API document.
 
 **State of verification (2026-11-21).** Everything runs end to end with the
 simulated phones and with public test data. From a real phone the server has so
@@ -157,7 +165,7 @@ COLMAP binary, ffmpeg, Docker or compiler is needed.
 ```powershell
 cd localization-server
 uv sync            # creates .venv and installs everything (~3 GB download)
-uv run pytest      # 155 tests, no GPU needed, about 5 minutes
+uv run pytest      # 164 tests, no GPU needed, about 5 minutes
 ```
 
 By default everything stays inside the project folder or in the normal
@@ -379,6 +387,7 @@ uv run python scripts\simulate_phone.py --role visitor                 # one mor
 uv run python scripts\simulate_phone.py --role visitor --device-id sim-visitor-2 --name "Second visitor"
 uv run python scripts\simulate_phone.py --role staff --keep-map        # staff after an app restart: recognise the room, then place the door
 uv run python scripts\simulate_phone.py --door suggested               # the staff accepts the doorway the server found (if it found one)
+uv run python scripts\simulate_phone.py --vps-bridge                   # the staff also measures the bridge to a made-up second positioning service
 ```
 
 What happens, and what you see in the panel:
@@ -440,6 +449,8 @@ Result on the development PC (GTX 1050 Ti), 2026-11-21:
 | **Two modes** (server 0.4.0, one more build of the same recording, 243 s): the staff phone saves the door right after the build | saved without any `/localize` (`alignment_used: "recording_session"`), 0.90 x 2.00 m |
 | ...the visitor phone, a second device that never scanned | got 5 rooms, 2 of them with a staff door; 6 of 6 clips good; the door appeared after the first clip with its size; alignment 0.89 deg and 6.0 cm at the camera; **the door stands 8.6 cm from where the staff put it** |
 | ...the staff phone after an app restart (`--role staff --keep-map`, another AR session) | one clip recognised the room (2.0 s, 712 inliers), then the door was saved through that session's alignment (`alignment_used: "session_alignment"`); a visitor afterwards: 6 of 6 clips good, 0.90 deg, 6.1 cm, the door 8.7 cm from the stored place |
+| **Second way to find the room** (server 0.5.0, `--role both --keep-map --vps-bridge`; the service is made up, its map lies 40 m away and is turned by 70 deg): the staff phone, in a later AR session, measures the bridge from 8 moments | saved; the server's estimate 2.8 cm and 0.20 deg; **really 11.4 cm off at the door** - the error of that session's own alignment (one clip) is in the bridge and not in the estimate; the answer carries a warning that says so |
+| ...a visitor gets the same door record both ways | through this server: 8.7 cm from where the staff put it; through the made-up service and the bridge: 11.5 cm |
 | Server during these runs | no stall; no failed request |
 
 ---
@@ -501,7 +512,7 @@ automatically", which asks every address of the phone's own /24 network for
 
    ```
    [info] LAN address: http://192.168.1.50:8077   (Wi-Fi)
-   [ OK ] Server "MY-PC" is running on port 8077 (version 0.4.0, API v1, maps: room).
+   [ OK ] Server "MY-PC" is running on port 8077 (version 0.5.0, API v1, maps: room).
    [info] Network "CampusNet" on Wi-Fi: profile Public
    [FIX ] No firewall rule lets inbound TCP 8077 through on Public networks, ...
               New-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)" ...
@@ -650,11 +661,11 @@ what the app's automatic search and its "connected" indicator call.
 {"status": "ok",
  "service": "arportal-localization-server",
  "api_version": 1,
- "api_revision": 3,
- "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"],
- "server_version": "0.4.0",
+ "api_revision": 4,
+ "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge"],
+ "server_version": "0.5.0",
  "server_name": "MY-PC",
- "version": "0.4.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
+ "version": "0.5.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
  "vram_mb": {"allocated": 56, "peak": 527},
  "models": {"extractor": "aliked-n16", "matcher": "lightglue-aliked", "max_keypoints": 2048},
  "maps": ["tum_room"], "maps_dir": "C:\\...\\data\\maps", "sessions": 0, "uptime_s": 12.3,
@@ -1296,6 +1307,12 @@ RGB-D SLAM Systems", IROS 2012.
   between the end of the recording and the moment the staff saves the door
   (the door is saved in that world without a new look at the room), and a
   visit on another day.
+* **The second way to find the room exists as data and arithmetic only.**
+  Place at an external service, the bridge and its error estimate are tested
+  against a made-up service frame with known truth. No answer of the real
+  service (ReactVision Advanced VPS) has been seen, so its frame conventions
+  are an assumption, and the estimate of a bridge's error is a lower bound
+  (see the table above and section 11 of the API document).
 * **Staff and visitor are not told apart by the server.** `X-Device-Role` is a
   label for the panel. Any device in the network can place or remove a door
   and delete a room (deleted rooms go to `data\maps\.trash`, nothing is

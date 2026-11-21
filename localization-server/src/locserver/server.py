@@ -19,7 +19,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import API_VERSION, SERVICE_ID, __version__, config, netinfo
+from . import API_VERSION, SERVICE_ID, __version__, bridge, config, netinfo
 from . import geometry as g
 from .capture import Frame, VideoCapture, rotate_image_cw, rotate_intrinsics_cw, sharpness
 from .features import EXTRACTOR_NAME, MATCHER_NAME, FeaturePipeline
@@ -47,10 +47,10 @@ MAX_VIDEO_BYTES = 150 * 2**20
 SESSION_TTL_S = 30 * 60
 SESSION_MAX_OBS = 60
 MAX_MESH_BYTES = 200 * 2**20
-CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin"]
+CAPABILITIES = ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui", "staff_door", "door_size", "rooms_admin", "service_bridge"]
 UI_FILE = Path(__file__).parent / "ui" / "index.html"
 UNTRACKED_PREFIXES = ("/ui", "/monitor", "/favicon", "/docs", "/openapi")  # the panel itself is not a device
-API_REVISION = 3
+API_REVISION = 4
 
 
 class State:
@@ -158,30 +158,39 @@ def _anchor_json(lmap: LocMap, name: str) -> dict:
     return {"map_id": lmap.map_id, "name": name, "frame": "map", **a}
 
 
-def _check_vps(v) -> dict | None:
-    """The room's place at an external visual positioning service, as the app stored it (not used by this server)."""
+def _frame_id(m: LocMap) -> str | None:
+    """Names the room's frame: it changes when the room is scanned again (door and bridge belong to one frame)."""
+    return m.meta.get("created_utc")
+
+
+def _vps_place(v: dict) -> tuple[str, str]:
+    loc = v.get("location_id")
+    if not isinstance(loc, str) or not 0 < len(loc.strip()) <= 128:
+        raise ValueError("vps.location_id: a text of 1 to 128 characters")
+    return str(v.get("provider") or "reactvision")[:40], loc.strip()
+
+
+def _check_vps(v, old: dict | None, frame_id, device: str | None) -> dict | None:
+    """The room's place at an external positioning service and the bridge from that service's map to the room."""
     if v is None:
         return None
     if not isinstance(v, dict):
         raise ValueError("vps: an object or null")
-    unknown = set(v) - {"provider", "location_id", "door", "note"}
+    if "door" in v:
+        raise ValueError("vps.door is gone: a room has one door (PUT /maps/{id}/anchors/portal). Send vps.bridge - "
+                         "how the service's map lies in the room's frame - or POST /maps/{id}/vps/bridge")
+    unknown = set(v) - {"provider", "location_id", "bridge", "note"}
     if unknown:
         raise ValueError(f"vps: unknown field(s) {sorted(unknown)}")
-    out: dict = {"provider": str(v.get("provider") or "reactvision")[:40]}
-    loc = v.get("location_id")
-    if not isinstance(loc, str) or not 0 < len(loc.strip()) <= 128:
-        raise ValueError("vps.location_id: a text of 1 to 128 characters")
-    out["location_id"] = loc.strip()
-    door = v.get("door")
-    if door is not None:
-        pos = [float(x) for x in door["position"]]
-        quat = [float(x) for x in door["quaternion_xyzw"]]
-        if len(pos) != 3 or len(quat) != 4 or not np.isfinite(pos + quat).all() or abs(np.linalg.norm(quat) - 1) > 1e-2:
-            raise ValueError("vps.door: position [x, y, z] and a unit quaternion_xyzw are needed")
-        out["door"] = {"position": pos, "quaternion_xyzw": quat}
-        for k in ("width", "height"):
-            if door.get(k) is not None:
-                out["door"][k] = _door_size(door[k], k)
+    provider, loc = _vps_place(v)
+    out: dict = {"provider": provider, "location_id": loc, "bridge": None}
+    same_place = bool(old) and (old.get("provider"), old.get("location_id")) == (provider, loc)
+    if v.get("bridge") is not None:
+        out["bridge"] = bridge.from_client(v["bridge"], frame_id, device, utc_now())
+    elif "bridge" not in v and same_place:  # a new note does not throw the measured bridge away
+        out["bridge"] = old.get("bridge")
+        if old.get("bridge_dropped"):
+            out["bridge_dropped"] = old["bridge_dropped"]
     if v.get("note") is not None:
         out["note"] = str(v["note"])[:200]
     out["updated_utc"] = utc_now()
@@ -213,7 +222,9 @@ def _map_extras(m: LocMap) -> dict:
         "portal_source": portal["source"],
         "portal_confirmed": portal["confirmed"],
         "portal_size": [portal["width"], portal["height"]] if portal["width"] and portal["height"] else None,
-        "vps": m.meta.get("vps"),
+        "frame_id": _frame_id(m),
+        "vps": (vps := bridge.public_vps(m.meta.get("vps"), _frame_id(m))),
+        "recognition": ["self-hosted"] + ([vps["provider"]] if vps and vps["bridge"] and vps["bridge"]["valid"] else []),
     }
 
 
@@ -428,7 +439,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
         return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
 
     @app.patch("/maps/{map_id}")
-    def map_patch(map_id: str, body: dict = Body(...)):
+    def map_patch(map_id: str, request: Request, body: dict = Body(...)):
         """Rename a room (``label``) or attach its place at an external positioning service (``vps``)."""
         m = st.get_map(map_id)
         changes: dict = {}
@@ -442,11 +453,55 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                     raise ValueError("label: a text of at most 80 characters, or null")
                 changes["label"] = (label or "").strip() or None
             if "vps" in body:
-                changes["vps"] = _check_vps(body["vps"])
+                changes["vps"] = _check_vps(body["vps"], m.meta.get("vps"), _frame_id(m), _device_of(request))
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(422, f"bad room data: {e}")
         m.set_meta(changes)
         return {**m.meta, "num_images": len(m.images), "anchors": m.anchors(), **_map_extras(m)}
+
+    @app.post("/maps/{map_id}/vps/bridge")
+    def vps_bridge(map_id: str, request: Request, body: dict = Body(...)):
+        """Measure the bridge: the phone was located by this server and by the service in one AR session.
+
+        ``{"session_id": "...", "samples": [{"T_arworld_from_service": [[4x4]]}, ...]}`` - a sample may
+        also be ``{"camera_in_arworld": pose, "camera_in_service": pose}``. ``location_id`` (and
+        ``provider``) name the place when the room has none yet. Instead of ``session_id`` the
+        alignment can be sent as ``T_arworld_from_map``.
+        """
+        m = st.get_map(map_id)
+        old = m.meta.get("vps") or {}
+        try:
+            unknown = set(body) - {"session_id", "T_arworld_from_map", "samples", "location_id", "provider", "note"}
+            if unknown:
+                raise ValueError(f"unknown field(s) {sorted(unknown)}")
+            if "location_id" in body or not old:
+                provider, loc = _vps_place(body)
+            else:
+                provider, loc = old.get("provider"), old.get("location_id")
+            if "T_arworld_from_map" in body:
+                sim, used, rms, n_obs = _sim3_from_matrix(body["T_arworld_from_map"]), "matrix", None, None
+            elif "session_id" in body:
+                sim, used, rms = _session_sim(m, str(body["session_id"]))
+                n_obs = len((st.sessions.get(str(body["session_id"])) or {}).get("observations") or []) or None
+                if sim is None:
+                    raise ValueError(
+                        "this session has no accepted alignment with the room yet: call /localize with this session_id "
+                        "first (not needed in the AR session that recorded the room)")
+            else:
+                raise ValueError("session_id or T_arworld_from_map is needed")
+            door = resolve_portal(m)["_T"]
+            entry = bridge.from_samples(
+                body.get("samples"), sim.matrix(), None if door is None else door[:3, 3], _frame_id(m),
+                _device_of(request), utc_now(), used, rms, "map_origin" if door is None else "door",
+                n_obs if used == "session_alignment" else None)
+        except (KeyError, ValueError, TypeError) as e:
+            raise HTTPException(422, f"bad bridge: {e}")
+        vps = {"provider": provider, "location_id": loc, "bridge": entry, "updated_utc": utc_now()}
+        note = body.get("note", old.get("note") if (old.get("provider"), old.get("location_id")) == (provider, loc) else None)
+        if note is not None:
+            vps["note"] = str(note)[:200]
+        m.set_meta({"vps": vps})
+        return {"map_id": m.map_id, "frame_id": _frame_id(m), "vps": bridge.public_vps(vps, _frame_id(m))}
 
     @app.delete("/maps/{map_id}")
     def map_delete(map_id: str):
@@ -628,7 +683,21 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             m.set_scale(float(body["scale_m_per_unit"]), str(body.get("source", "manual")))
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(422, str(e))
+        vps = m.meta.get("vps")
+        if vps and vps.get("bridge"):  # it was measured in the old units of the map
+            m.set_meta({"vps": {**vps, "bridge": None, "bridge_dropped": {"reason": "scale_changed", "utc": utc_now()}}})
         return m.summary()
+
+    def _session_sim(m: LocMap, sid: str):
+        """``(arworld <- map, how it is known, its position rms)`` of an AR session, or ``(None, "map", None)``."""
+        s = st.sessions.get(sid)
+        if s and s["map_id"] == m.map_id and s["observations"]:
+            al = compute_alignment(m, s["observations"], st.align_opts, include_room=False)
+            if al.get("_sim3") is not None:
+                return al["_sim3"], "session_alignment", al.get("position_rms_m")
+        if m.meta.get("recording_session_id") == sid and m.metric:  # the world of the session that recorded is the map
+            return g.Sim3(1.0, np.eye(3), np.zeros(3)), "recording_session", 0.0
+        return None, "map", None
 
     # ---------------------------------------------------------- anchors --- #
     @app.get("/maps/{map_id}/anchors")
@@ -671,13 +740,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
                 if "T_arworld_from_map" in body:
                     sim, used = _sim3_from_matrix(body["T_arworld_from_map"]), "matrix"
                 elif "session_id" in body:
-                    sid = str(body["session_id"])
-                    s = st.sessions.get(sid)
-                    sim = None
-                    if s and s["map_id"] == m.map_id and s["observations"]:
-                        sim, used = compute_alignment(m, s["observations"], st.align_opts).get("_sim3"), "session_alignment"
-                    if sim is None and m.meta.get("recording_session_id") == sid and m.metric:
-                        sim, used = g.Sim3(1.0, np.eye(3), np.zeros(3)), "recording_session"
+                    sim, used, _ = _session_sim(m, str(body["session_id"]))
                     if sim is None:
                         raise ValueError(
                             "this session has no accepted alignment with the map yet: call /localize with this session_id first "
@@ -946,6 +1009,7 @@ def create_app(state: State | None = None, maps_dir: Path | None = None, device:
             out["alignment"] = strip_private(al)
         else:
             out["alignment"] = None
+        out["frame_id"] = _frame_id(m)
         out["elapsed_ms"] = round((time.perf_counter() - t_req) * 1000, 1)
         al_out = out.get("alignment") or {}
         st.monitor.record_localization({

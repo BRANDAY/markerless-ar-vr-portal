@@ -1,6 +1,6 @@
 [project]
 name = "locserver"
-version = "0.4.0"
+version = "0.5.0"
 description = "Self-hosted markerless visual-localisation server (ALIKED + LightGlue + COLMAP) for an AR-to-VR portal app"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
