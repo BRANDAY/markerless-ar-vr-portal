@@ -262,5 +262,6 @@ accuracy and repeat-visit tests run, so there are real numbers to put next to th
 1. ~~The main scenario~~ — decided on 21 November 2026: A, museums and heritage sites.
 2. The name and the visual identity. "Vrata" and the amber-and-teal look in the mockups are placeholders.
 3. ~~Which features go into version 1~~ — decided on 21 November 2026: the set in section 6.
-4. Loaned devices or visitors' own phones as the main setup.
+4. ~~Loaned devices or visitors' own phones~~ — decided on 21 November 2026: devices loaned by the venue
+   are the main setup; visitors' own Android phones are an addition.
 5. Whether a hosted server is wanted at all, given that local data is a selling point.
