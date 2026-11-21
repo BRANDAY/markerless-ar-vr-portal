@@ -76,6 +76,8 @@ export function PortalARScene(props: SceneProps) {
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
   const mode = useAppState((s) => s.mode);
+  /** The door is looked for only while the AR screen is shown (not while scanning, not when covered). */
+  const active = useAppState((s) => s.screen === 'ar');
   /** A first pose that is still being checked is drawn as an outline, not as the door. */
   const pending = useAppState((s) => s.providerMeta.pending === true);
   const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);
@@ -153,6 +155,9 @@ export function PortalARScene(props: SceneProps) {
   }, []);
 
   useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
     const provider = createProvider(providerId);
     providerRef.current = provider;
     heldPoseRef.current = null;
@@ -179,8 +184,22 @@ export function PortalARScene(props: SceneProps) {
       offStatus();
       provider.stop();
       providerRef.current = null;
+      // A door belongs to the visit of the AR screen it was found in.
+      appActions.clearDoor();
     };
-  }, [providerId, context, applyPose]);
+  }, [providerId, context, applyPose, active]);
+
+  // What was learnt in this AR session is in this session's coordinates: when the view
+  // goes, it goes too.
+  useEffect(
+    () => () => {
+      roomActions.clearPlanes();
+      roomActions.setServerPlan(null);
+      roomActions.setScanning(false);
+      measureController.resetSession();
+    },
+    [],
+  );
 
   useEffect(() => {
     const held = heldPoseRef.current;

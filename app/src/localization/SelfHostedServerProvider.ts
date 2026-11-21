@@ -1,4 +1,5 @@
-import { DEFAULT_MAP_ID, localizeWithClip } from '../room/roomServer';
+import { localizeWithClip } from '../room/roomServer';
+import { currentRoomId } from '../room/roomsStore';
 import { getRoomScanState, roomActions, subscribeRoomScan, type ServerPlan } from '../room/roomStore';
 import { formatAddress } from '../server/core/address';
 import type { ConnectionSnapshot } from '../server/core/connectionMachine';
@@ -330,14 +331,10 @@ export class SelfHostedServerProvider extends BaseProvider {
       }
       return;
     }
-    const maps = serverConnection.getView().connection.info?.maps ?? [];
-    if (!maps.includes(DEFAULT_MAP_ID)) {
+    const roomId = currentRoomId();
+    if (!roomId) {
       this.episode = null;
-      this.setStatus(
-        'error',
-        `the server has no map "${DEFAULT_MAP_ID}" yet - scan the room first: Scan room, Record, Upload`,
-        { code: 'no-room' },
-      );
+      this.setStatus('error', 'the server has no room yet - scan the room first', { code: 'no-room' });
       return;
     }
     if (getRoomScanState().recording !== 'idle') {
@@ -356,7 +353,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     );
     const generation = this.generation;
     this.busy = true;
-    const result = await localizeWithClip(DEFAULT_MAP_ID, `${SESSION_ID}-w${this.worldEpoch}`);
+    const result = await localizeWithClip(roomId, `${SESSION_ID}-w${this.worldEpoch}`);
     this.busy = false;
     if (this.stopped || generation !== this.generation || this.episode !== episode) {
       // Stopped, interrupted or superseded while the clip was on its way: the answer is

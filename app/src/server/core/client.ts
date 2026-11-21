@@ -15,10 +15,12 @@ import { type ServerInfo, validateHealth } from './health';
 import {
   parseJob,
   parseLocalize,
+  parseMaps,
   parsePortal,
   parseRoom,
   type LocalizeOutcome,
   type ServerJob,
+  type ServerMapInfo,
   type ServerPortal,
   type ServerRoom,
 } from './roomPlan';
@@ -319,4 +321,9 @@ export function postDeviceLog(
     parseLogReceipt,
     { timeoutMs: 3000, ...options },
   );
+}
+
+/** `GET /maps`: the rooms the server has. */
+export function getMaps(baseUrl: string, options?: RequestOptions): Promise<ApiResult<ServerMapInfo[]>> {
+  return requestJson(`${baseUrl}/maps`, { method: 'GET' }, parseMaps, options);
 }

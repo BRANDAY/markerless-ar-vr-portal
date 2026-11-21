@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
+  BackHandler,
   Linking,
   PermissionsAndroid,
   Pressable,
@@ -12,14 +13,22 @@ import {
 } from 'react-native';
 
 import { PortalARScene } from './src/ar/PortalARScene';
+import { BRAND } from './src/brand';
 import { measureController } from './src/measure/measureController';
+import { roomsActions } from './src/room/roomsStore';
 import { useRoomScan } from './src/room/roomStore';
 import { deviceLogger } from './src/server/deviceLogger';
 import { serverConnection } from './src/server/ServerConnection';
-import { appActions } from './src/state/appStore';
-import { prefsActions } from './src/state/prefs';
+import { appActions, getAppState, type Screen, useAppState } from './src/state/appStore';
+import { prefsActions, usePrefs } from './src/state/prefs';
 import { ArScreen } from './src/ui/ArScreen';
+import { ConnectScreen } from './src/ui/ConnectScreen';
+import { homeScreen } from './src/ui/flows';
+import { HomeScreen } from './src/ui/HomeScreen';
+import { DiagnosticsScreen, PrivacyScreen } from './src/ui/MoreScreens';
 import { Overlay } from './src/ui/Overlay';
+import { ProblemScreen } from './src/ui/ProblemScreen';
+import { SettingsScreen } from './src/ui/SettingsScreen';
 
 /**
  * 'pending'  - the user has not answered the system dialog yet (it may not even have been shown);
@@ -126,37 +135,81 @@ function useCameraPermission() {
   return { permission, ask };
 }
 
+/** The screens that are drawn over the camera. Every other screen is a plain view. */
+function usesCamera(screen: Screen): boolean {
+  return screen === 'ar' || screen === 'scan';
+}
+
 export default function App() {
   const { permission, ask } = useCameraPermission();
   const scanning = useRoomScan((state) => state.scanning);
   const wireframe = useRoomScan((state) => state.wireframe);
+  const screen = useAppState((state) => state.screen);
+  const problem = useAppState((state) => state.problem);
+  const prefsLoaded = usePrefs((state) => state.loaded);
+  const keepArView = usePrefs((state) => state.keepArView);
 
   // Independent of the camera permission and of the AR session: try the saved server
   // address and keep the heartbeat running while the app is in the foreground.
   // The device's identity is loaded first, so that every request to the server carries it.
   useEffect(() => {
-    void deviceLogger
-      .start(appActions.log)
-      .then(() => serverConnection.start(appActions.log))
-      .then(() => {
-        // The app chooses how the door is placed: in the doorway of a scanned room when a
-        // server is known, in front of the user otherwise.
-        if (serverConnection.getView().connection.state !== 'not-configured') {
-          appActions.setProvider('self-hosted');
-        }
-      });
+    void deviceLogger.start(appActions.log).then(() => serverConnection.start(appActions.log));
+    roomsActions.start();
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
     void prefsActions.load();
   }, []);
 
+  // Android's back button (`ui-spec.md`, 4.1). Sheets and menus register their own
+  // handlers, which run before this one.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      const current = getAppState().screen;
+      if (current === 'home' || current === 'visitor') {
+        return false; // leaves the app
+      }
+      if (current === 'ar' || current === 'build') {
+        appActions.resetTo(homeScreen());
+        return true;
+      }
+      if (!appActions.back()) {
+        appActions.resetTo(homeScreen());
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // The developer tools belong to the AR screen: leaving it closes them.
+  useEffect(() => {
+    if (screen !== 'ar') {
+      appActions.setOverlayVisible(false);
+    }
+  }, [screen]);
+
+  // The AR view is mounted for the screens over the camera only. Mounting it anew starts
+  // a new AR session; with the developer option "Keep the AR view running" it stays
+  // mounted, covered by the other screens, once it has been shown.
+  const cameraScreen = usesCamera(screen);
+  const [arShown, setArShown] = useState(false);
+  useEffect(() => {
+    if (cameraScreen) {
+      setArShown(true);
+    }
+  }, [cameraScreen]);
+  const arMounted = permission === 'granted' && (cameraScreen || (keepArView && arShown));
+
+  if (!prefsLoaded) {
+    return <View style={styles.root} />;
+  }
+
   // The AR view is mounted only once the camera permission is granted: starting an
   // ARCore session without it is a known source of a black camera image.
-  if (permission !== 'granted') {
+  if (cameraScreen && permission !== 'granted') {
     return (
       <View style={styles.center}>
         <StatusBar style="light" />
-        <Text style={styles.title}>FESB AR Portal</Text>
+        <Text style={styles.title}>{BRAND.name}</Text>
         <Text style={styles.text}>
           {permission === 'pending'
             ? 'Waiting for camera access...'
@@ -177,27 +230,64 @@ export default function App() {
     );
   }
 
+  let plain: React.ReactNode = null;
+  switch (screen) {
+    case 'home':
+      plain = <HomeScreen />;
+      break;
+    case 'connect':
+      plain = <ConnectScreen firstRun={false} />;
+      break;
+    case 'settings':
+      plain = <SettingsScreen />;
+      break;
+    case 'diagnostics':
+      plain = <DiagnosticsScreen />;
+      break;
+    case 'privacy':
+      plain = <PrivacyScreen />;
+      break;
+    case 'problem':
+      plain = <ProblemScreen kind={problem ?? 'server'} />;
+      break;
+    case 'ar':
+    case 'scan':
+      break;
+    default:
+      // A screen of a later step of the interface work: Home stands in for it.
+      plain = <HomeScreen />;
+  }
+
   return (
     <View style={styles.root}>
-      <StatusBar style="light" />
-      <ViroARSceneNavigator
-        style={styles.root}
-        autofocus={true}
-        // The scene receives `arSceneNavigator` from the navigator; ViroReact types the
-        // scene as a prop-less function, hence the cast.
-        initialScene={{ scene: PortalARScene as unknown as () => React.JSX.Element }}
-        // Room scan: the AR engine fuses its depth images into a mesh of the room.
-        worldMeshEnabled={scanning}
-        worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe }}
-      />
-      <ArScreen />
-      <Overlay />
+      <StatusBar style={cameraScreen ? 'light' : 'auto'} />
+      {arMounted ? (
+        <ViroARSceneNavigator
+          style={styles.root}
+          autofocus={true}
+          // The scene receives `arSceneNavigator` from the navigator; ViroReact types the
+          // scene as a prop-less function, hence the cast.
+          initialScene={{ scene: PortalARScene as unknown as () => React.JSX.Element }}
+          // Room scan: the AR engine fuses its depth images into a mesh of the room.
+          worldMeshEnabled={scanning}
+          worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe }}
+        />
+      ) : null}
+      {screen === 'ar' ? (
+        <>
+          <ArScreen />
+          <Overlay />
+        </>
+      ) : null}
+      {plain ? <View style={styles.cover}>{plain}</View> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
+  // Other screens cover the AR view when it is kept mounted.
+  cover: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   center: {
     flex: 1,
     backgroundColor: '#101018',

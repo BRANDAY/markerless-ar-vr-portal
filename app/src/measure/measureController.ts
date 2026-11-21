@@ -383,6 +383,14 @@ export const measureController = {
     }
   },
 
+  /** The AR session ended: marks are in its coordinates and mean nothing in the next one. */
+  resetSession(): void {
+    if (state.left || state.right) {
+      setState({ left: null, right: null, stale: false });
+    }
+    doorPutAtMs = null;
+  },
+
   clearMarks(): void {
     setState({ left: null, right: null, stale: false });
     log('marks cleared');

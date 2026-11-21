@@ -11,6 +11,7 @@ import {
   describeJobError,
   isFinalJobState,
   parseJob,
+  parseMaps,
   parseLocalize,
   parsePortal,
   parseRoom,
@@ -280,5 +281,24 @@ describe('room-scan requests against a local mock', () => {
     const result = await getRoom('http://127.0.0.1:9', 'room', { timeoutMs: 800 });
     assert.equal(result.ok, false);
     assert.equal(result.ok ? 0 : result.status, null);
+  });
+});
+
+describe('parseMaps', () => {
+  test('the rooms of GET /maps', () => {
+    const maps = parseMaps({
+      maps: [
+        { map_id: 'room', label: 'Living room', created_utc: '2026-11-20T10:00:00Z', room_status: 'ok', portal_source: 'auto', num_images: 30 },
+        { map_id: 'old' },
+        { label: 'no id' },
+        'rubbish',
+      ],
+    });
+    assert.deepEqual(maps, [
+      { mapId: 'room', label: 'Living room', createdUtc: '2026-11-20T10:00:00Z', roomStatus: 'ok', portalSource: 'auto' },
+      { mapId: 'old', label: '', createdUtc: '', roomStatus: 'unavailable', portalSource: 'none' },
+    ]);
+    assert.equal(parseMaps({ maps: 'no' }), null);
+    assert.equal(parseMaps(null), null);
   });
 });

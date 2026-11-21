@@ -3,8 +3,8 @@
  * screen frame, rows, notices, and the elements drawn over the camera (pill, round
  * button, coach card, sheet). Colours come from `theme.ts`; nothing here knows a text.
  */
-import { type ReactNode, useCallback, useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, type TextStyle, View, type ViewStyle } from 'react-native';
+import { type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Switch, Text, type TextStyle, View, type ViewStyle } from 'react-native';
 
 import { Icon, type IconName } from './icons';
 import { HUD, RADIUS, SIZE, SPACE, TYPE, useInsets, useTheme } from './theme';
@@ -264,6 +264,14 @@ export function CoachCard(props: { line1: string; line2?: string; danger?: boole
 export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   const theme = useTheme();
   const insets = useInsets();
+  // Android's back button closes the sheet before it does anything else.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onClose]);
   return (
     <View style={styles.sheetLayer}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />

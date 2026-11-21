@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { t, type TextKey } from '../i18n';
 import { useMeasure } from '../measure/measureController';
-import { DEFAULT_MAP_ID } from '../room/roomServer';
-import { roomDisplayName } from '../room/roomNames';
+import { roomName as nameOfRoom, useRooms } from '../room/roomsStore';
 import { appActions, useAppState } from '../state/appStore';
-import { prefsActions, usePrefs } from '../state/prefs';
+import { usePrefs } from '../state/prefs';
 import { arView } from './core/arView';
-import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle, useSevenTaps } from './kit';
+import { homeScreen } from './flows';
+import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle } from './kit';
 import { useServerView } from './ServerPanel';
 import { HUD, TYPE, useInsets } from './theme';
 
@@ -71,27 +71,23 @@ export function ArScreen() {
     return () => clearTimeout(timer);
   }, [view.situation]);
 
-  // Back closes what is open before it does anything else.
+  // The cases in which the AR screen cannot go on lead to Home or to a problem screen.
+  const leave = view.leave;
   useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (menuOpen) {
-        setMenuOpen(false);
-        return true;
-      }
-      return false;
-    });
-    return () => subscription.remove();
-  }, [menuOpen]);
+    if (toolsOpen) {
+      return; // the developer tools handle these cases themselves (a first scan has no room yet)
+    }
+    if (leave === 'no-room') {
+      appActions.resetTo(homeScreen());
+    } else if (leave === 'server' || leave === 'version') {
+      appActions.resetTo(homeScreen());
+      appActions.showProblem(leave);
+    }
+  }, [leave, toolsOpen]);
 
-  // Until the settings screen exists, seven taps in the top right corner switch the
-  // developer options on and off.
-  const onSecretTap = useSevenTaps(() => {
-    const next = !developer;
-    prefsActions.set({ developerOptions: next });
-    appActions.log(`developer options ${next ? 'on' : 'off'}`);
-  });
+  const currentRoom = useRooms((s) => s.currentId);
 
-  if (developer && toolsOpen) {
+  if (toolsOpen) {
     return null; // the developer tools take the whole screen
   }
 
@@ -99,24 +95,14 @@ export function ArScreen() {
     setMenuOpen(false);
     appActions.requestRelocalize();
   };
-  const roomName = roomDisplayName(DEFAULT_MAP_ID);
+  const roomName = nameOfRoom(currentRoom) || t('home.room.eyebrow');
   const spaceName = t(`space.${environment}.name` as TextKey);
-
-  // Until Home exists, the cases in which the AR screen cannot go on are told here.
-  const stuck: { line1: TextKey; line2: TextKey } | null =
-    view.leave === 'no-room'
-      ? { line1: 'home.noRoom.title', line2: 'home.noRoom.body' }
-      : view.leave === 'version'
-        ? { line1: 'connect.version.title', line2: 'connect.version.body' }
-        : view.leave === 'server'
-          ? { line1: 'problem.server.title', line2: 'problem.server.body.unnamed' }
-          : null;
-  const coach = stuck ?? view.coach;
+  const coach = view.coach;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]} pointerEvents="box-none">
       <View style={styles.topRow} pointerEvents="box-none">
-        <HudButton icon="close" label={t('common.close')} onPress={() => BackHandler.exitApp()} />
+        <HudButton icon="close" label={t('common.close')} onPress={() => appActions.resetTo(homeScreen())} />
         <View style={styles.topRight} pointerEvents="box-none">
           {view.situation === 'finding' && source === 'room' ? <HudPill text={roomName} icon="door" /> : null}
           {view.situation === 'door' ? (
@@ -125,7 +111,6 @@ export function ArScreen() {
               <HudButton icon="more" label={t('ar.menu.findAgain')} onPress={() => setMenuOpen(true)} />
             </>
           ) : null}
-          {view.situation === 'finding' ? <Pressable style={styles.secret} onPress={onSecretTap} accessibilityElementsHidden /> : null}
         </View>
       </View>
 
@@ -222,7 +207,6 @@ const styles = StyleSheet.create({
   root: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, paddingHorizontal: 16 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  secret: { width: 44, height: 44 },
   under: { marginTop: 10, gap: 8, alignItems: 'flex-start' },
   spacer: { flex: 1 },
   bottom: { gap: 10 },

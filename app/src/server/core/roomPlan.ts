@@ -341,3 +341,41 @@ export function parseLocalize(body: unknown): LocalizeOutcome | null {
     room: ok ? parseRoom(alignment?.room) : null,
   };
 }
+
+// ---- /maps --------------------------------------------------------------------------------
+
+/** One room of `GET /maps`, as far as the interface needs it. */
+export interface ServerMapInfo {
+  mapId: string;
+  /** The name given when the room was scanned, or empty. */
+  label: string;
+  /** ISO time the map was built, or empty. */
+  createdUtc: string;
+  /** "ok", "partial" or "unavailable": whether the room has a plan. */
+  roomStatus: string;
+  /** "manual", "selected", "auto" or "none": how the doorway is known. */
+  portalSource: string;
+}
+
+export function parseMaps(body: unknown): ServerMapInfo[] | null {
+  const json = asObject(body);
+  if (!json || !Array.isArray(json.maps)) {
+    return null;
+  }
+  const maps: ServerMapInfo[] = [];
+  for (const entry of json.maps) {
+    const map = asObject(entry);
+    const mapId = asString(map?.map_id);
+    if (!map || !mapId) {
+      continue;
+    }
+    maps.push({
+      mapId,
+      label: asString(map.label),
+      createdUtc: asString(map.created_utc),
+      roomStatus: asString(map.room_status) || 'unavailable',
+      portalSource: asString(map.portal_source) || 'none',
+    });
+  }
+  return maps;
+}

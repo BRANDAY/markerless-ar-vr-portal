@@ -61,6 +61,7 @@ export const en = {
   'home.chip.none': 'No server',
   'home.room.eyebrow': 'This room',
   'home.room.ready': 'Ready',
+  'home.room.scanned': 'Scanned {date}',
   'home.room.doorway': 'Doorway {w} × {h} m',
   'home.room.doorway.width': 'Doorway {w} m wide',
   'home.room.noDoorway': 'No doorway found yet',

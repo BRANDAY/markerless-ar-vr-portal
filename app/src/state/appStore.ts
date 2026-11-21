@@ -127,7 +127,7 @@ let state: AppState = {
 
   mode: 'AR',
 
-  screen: 'ar',
+  screen: 'home',
   history: [],
   problem: null,
 
@@ -307,6 +307,17 @@ export const appActions = {
 
   toggleOverlay(): void {
     setState({ overlayVisible: !state.overlayVisible });
+  },
+
+  setOverlayVisible(overlayVisible: boolean): void {
+    if (overlayVisible !== state.overlayVisible) {
+      setState({ overlayVisible });
+    }
+  },
+
+  /** The AR screen was left or the provider stopped: there is no door and no status. */
+  clearDoor(): void {
+    setState({ door: null, mode: 'AR', providerStatus: 'idle', providerDetail: '', providerMeta: {} });
   },
 
   toggleLog(): void {

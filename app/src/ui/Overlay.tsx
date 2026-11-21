@@ -6,7 +6,6 @@ import { formatVec3 } from '../localization/math';
 import type { LocalizationStatus } from '../localization/types';
 import { measureController, useMeasure } from '../measure/measureController';
 import { appActions, useAppState } from '../state/appStore';
-import { usePrefs } from '../state/prefs';
 import { Crosshair, MeasurePanel } from './MeasurePanel';
 import { ScanPanel } from './ScanPanel';
 import { ServerChip } from './ServerPanel';
@@ -21,15 +20,14 @@ const TRACKING_COLORS = {
  * DEVELOPER TOOLS over the AR view: mode badge, server chip, status banner, status panel,
  * event log, scan or measurement panel, and the switches. This was the whole interface
  * before the product screens (`ArScreen.tsx` and the others); it is kept as it was,
- * because the device checks and the measurements of assignment task 5 need it. Shown only
- * with developer options on, through the "Tools" button of the AR screen.
+ * because the device checks and the measurements of assignment task 5 need it. Opened
+ * with the "Tools" button of the AR screen, which exists with developer options on.
  */
 export function Overlay() {
-  const developer = usePrefs((s) => s.developerOptions);
   const overlayVisible = useAppState((s) => s.overlayVisible);
   const mode = useAppState((s) => s.mode);
   const measuring = useMeasure((s) => s.visible);
-  if (!developer || !overlayVisible) {
+  if (!overlayVisible) {
     return null;
   }
 
@@ -89,7 +87,7 @@ function StatusBanner() {
   );
 }
 
-function StatusPanel() {
+export function StatusPanel() {
   const trackingState = useAppState((s) => s.trackingState);
   const trackingReason = useAppState((s) => s.trackingReason);
   const cameraPosition = useAppState((s) => s.cameraPosition);
@@ -130,7 +128,7 @@ function StatusPanel() {
   );
 }
 
-function EventLog() {
+export function EventLog({ tall }: { tall?: boolean }) {
   const logVisible = useAppState((s) => s.logVisible);
   const log = useAppState((s) => s.log);
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -146,7 +144,7 @@ function EventLog() {
     return null;
   }
   return (
-    <View style={styles.logBox}>
+    <View style={[styles.logBox, tall ? styles.logBoxTall : null]}>
       <ScrollView ref={scrollRef} onContentSizeChange={scrollToNewest} onLayout={scrollToNewest}>
         {log.length === 0 ? <Text style={styles.logLine}>(no events yet)</Text> : null}
         {log.map((entry) => (
@@ -263,6 +261,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
   },
+  logBoxTall: { height: 420 },
   logLine: { color: '#d6f5ff', fontFamily: MONO, fontSize: 11, lineHeight: 15 },
   controls: {
     marginTop: 8,
