@@ -1,0 +1,2 @@
+# Keys of cloud services stay on the developer's machine (docs/cloud/cloud-connection.md, section 5).
+*.local.json

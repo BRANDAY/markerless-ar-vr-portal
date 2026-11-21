@@ -1,0 +1,3 @@
+{
+  "googleCloudApiKey": "copy this file to cloud-keys.local.json and put the Google Cloud API key here"
+}
