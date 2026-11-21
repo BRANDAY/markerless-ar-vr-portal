@@ -3,14 +3,14 @@
  * `localization-server/docs/api-v2.md`, section 10): rename it, delete it - and the count
  * of AR sessions in a row in which a room was not found, which is what turns its row red.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 import { deleteRoom, renameRoom } from '../server/core/client';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
 import { getPrefs, prefsActions } from '../state/prefs';
-import { afterSession, onlyRooms, roomLabel } from '../ui/core/roomsView';
-import { currentRoomId, getRoomsState, roomsActions } from './roomsStore';
+import { afterSession, roomLabel, withoutRoom } from '../ui/core/roomsView';
+import { currentRoomId, forgetRoom, roomsActions } from './roomsStore';
 import { useRoomScan } from './roomStore';
 
 /** `building`: the server refuses while a map is being built for the room. */
@@ -60,9 +60,10 @@ export async function deleteRoomNow(mapId: string): Promise<AdminOutcome> {
   // The server's own list of rooms (its health answer) is what the search goes by.
   await serverConnection.checkNow();
   await roomsActions.refresh();
-  const left = getRoomsState().rooms.map((room) => room.mapId).filter((id) => id !== mapId);
+  // Only this room's entries: the others may belong to the rooms of another server.
   const { spaceByRoom, missedByRoom } = getPrefs();
-  prefsActions.set({ spaceByRoom: onlyRooms<string>(spaceByRoom, left), missedByRoom: onlyRooms<number>(missedByRoom, left) });
+  prefsActions.set({ spaceByRoom: withoutRoom<string>(spaceByRoom, mapId), missedByRoom: withoutRoom<number>(missedByRoom, mapId) });
+  forgetRoom(mapId); // its door record, and "the room used last" if that was this one
   return 'ok';
 }
 
@@ -77,21 +78,34 @@ export function noteSession(mapId: string, found: boolean): void {
 }
 
 /**
- * For the screens over the camera. `notFound`: the screen has given up for now ("This
- * doesn't look like ..."). Counted once per stay on the screen; a room that is found
+ * How the AR session that is running has gone for its room. Kept here and not in a
+ * component: what is drawn over the camera comes and goes within one session (the
+ * visitor's Help panel), and must not count the same session twice.
+ */
+let session: 'open' | 'missed' | 'found' = 'open';
+
+/** A new AR session begins (the AR view is gone): the next one is counted on its own. */
+export function newRoomSession(): void {
+  session = 'open';
+}
+
+/**
+ * For the screens over the camera. `notFound`: the search has given up for now and the
+ * server did compare the camera's picture with the room (`sessionMissed`). An AR session
+ * counts at most once, and not at all once the room was found in it; a room that is found
  * starts its count anew.
  */
 export function useRoomHealth(notFound: boolean): void {
   const found = useRoomScan((s) => s.found?.mapId ?? null);
-  const counted = useRef(false);
   useEffect(() => {
     if (found) {
+      session = 'found';
       noteSession(found, true);
     }
   }, [found]);
   useEffect(() => {
-    if (notFound && !counted.current) {
-      counted.current = true;
+    if (notFound && session === 'open') {
+      session = 'missed';
       const mapId = currentRoomId();
       if (mapId) {
         noteSession(mapId, false);

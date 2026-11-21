@@ -4,13 +4,13 @@
  * the running AR session, and removing a saved door.
  */
 import { doorRecordBody } from '../door/core/placement';
-import { patchRoomVps, removeDoor, saveDoor } from '../server/core/client';
+import { getPortal, patchRoomVps, removeDoor, saveDoor } from '../server/core/client';
 import { serverConnection } from '../server/ServerConnection';
 import { appActions } from '../state/appStore';
 import { type DoorDraft, sizeLabel } from '../ui/core/doorEdit';
 import { noteDoorRecord } from '../door/doorRecords';
 import { getRoomScanState } from './roomStore';
-import { roomsActions } from './roomsStore';
+import { getRoomsState, roomsActions } from './roomsStore';
 
 const log = (text: string) => appActions.log(`door: ${text}`);
 
@@ -98,6 +98,13 @@ export async function removeSavedDoor(mapId: string): Promise<boolean> {
     return false;
   }
   log(`removed from "${mapId}"`);
-  await roomsActions.refresh(); // reads the record anew, for the door layer's copy too
+  await roomsActions.refresh(); // reads the current room's record anew, for the door layer's copy too
+  if (getRoomsState().currentId !== mapId) {
+    // A room from the Rooms list that is not the current one: its copy is renewed here.
+    const record = await getPortal(baseUrl, mapId);
+    if (record.ok) {
+      noteDoorRecord(mapId, record.value);
+    }
+  }
   return true;
 }

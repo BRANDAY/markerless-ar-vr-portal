@@ -119,12 +119,25 @@ export function afterSession(missed: unknown, mapId: string, found: boolean): Re
   return kept;
 }
 
-/** The record without the rooms the server no longer has. */
-export function onlyRooms<T>(record: unknown, mapIds: readonly string[]): Record<string, T> {
+/**
+ * Whether a stay on a camera screen counts as "the room was not found": the search gave
+ * up after its attempts, and the server did compare what the camera saw with the room.
+ * A search without one answer (no clip recorded, requests failed) says nothing about the
+ * room, and neither does any other trouble.
+ */
+export function sessionMissed(status: string, meta: { code?: string; unanswered?: boolean }): boolean {
+  return status === 'lost' && meta.code === 'not-recognised' && meta.unanswered !== true;
+}
+
+/**
+ * What is kept per room, without this one room. The other entries stay as they are: they
+ * may belong to the rooms of another server this phone connects to.
+ */
+export function withoutRoom<T>(record: unknown, mapId: string): Record<string, T> {
   const kept: Record<string, T> = {};
   if (record !== null && typeof record === 'object' && !Array.isArray(record)) {
     for (const [key, value] of Object.entries(record as Record<string, T>)) {
-      if (mapIds.includes(key)) {
+      if (key !== mapId) {
         kept[key] = value;
       }
     }

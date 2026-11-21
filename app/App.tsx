@@ -11,6 +11,7 @@ import {
 
 import { PortalARScene } from './src/ar/PortalARScene';
 import { measureController } from './src/measure/measureController';
+import { newRoomSession } from './src/room/roomAdmin';
 import { roomsActions } from './src/room/roomsStore';
 import { useRoomScan } from './src/room/roomStore';
 import { setClientRole } from './src/server/core/client';
@@ -286,6 +287,12 @@ export default function App() {
     }
   }, [cameraScreen]);
   const arMounted = permission === 'granted' && (cameraScreen || (keepArView && arShown));
+  // Without the AR view there is no AR session: the next one counts anew for its room.
+  useEffect(() => {
+    if (!arMounted) {
+      newRoomSession();
+    }
+  }, [arMounted]);
 
   if (!prefsLoaded) {
     return <View style={styles.root} />;

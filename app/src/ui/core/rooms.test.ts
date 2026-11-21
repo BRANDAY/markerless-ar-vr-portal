@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { afterSession, MISSED_SESSIONS, onlyRooms, roomLabel, roomMenu, roomRows, rowTone } from './roomsView';
+import { afterSession, MISSED_SESSIONS, roomLabel, roomMenu, roomRows, rowTone, sessionMissed, withoutRoom } from './roomsView';
 
 const ROOMS = [
   { mapId: 'hall', label: 'Main hall', portalConfirmed: true },
@@ -64,10 +64,24 @@ test('rooms: sessions in a row in which a room was not found', () => {
   assert.deepEqual(afterSession({ hall: 'many', side: 2.9 }, 'hall', false), { side: 2, hall: 1 });
 });
 
-test('rooms: what is kept per room goes with the room', () => {
-  assert.deepEqual(onlyRooms({ hall: 'sponza', gone: 'test-room' }, ['hall', 'side']), { hall: 'sponza' });
-  assert.deepEqual(onlyRooms(null, ['hall']), {});
-  assert.deepEqual(onlyRooms(['hall'], ['0']), {});
+test('rooms: what is kept per room goes with the room, and only with it', () => {
+  // "elsewhere" may be a room of another server: it stays
+  assert.deepEqual(withoutRoom({ hall: 'sponza', gone: 'test-room', elsewhere: 'sponza' }, 'gone'), { hall: 'sponza', elsewhere: 'sponza' });
+  assert.deepEqual(withoutRoom({ hall: 2 }, 'attic'), { hall: 2 });
+  assert.deepEqual(withoutRoom(null, 'hall'), {});
+  assert.deepEqual(withoutRoom(['hall'], '0'), {});
+});
+
+test('rooms: which stays on a camera screen count against a room', () => {
+  assert.equal(sessionMissed('lost', { code: 'not-recognised' }), true);
+  // the server never answered in that search: nothing was compared with the room
+  assert.equal(sessionMissed('lost', { code: 'not-recognised', unanswered: true }), false);
+  // a door that stands but could not be confirmed, lost camera motion, any error
+  assert.equal(sessionMissed('lost', { code: 'unconfirmed' }), false);
+  assert.equal(sessionMissed('lost', { code: 'tracking-lost' }), false);
+  assert.equal(sessionMissed('error', {}), false);
+  assert.equal(sessionMissed('error', { code: 'no-doorway' }), false);
+  assert.equal(sessionMissed('localizing', { code: 'not-recognised' }), false);
 });
 
 test('rooms: a name as typed', () => {

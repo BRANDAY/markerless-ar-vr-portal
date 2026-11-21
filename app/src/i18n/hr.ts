@@ -8,6 +8,8 @@
  *    may change (and the working name, "Vrata", is also the Croatian word for the door);
  *  - counts are written as "Pronađenih zidova: {n}" so that no plural form has to be
  *    chosen for the number;
+ *  - a date in Croatian ends in a full stop ("21. 11. 2026."), so `{date}` never stands
+ *    right before one;
  *  - server = poslužitelj, room = prostorija, space = prostor, scan = skeniranje / snimka,
  *    doorway = otvor za vrata, staff = osoblje.
  */
@@ -83,7 +85,7 @@ export const hr: Record<TextKey, string> = {
   'home.scanThis': 'Skeniraj ovu prostoriju',
   'home.build.line': 'Izrada karte · {p}%',
   'home.build.see': 'Pogledaj napredak',
-  'home.offline.line': 'Poslužitelj je nedostupan. Aplikacija {app} treba ga da pronađe vrata.',
+  'home.offline.line': 'Poslužitelj je nedostupan. Aplikaciji {app} potreban je da bi pronašla vrata.',
   'home.noServer.title': 'Nije povezano',
   'home.noServer.body': 'Aplikacija {app} drži vrata na mjestu uz pomoć poslužitelja na istoj Wi‑Fi mreži.',
   'home.findServer': 'Pronađi poslužitelj',
@@ -231,7 +233,7 @@ export const hr: Record<TextKey, string> = {
   'build.fail.restarted.body': 'Snimka je i dalje na ovom telefonu.',
   'build.fail.internal.title': 'Nešto je pošlo po zlu na poslužitelju',
   'build.fail.internal.body': 'Snimka je i dalje na ovom telefonu. Pokušajte je poslati ponovno.',
-  'build.fail.contact.body': 'Izrada se možda ipak dovrši. Vratite se kad telefon ponovno bude na Wi‑Fi mreži.',
+  'build.fail.contact.body': 'Izrada će se možda ipak dovršiti. Vratite se kad telefon ponovno bude na Wi‑Fi mreži.',
 
   // ---- 5.9 AR screen ----
   'ar.coach.ready.1': 'Priprema…',
@@ -273,7 +275,7 @@ export const hr: Record<TextKey, string> = {
   'photo.taken': 'Fotografija je snimljena',
   'photo.failed': 'Fotografija se nije mogla snimiti',
   'ar.inside.wall.1': 'Stvarni zid je blizu',
-  'ar.inside.wall.2': 'Mreža pokazuje gdje završava vaša prostorija.',
+  'ar.inside.wall.2': 'Rešetka pokazuje gdje završava vaša prostorija.',
 
   // ---- 5.13 visitor screen ----
   'visitor.title': 'Zakoračite kroz vrata',
@@ -403,8 +405,8 @@ export const hr: Record<TextKey, string> = {
   'connection.location.saved': 'Spremljeno.',
   'connection.location.failed': 'Nije spremljeno. Poslužitelj nije odgovorio.',
   'connection.bridge.none': 'Još nije povezano s prostorijom. Dok se ne poveže, ova se prostorija pronalazi preko programa {serverApp}.',
-  'connection.bridge.ok': 'Povezano s prostorijom {date}. Oblak i {serverApp} slažu se unutar {cm} cm.',
-  'connection.bridge.ok.noError': 'Povezano s prostorijom {date}.',
+  'connection.bridge.ok': 'Povezano s prostorijom ({date}). Oblak i {serverApp} slažu se unutar {cm} cm.',
+  'connection.bridge.ok.noError': 'Povezano s prostorijom ({date}).',
   'connection.bridge.link': 'Poveži s prostorijom',
   'connection.bridge.again': 'Poveži ponovno',
   'bridge.look.1': 'Prijeđite u drugi dio prostorije',
@@ -421,11 +423,11 @@ export const hr: Record<TextKey, string> = {
   'bridge.failed.title': 'Nije povezano',
   'bridge.failed.cloud': 'Usluga u oblaku nije pronašla ovo mjesto. Provjerite ID lokacije i je li telefon na internetu.',
   'bridge.failed.server': 'Poslužitelj nije odgovorio. Pokušajte ponovno.',
-  'bridge.failed.disagree': 'Pogledi se međusobno nisu slagali. Hodajte dalje jedan od drugoga i pokušajte ponovno.',
+  'bridge.failed.disagree': 'Pogledi se međusobno nisu slagali. Snimite ih s međusobno udaljenijih mjesta i pokušajte ponovno.',
   'problem.cloud.title': 'Usluga u oblaku nije dostupna',
   'problem.cloud.body': 'Provjerite je li ovaj telefon na internetu.',
   'problem.cloudSetup.title': 'Ova prostorija nije postavljena za oblak',
-  'problem.cloudSetup.body': 'Unesite ReactVision ID lokacije prostorije u Postavke › Veza i povežite ga s prostorijom ili se vratite na poslužitelj na ovoj mreži.',
+  'problem.cloudSetup.body': 'Unesite ReactVision ID lokacije prostorije pod Postavke › Veza i povežite ga s prostorijom ili se vratite na poslužitelj na ovoj mreži.',
   'visitor.reason.cloud': 'Usluga u oblaku nije dostupna ili nije postavljena',
 
   // ---- 5.12 settings ----

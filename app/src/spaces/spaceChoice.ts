@@ -7,10 +7,11 @@
  * KEPT ON THIS PHONE ONLY: the server has no place for a room's space yet (spec section
  * 9, S5), so another phone shows the first space of the list until it does.
  */
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import { currentRoomId, useRooms } from '../room/roomsStore';
 import { getRoomScanState, useRoomScan } from '../room/roomStore';
+import { serverConnection } from '../server/ServerConnection';
 import { appActions, type EnvironmentId } from '../state/appStore';
 import { getPrefs, prefsActions, usePrefs } from '../state/prefs';
 import { chosenSpaceId, listedSpaces, withChoice } from './core/choice';
@@ -21,9 +22,16 @@ export function roomOfSpace(): string | null {
   return getRoomScanState().found?.mapId ?? currentRoomId();
 }
 
+/** The space chosen while the app had no room to keep it for: it holds for this run. */
+let chosenWithoutRoom: EnvironmentId | null = null;
+const NO_ROOM = '';
+
 export function spaceOfRoom(roomId: string | null): EnvironmentId {
   const { spaceByRoom, developerOptions } = getPrefs();
-  const id = chosenSpaceId(SPACES, spaceByRoom, roomId, developerOptions);
+  const id =
+    roomId === null
+      ? chosenSpaceId(SPACES, chosenWithoutRoom ? { [NO_ROOM]: chosenWithoutRoom } : {}, NO_ROOM, developerOptions)
+      : chosenSpaceId(SPACES, spaceByRoom, roomId, developerOptions);
   return SPACES.find((space) => space.id === id)?.id ?? SPACES[0].id;
 }
 
@@ -32,6 +40,8 @@ export function putBehindDoor(id: EnvironmentId): void {
   const roomId = roomOfSpace();
   if (roomId) {
     prefsActions.set({ spaceByRoom: withChoice(getPrefs().spaceByRoom, roomId, id) });
+  } else {
+    chosenWithoutRoom = id;
   }
   appActions.setEnvironment(id);
   appActions.log(`space: "${id}" behind the door of ${roomId ? `room "${roomId}"` : 'no room (this run only)'}`);
@@ -51,10 +61,15 @@ export function useSpaceOfRoom(): void {
   const visitorMode = usePrefs((s) => s.visitorMode);
   const rooms = useRooms((s) => s.rooms);
   const found = useRoomScan((s) => s.found?.mapId ?? null);
+  // The rooms the server itself reports: `currentRoomId` goes by them.
+  const serverRooms = useSyncExternalStore(
+    (listener) => serverConnection.subscribe(() => listener()),
+    () => (serverConnection.getView().connection.info?.maps ?? []).join('\n'),
+  );
   useEffect(() => {
     if (loaded) {
       appActions.setEnvironment(spaceOfRoom(roomOfSpace()));
     }
-    // The room depends on the list of rooms, the mode and the room used last; the choice on the rest.
-  }, [loaded, byRoom, developer, lastRoomId, visitorMode, rooms, found]);
+    // The room depends on the lists of rooms, the mode and the room used last; the choice on the rest.
+  }, [loaded, byRoom, developer, lastRoomId, visitorMode, rooms, serverRooms, found]);
 }

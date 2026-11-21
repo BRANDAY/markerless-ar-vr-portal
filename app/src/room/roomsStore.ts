@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { asTransform } from '../door/core/roomFrame';
-import { keptDoorRecord, noteDoorRecord, rememberDoorsWith } from '../door/doorRecords';
+import { forgetDoorRecord, keptDoorRecord, noteDoorRecord, rememberDoorsWith } from '../door/doorRecords';
 import { reactVisionConfigured, reactVisionConfiguredNow } from '../localization/vpsBridge';
 import { chooseWay, recognisableThroughCloud, type Way } from '../localization/core/ways';
 import { getMaps, getPortal, getRoom } from '../server/core/client';
@@ -187,6 +187,24 @@ export function currentRoomId(): string | null {
     return pickRoom(withDoor, lastRoomId);
   }
   return pickRoom(ids, lastRoomId);
+}
+
+/**
+ * A room that was deleted on the server: what this phone kept about it goes as well - the
+ * copy of its door record (its id is free for another room now) and "the room used last".
+ */
+export function forgetRoom(mapId: string): void {
+  forgetDoorRecord(mapId);
+  const doors = keptDoors();
+  const hadDoor = mapId in doors;
+  delete doors[mapId];
+  const { lastRoomId } = getPrefs();
+  if (hadDoor || lastRoomId === mapId) {
+    prefsActions.set({
+      ...(hadDoor ? { doorRecords: Object.keys(doors).length > 0 ? JSON.stringify(doors) : null } : {}),
+      ...(lastRoomId === mapId ? { lastRoomId: null } : {}),
+    });
+  }
 }
 
 let generation = 0;

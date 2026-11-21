@@ -89,6 +89,11 @@ export interface StatusMeta {
    * a weak answer and is being checked. The interface shows an outline, not the door.
    */
   pending?: boolean;
+  /**
+   * With `not-recognised`: the search ended without a single answer to judge by (no clip
+   * could be recorded, or the requests failed). That says nothing about the room.
+   */
+  unanswered?: boolean;
 }
 
 export interface PoseQuality {

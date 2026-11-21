@@ -11,6 +11,7 @@ import { appActions, useAppState } from '../state/appStore';
 import { usePrefs } from '../state/prefs';
 import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
 import { arView } from './core/arView';
+import { sessionMissed } from './core/roomsView';
 import { homeScreen, openGuidedScan, openPlaceDoor } from './flows';
 import { AppButton, Body, CoachCard, HudButton, HudPill, Row, Sheet, SheetTitle, Small } from './kit';
 import { useServerView } from './ServerPanel';
@@ -69,7 +70,7 @@ export function ArScreen() {
   }, [view.sheet]);
   const sheet = view.sheet !== null && view.sheet !== closedSheet ? view.sheet : null;
   // A room that keeps not being found is marked in the Rooms list.
-  useRoomHealth(view.sheet === 'unknown' && source === 'room');
+  useRoomHealth(source === 'room' && sessionMissed(status, meta));
 
   // "Walk through the door", for a few seconds whenever the door comes to stand.
   const [hint, setHint] = useState(false);

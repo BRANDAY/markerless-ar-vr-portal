@@ -45,6 +45,13 @@ export function noteDoorRecord(mapId: string, record: ServerPortal): void {
   persist?.(mapId, record);
 }
 
+/** A room the server no longer has: its door record and its plan are not kept either. */
+export function forgetDoorRecord(mapId: string): void {
+  kept.delete(mapId);
+  readAt.delete(mapId);
+  keptPlans.delete(mapId);
+}
+
 /** The copy of a room's door record, if there is one - without asking the server. */
 export function keptDoorRecord(mapId: string): ServerPortal | null {
   return kept.get(mapId) ?? null;

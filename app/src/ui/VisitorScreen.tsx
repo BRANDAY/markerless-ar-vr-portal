@@ -10,6 +10,7 @@ import { spaceInfo } from '../spaces/spaces';
 import { appActions, useAppState } from '../state/appStore';
 import { prefsActions, usePrefs } from '../state/prefs';
 import { AboutSheet, DoorBehindPill, useWallClose } from './arParts';
+import { sessionMissed } from './core/roomsView';
 import { type VisitorSheet, visitorSheetText, visitorView } from './core/visitorView';
 import { enterStaffMode, roomProvider } from './flows';
 import { Icon } from './icons';
@@ -179,7 +180,7 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
   });
 
   // A room that keeps not being found is marked in the staff's Rooms list.
-  useRoomHealth(view.sheet === 'notRecognised');
+  useRoomHealth(sessionMissed(status, meta));
 
   const [aboutOpen, setAboutOpen] = useState(false);
   /** The sheet the visitor has closed; it stays closed until the problem goes away. */

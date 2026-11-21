@@ -515,6 +515,8 @@ export class SelfHostedServerProvider extends BaseProvider {
     }
     this.setStatus('lost', `room not recognised after ${episode.attempt} attempts${why}. ${HOW_TO_LOOK}`, {
       code: 'not-recognised',
+      // Not one answer of the server in this search: nothing was compared with the room.
+      ...(episode.server ? {} : { unanswered: true }),
     });
     this.report('not-found', episode);
   }

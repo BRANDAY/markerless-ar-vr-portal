@@ -179,7 +179,7 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (211 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (212 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
 [without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
@@ -291,11 +291,14 @@ What staff meet, in order:
    - The line of a row: "Ready · {space}" (teal), "No door yet · place the door" (amber),
      "Building the map · {p}%" (amber; a tap opens the build), "Scan again · the room has
      changed" (red).
-   - **Red** means: the room was not found in three stays on a camera screen in a row
-     (`src/room/roomAdmin.ts`: a stay that ends in "This doesn't look like ..." - or, for
-     a visitor, in its "not recognised" sheet - counts one; a room that is found, or
-     scanned again, starts anew). The count is kept on this phone (`missedByRoom` in the
-     preferences, a key the spec does not list).
+   - **Red** means: the room was not found in three AR sessions in a row
+     (`src/room/roomAdmin.ts`). An AR session - the time the AR view lives - counts once
+     at most, when its search gives up as "not recognised" after the server did compare
+     the camera's picture with the room; a search in which the server never answered (no
+     clip recorded, requests failed) does not count, and neither does a session in which
+     the room was found. A room that is found, or scanned again, starts anew. The count
+     is kept on this phone (`missedByRoom` in the preferences, a key the spec does not
+     list).
    - **A tap on a row** makes that room the one the app works with and leads back. The
      spec does not say what a tap does; without it a second room could not be opened,
      because the app still names the room when it asks the server where the phone is.
@@ -613,7 +616,7 @@ Kept as a list for the product side; nothing here was decided silently.
 | Door fades in over 300 ms; door dimmed while tracking is lost | the door appears at once and is not dimmed | not tried inside ViroReact's portal |
 | Rooms: what a tap on a row does | it makes that room the one the app works with and leads back | the spec names no action; the room is still named by the app when it asks the server (S6 is not used yet) |
 | Rooms: texts the spec does not have | "Save" (rename), "A map is being built for this room. Try again when it is done.", "That did not work. Try again.", the screen-reader label "More about {name}" | the spec names the actions, not these lines |
-| Rooms: "failed to be found three sessions in a row" | counted on this phone, per stay on a camera screen | the server keeps no such count |
+| Rooms: "failed to be found three sessions in a row" | counted on this phone, per AR session | the server keeps no such count |
 | A ring with the percentage | the number in a plain circle, and a bar | no vector-drawing module (the spec allows the bar) |
 | Floor painted as a dot grid, corners as a dot with a ring | the floor's edge only; a white dot on a small square | kept to a few scene nodes |
 | Room mesh as thin lines in the scan colour | the AR engine's own mesh lines, in its colour | the engine draws them; the colour is not ours to set |
@@ -882,7 +885,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 211 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
+  in Node (`npm test`; 212 tests in all with those of `src/room/`, `src/door/core/`, `src/spaces/core/`, `src/localization/core/`, `src/measure/core/`, `src/ui/core/` and `src/i18n/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
