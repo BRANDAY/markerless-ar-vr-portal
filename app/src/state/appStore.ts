@@ -45,6 +45,34 @@ export type EnvironmentId = 'sponza' | 'test-room';
  */
 export type FrameId = 'casing' | 'simple';
 
+/**
+ * The screens of the app (`docs/product/ui-spec.md`, section 4). There is no navigation
+ * library: the current screen and the way back are part of this store. `ar` covers three
+ * situations of one screen (finding the room, door in the room, inside the space), which
+ * are derived from the provider status and the AR / VR mode.
+ */
+export type Screen =
+  | 'welcome'
+  | 'permission'
+  | 'connect'
+  | 'home'
+  | 'scanPrepare'
+  | 'scan'
+  | 'build'
+  | 'roomResult'
+  | 'ar'
+  | 'spaces'
+  | 'rooms'
+  | 'settings'
+  | 'visitor'
+  | 'problem'
+  | 'diagnostics'
+  | 'privacy'
+  | 'credits';
+
+/** Problems that take the whole screen (section 7.1). */
+export type ProblemKind = 'camera' | 'device' | 'server' | 'wifi' | 'version';
+
 export interface LogEntry {
   id: number;
   /** Seconds since app start. */
@@ -60,6 +88,12 @@ export interface AppState {
   floorY: number | null;
 
   mode: ViewMode;
+
+  /** The screen shown, and the screens "back" leads through (oldest first). */
+  screen: Screen;
+  history: Screen[];
+  /** Which problem the `problem` screen shows. */
+  problem: ProblemKind | null;
 
   door: PoseUpdate | null;
   providerId: ProviderId;
@@ -90,6 +124,10 @@ let state: AppState = {
 
   mode: 'AR',
 
+  screen: 'ar',
+  history: [],
+  problem: null,
+
   door: null,
   providerId: 'manual',
   providerStatus: 'idle',
@@ -99,7 +137,8 @@ let state: AppState = {
   attachMode: 'direct',
   environment: 'sponza',
   frame: 'casing',
-  overlayVisible: true,
+  // The developer tools over the camera; shown only with developer options on.
+  overlayVisible: false,
   logVisible: true,
   log: [],
 };
@@ -184,6 +223,42 @@ export const appActions = {
     if (mode !== state.mode) {
       setState({ mode });
     }
+  },
+
+  // ---- screens --------------------------------------------------------------------------
+
+  /** Opens a screen; "back" returns to the current one. */
+  go(screen: Screen): void {
+    if (screen !== state.screen) {
+      setState({ screen, history: [...state.history, state.screen] });
+    }
+  },
+
+  /** Opens a screen in place of the current one: "back" skips the current one. */
+  replace(screen: Screen): void {
+    if (screen !== state.screen) {
+      setState({ screen });
+    }
+  },
+
+  /** Opens a screen as the start of a new path: there is nothing to go back to. */
+  resetTo(screen: Screen): void {
+    setState({ screen, history: [] });
+  },
+
+  /** One screen back. False when there is none (the caller then leaves the app). */
+  back(): boolean {
+    const previous = state.history[state.history.length - 1];
+    if (previous === undefined) {
+      return false;
+    }
+    setState({ screen: previous, history: state.history.slice(0, -1) });
+    return true;
+  },
+
+  showProblem(problem: ProblemKind): void {
+    setState({ problem });
+    appActions.go('problem');
   },
 
   /** The only writer of the doorway pose. Called with every provider update. */

@@ -17,6 +17,8 @@ import { useRoomScan } from './src/room/roomStore';
 import { deviceLogger } from './src/server/deviceLogger';
 import { serverConnection } from './src/server/ServerConnection';
 import { appActions } from './src/state/appStore';
+import { prefsActions } from './src/state/prefs';
+import { ArScreen } from './src/ui/ArScreen';
 import { Overlay } from './src/ui/Overlay';
 
 /**
@@ -136,6 +138,7 @@ export default function App() {
     void deviceLogger.start(appActions.log).then(() => serverConnection.start(appActions.log));
     // The test condition chosen in the previous run (a restart is one of the tests).
     void measureController.start();
+    void prefsActions.load();
   }, []);
 
   // The AR view is mounted only once the camera permission is granted: starting an
@@ -178,6 +181,7 @@ export default function App() {
         worldMeshEnabled={scanning}
         worldMeshConfig={{ accumulate: true, debugDrawEnabled: wireframe }}
       />
+      <ArScreen />
       <Overlay />
     </View>
   );

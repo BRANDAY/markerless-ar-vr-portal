@@ -6,6 +6,7 @@ import { formatVec3 } from '../localization/math';
 import type { LocalizationStatus } from '../localization/types';
 import { measureController, useMeasure } from '../measure/measureController';
 import { appActions, useAppState } from '../state/appStore';
+import { usePrefs } from '../state/prefs';
 import { Crosshair, MeasurePanel } from './MeasurePanel';
 import { ScanPanel } from './ScanPanel';
 import { ServerChip } from './ServerPanel';
@@ -16,36 +17,40 @@ const TRACKING_COLORS = {
   unavailable: '#e74c3c',
 } as const;
 
-/** React Native layer drawn on top of the AR view: mode badge, debug panel, event log, buttons. */
+/**
+ * DEVELOPER TOOLS over the AR view: mode badge, server chip, status banner, status panel,
+ * event log, scan or measurement panel, and the switches. This was the whole interface
+ * before the product screens (`ArScreen.tsx` and the others); it is kept as it was,
+ * because the device checks and the measurements of assignment task 5 need it. Shown only
+ * with developer options on, through the "Tools" button of the AR screen.
+ */
 export function Overlay() {
+  const developer = usePrefs((s) => s.developerOptions);
   const overlayVisible = useAppState((s) => s.overlayVisible);
   const mode = useAppState((s) => s.mode);
   const measuring = useMeasure((s) => s.visible);
+  if (!developer || !overlayVisible) {
+    return null;
+  }
 
   return (
     <View style={styles.root} pointerEvents="box-none">
       {/* First, so that everything else is drawn over it. */}
-      {overlayVisible ? <Crosshair /> : null}
+      <Crosshair />
       <View style={styles.topRow} pointerEvents="box-none">
         <View style={[styles.modeBadge, mode === 'VR' ? styles.modeVr : styles.modeAr]}>
           <Text style={styles.modeText}>{mode}</Text>
         </View>
-        <Button label={overlayVisible ? 'Hide debug' : 'Debug'} onPress={appActions.toggleOverlay} />
+        <Button label="Hide tools" onPress={appActions.toggleOverlay} />
       </View>
 
-      {/* Outside the debug overlay on purpose: the server status is always visible. */}
       <ServerChip />
       <StatusBanner />
-
-      {overlayVisible ? (
-        <>
-          <StatusPanel />
-          <View style={styles.spacer} pointerEvents="none" />
-          <EventLog />
-          {measuring ? <MeasurePanel /> : <ScanPanel />}
-          <Controls />
-        </>
-      ) : null}
+      <StatusPanel />
+      <View style={styles.spacer} pointerEvents="none" />
+      <EventLog />
+      {measuring ? <MeasurePanel /> : <ScanPanel />}
+      <Controls />
     </View>
   );
 }

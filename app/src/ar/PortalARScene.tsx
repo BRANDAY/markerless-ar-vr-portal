@@ -24,6 +24,7 @@ import { toPlaneAnchorData } from '../room/roomGeometry';
 import { roomActions } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, getAppState, useAppState } from '../state/appStore';
+import { usePrefs } from '../state/prefs';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
 import { MeasureLayer } from './MeasureLayer';
@@ -74,6 +75,7 @@ export function PortalARScene(props: SceneProps) {
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
   const mode = useAppState((s) => s.mode);
+  const testObjects = usePrefs((s) => s.developerOptions && s.testObjects);
 
   const cameraRef = useRef<CameraPose | null>(null);
   const lastCameraPublishRef = useRef(0);
@@ -306,22 +308,27 @@ export function PortalARScene(props: SceneProps) {
         influenceBitMask={LIGHT_MASK_AR}
       />
 
-      {/* Task 1: basic 3D objects in front of the user (session origin looks along -Z). */}
-      <ViroBox
-        position={[-0.35, -0.25, -1.2]}
-        rotation={[0, 30, 0]}
-        width={0.2}
-        height={0.2}
-        length={0.2}
-        materials={['arBox']}
-        lightReceivingBitMask={LIGHT_MASK_AR}
-      />
-      <ViroSphere
-        position={[0.35, -0.25, -1.2]}
-        radius={0.11}
-        materials={['arSphere']}
-        lightReceivingBitMask={LIGHT_MASK_AR}
-      />
+      {/* Task 1: basic 3D objects in front of the user (session origin looks along -Z).
+          A developer option since the product screens: a visitor has no use for them. */}
+      {testObjects ? (
+        <>
+          <ViroBox
+            position={[-0.35, -0.25, -1.2]}
+            rotation={[0, 30, 0]}
+            width={0.2}
+            height={0.2}
+            length={0.2}
+            materials={['arBox']}
+            lightReceivingBitMask={LIGHT_MASK_AR}
+          />
+          <ViroSphere
+            position={[0.35, -0.25, -1.2]}
+            radius={0.11}
+            materials={['arSphere']}
+            lightReceivingBitMask={LIGHT_MASK_AR}
+          />
+        </>
+      ) : null}
 
       <RoomScanLayer />
       <ServerRoomLayer />
