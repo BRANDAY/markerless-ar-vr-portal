@@ -39,6 +39,13 @@ class BuildOptions:
     use_pose_priors: bool = True
     pose_prior_sigma_m: float = 0.05
     metric_ransac_threshold_m: float = 0.10
+    # The capture poses (AR recording) are trusted. A reconstruction in which fewer than this
+    # share of the cameras lands within the threshold of its recorded position is wrong
+    # somewhere: SfM is run again (it is not deterministic) and the best attempt is kept.
+    metric_min_inlier_fraction: float = 0.6
+    sfm_attempts: int = 3
+    # ...and single images further than this from their recorded position are not exported.
+    metric_drop_m: float = 0.30
     # Sequential captures: drop short runs of images that "jump" away from the camera path.
     drop_jump_factor: float = 8.0  # a jump is a step larger than this x the median step
     drop_max_run: int = 8  # only runs up to this many images are dropped
@@ -217,12 +224,6 @@ def build_map(
     timings["verify_s"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    mopts = pycolmap.IncrementalPipelineOptions()
-    mopts.num_threads = opts.num_threads
-    mopts.min_num_matches = opts.min_matches
-    if use_priors:
-        mopts.use_prior_position = True
-        mopts.use_robust_loss_on_prior_position = True
     registered = [0]
 
     def _on_image(first: bool = False) -> None:
@@ -231,67 +232,118 @@ def build_map(
         frac = min(0.97, 0.05 + 0.92 * registered[0] / len(names))
         progress("sfm", frac, f"reconstructed {min(registered[0], len(names))} of {len(names)} frames")
 
-    progress("sfm", 0.05, "starting the reconstruction")
-    recs = pycolmap.incremental_mapping(
-        db_path, img_dir, work / "models", mopts,
-        initial_image_pair_callback=lambda: _on_image(True), next_image_callback=_on_image,
-    )
-    timings["sfm_s"] = time.perf_counter() - t0
-    if not recs:
-        raise RuntimeError("SfM failed: no model could be initialised (too little overlap or texture)")
-    rec = max(recs.values(), key=lambda r: r.num_reg_images())
-    log.info("SfM: %d models, largest has %d / %d images", len(recs), rec.num_reg_images(), len(names))
-
-    # 6. metric alignment (only when the capture carries metric poses) -------- #
-    metric_info: dict = {"metric": False, "scale_m_per_unit": None, "scale_source": None, "pose_priors_used": use_priors}
-    reg = sorted((im for im in rec.images.values() if im.has_pose), key=lambda im: im.name)
-
-    # 5b. sequential captures: images that jumped off the camera path are not exported
-    dropped: list[str] = [im.name for im in reg if im.num_points3D < opts.min_image_points3D]
-    if dropped:
-        log.warning("dropping %d images with < %d 3D points: %s", len(dropped), opts.min_image_points3D, dropped)
-        reg = [im for im in reg if im.name not in set(dropped)]
-    if capture.info.kind != "images":
-        bad = find_jump_outliers(
-            np.array([im.projection_center() for im in reg]), opts.drop_jump_factor, opts.drop_max_run
+    def reconstruct(attempt: int) -> dict | None:
+        """One run of incremental SfM, outlier removal and metric alignment."""
+        mopts = pycolmap.IncrementalPipelineOptions()
+        mopts.num_threads = opts.num_threads
+        mopts.min_num_matches = opts.min_matches
+        if attempt and hasattr(mopts, "random_seed"):
+            mopts.random_seed = attempt
+        if use_priors:
+            mopts.use_prior_position = True
+            mopts.use_robust_loss_on_prior_position = True
+        registered[0] = 0
+        progress("sfm", 0.05, "starting the reconstruction" if not attempt else f"reconstructing again (attempt {attempt + 1})")
+        recs = pycolmap.incremental_mapping(
+            db_path, img_dir, work / ("models" if not attempt else f"models_{attempt}"), mopts,
+            initial_image_pair_callback=lambda: _on_image(True), next_image_callback=_on_image,
         )
-        if bad:
-            log.warning("dropping %d images that jumped off the camera path: %s", len(bad), [reg[i].name for i in bad])
-            dropped += [reg[i].name for i in bad]
-            reg = [im for i, im in enumerate(reg) if i not in set(bad)]
-    if len(reg) < 3:
-        raise RuntimeError("SfM registered too few usable images")
-    dropped_set = set(dropped)
-    posed = [im for im in reg if frames[im.name].frame.T_world_from_arcam is not None]
-    if opts.use_metric_poses and len(posed) >= 3:
-        src = np.array([im.projection_center() for im in posed])
-        dst = np.array([frames[im.name].frame.T_world_from_arcam[:3, 3] for im in posed])
-        try:
-            sim, inl = g.umeyama_ransac(src, dst, opts.metric_ransac_threshold_m)
-            rec.transform(pycolmap.Sim3d(sim.scale, pycolmap.Rotation3d(sim.R), sim.t))
-            res = np.linalg.norm(sim.apply(src) - dst, axis=1)
-            metric_info = {
-                "pose_priors_used": use_priors,
-                "metric": True,
-                "scale_m_per_unit": 1.0,
-                "scale_source": f"capture poses ({capture.info.kind})",
-                "metric_alignment": {
-                    "frames_with_pose": len(posed),
-                    "inliers": int(inl.sum()),
-                    "rms_m": float(np.sqrt(np.mean(res[inl] ** 2))),
-                    "median_m": float(np.median(res)),
-                    "max_m": float(res.max()),
-                    "threshold_m": opts.metric_ransac_threshold_m,
-                },
-                "map_frame": "world frame of the capture poses (AR world of the mapping session: y up)"
-                if capture.info.kind != "tum"
-                else "world frame of the capture poses (motion-capture frame: z up)",
-            }
-            reg = sorted(
-                (im for im in rec.images.values() if im.has_pose and im.name not in dropped_set), key=lambda im: im.name
+        if not recs:
+            return None
+        rec = max(recs.values(), key=lambda r: r.num_reg_images())
+        log.info("SfM: %d models, largest has %d / %d images", len(recs), rec.num_reg_images(), len(names))
+
+        # 6. metric alignment (only when the capture carries metric poses) -------- #
+        metric_info: dict = {"metric": False, "scale_m_per_unit": None, "scale_source": None, "pose_priors_used": use_priors}
+        reg = sorted((im for im in rec.images.values() if im.has_pose), key=lambda im: im.name)
+
+        # 5b. sequential captures: images that jumped off the camera path are not exported
+        dropped: list[str] = [im.name for im in reg if im.num_points3D < opts.min_image_points3D]
+        if dropped:
+            log.warning("dropping %d images with < %d 3D points: %s", len(dropped), opts.min_image_points3D, dropped)
+            reg = [im for im in reg if im.name not in set(dropped)]
+        if capture.info.kind != "images":
+            bad = find_jump_outliers(
+                np.array([im.projection_center() for im in reg]), opts.drop_jump_factor, opts.drop_max_run
             )
-        except ValueError as e:
-            log.warning("metric alignment failed (%s); the map stays non-metric", e)
+            if bad:
+                log.warning("dropping %d images that jumped off the camera path: %s", len(bad), [reg[i].name for i in bad])
+                dropped += [reg[i].name for i in bad]
+                reg = [im for i, im in enumerate(reg) if i not in set(bad)]
+        if len(reg) < 3:
+            return None
+        fraction = None
+        posed = [im for im in reg if frames[im.name].frame.T_world_from_arcam is not None]
+        if opts.use_metric_poses and len(posed) >= 3:
+            src = np.array([im.projection_center() for im in posed])
+            dst = np.array([frames[im.name].frame.T_world_from_arcam[:3, 3] for im in posed])
+            try:
+                sim, inl = g.umeyama_ransac(src, dst, opts.metric_ransac_threshold_m)
+                rec.transform(pycolmap.Sim3d(sim.scale, pycolmap.Rotation3d(sim.R), sim.t))
+                res = np.linalg.norm(sim.apply(src) - dst, axis=1)
+                fraction = float(inl.sum()) / len(posed)
+                far = [im.name for im, r in zip(posed, res) if r > opts.metric_drop_m]
+                if far and len(reg) - len(far) >= 3:
+                    log.warning("dropping %d images further than %.2f m from their recorded position: %s", len(far), opts.metric_drop_m, far)
+                    dropped += far
+                else:
+                    far = []
+                metric_info = {
+                    "pose_priors_used": use_priors,
+                    "metric": True,
+                    "scale_m_per_unit": 1.0,
+                    "scale_source": f"capture poses ({capture.info.kind})",
+                    "metric_alignment": {
+                        "frames_with_pose": len(posed),
+                        "inliers": int(inl.sum()),
+                        "inlier_fraction": round(fraction, 3),
+                        "rms_m": float(np.sqrt(np.mean(res[inl] ** 2))),
+                        "median_m": float(np.median(res)),
+                        "max_m": float(res.max()),
+                        "threshold_m": opts.metric_ransac_threshold_m,
+                        "dropped_far_from_recorded_pose": far,
+                    },
+                    "map_frame": "world frame of the capture poses (AR world of the mapping session: y up)"
+                    if capture.info.kind != "tum"
+                    else "world frame of the capture poses (motion-capture frame: z up)",
+                }
+                dropped_set = set(dropped)
+                reg = sorted(
+                    (im for im in rec.images.values() if im.has_pose and im.name not in dropped_set), key=lambda im: im.name
+                )
+            except ValueError as e:
+                log.warning("metric alignment failed (%s); the map stays non-metric", e)
+        return {"rec": rec, "num_models": len(recs), "reg": reg, "dropped": dropped, "metric_info": metric_info, "fraction": fraction}
+
+    best: dict | None = None
+    attempts = 0
+    for attempt in range(max(1, opts.sfm_attempts)):
+        attempts += 1
+        got = reconstruct(attempt)
+        if got is not None and (best is None or (got["fraction"] or 0.0) > (best["fraction"] or 0.0)):
+            best = got
+        if got is not None and (got["fraction"] is None or got["fraction"] >= opts.metric_min_inlier_fraction):
+            break  # nothing to compare with, or good enough
+        log.warning("SfM attempt %d: %s", attempt + 1, "no usable model" if got is None else
+                    f"only {got['fraction'] * 100:.0f} % of the cameras agree with their recorded positions")
+    timings["sfm_s"] = time.perf_counter() - t0
+    if best is None:
+        raise RuntimeError("SfM failed: no model could be initialised (too little overlap or texture)")
+    rec, reg, dropped, metric_info = best["rec"], best["reg"], best["dropped"], best["metric_info"]
+    recs = range(best["num_models"])
+    build_warnings: list[str] = []
+    if len(reg) < 0.6 * len(names):
+        build_warnings.append(
+            f"only {len(reg)} of {len(names)} selected frames ended up in the map (the others could not be reconstructed reliably): "
+            "parts of the room are missing - scan again: slower, with more overlap between views")
+    if "metric_alignment" in metric_info:
+        ma = metric_info["metric_alignment"]
+        ma["sfm_attempts"] = attempts
+        if best["fraction"] < opts.metric_min_inlier_fraction:
+            build_warnings.append(
+                f"the reconstruction disagrees with the recorded AR poses: only {ma['inliers']} of {ma['frames_with_pose']} cameras are within "
+                f"{ma['threshold_m'] * 100:.0f} cm of where the recording says they were (median {ma['median_m'] * 100:.0f} cm, {attempts} attempts). "
+                "Localisation against this map can be wrong - scan again: slower, with more overlap between views")
 
     # 7. export --------------------------------------------------------------- #
     progress("sfm", 1.0, f"{len(reg)} of {len(names)} frames reconstructed")
@@ -355,6 +407,7 @@ def build_map(
         "mean_reprojection_error_px": float(rec.compute_mean_reprojection_error()),
         "mean_track_length": float(rec.compute_mean_track_length()),
         **metric_info,
+        "warnings": build_warnings,
         **({"up": [0.0, 1.0, 0.0]} if metric_info.get("metric") and capture.info.kind == "viro_recording" else {}),
         "bounds": {
             "points_p02": [float(v) for v in np.percentile(pts, 2, axis=0)],

@@ -5,7 +5,9 @@ with the motion-capture ground truth playing the role of the ARCore poses. It
 lets the whole "clip + session.jsonl -> alignment" path run on real images
 before a phone recording exists.
 
-``--session-transform yaw_deg,tx,ty,tz`` moves the poses into a different world
+The poses are turned from the z-up motion-capture world into a y-up world, as
+an AR session reports them (gravity along -y).
+``--session-transform yaw_deg,tx,ty,tz`` moves them further into a different world
 frame, the way a new AR session has a new origin and heading. The server must
 then report exactly that transform as ``T_arworld_from_map`` (for a metric map
 built from the same sequence), which is what this script prints for comparison.
@@ -23,7 +25,7 @@ import numpy as np
 
 from locserver import geometry as g
 from locserver.capture import TumCapture
-from locserver.recording import write_recording
+from locserver.recording import T_YUP_FROM_ZUP, write_recording
 
 
 def main() -> int:
@@ -37,7 +39,8 @@ def main() -> int:
     a = ap.parse_args()
 
     yaw, tx, ty, tz = (float(v) for v in a.session_transform.split(","))
-    T_session_from_world = g.make_T(g.rot_y(np.radians(yaw)), [tx, ty, tz])
+    # the TUM world has z up, an AR world has y up: turn it first, then apply the session offset
+    T_session_from_world = g.make_T(g.rot_y(np.radians(yaw)), [tx, ty, tz]) @ T_YUP_FROM_ZUP
 
     cap = TumCapture(a.sequence)
     want = set(range(a.start, a.start + a.count * a.step, a.step))

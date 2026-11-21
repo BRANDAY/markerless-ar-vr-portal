@@ -120,6 +120,7 @@ def run(spec: dict, report) -> dict:
         extra["built_from"] = "recording upload"
         lmap.meta.update(extra)
         (lmap.path / "map.json").write_text(json.dumps(lmap.meta, indent=2), encoding="utf-8")
+        warnings += lmap.meta.get("warnings") or []
         if not lmap.metric:
             warnings.append("the reconstruction could not be aligned to the recorded AR poses: the map is not metric")
         room = _room(lmap, spec, report, warnings)
