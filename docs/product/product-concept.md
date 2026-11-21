@@ -5,6 +5,11 @@ From a study prototype to something a customer could use. Written on 21 November
 checked against trademarks. The choices marked **Proposal** are for the owner to confirm or change.
 The main scenario (museums and heritage sites) was confirmed by the owner on 21 November 2026.
 
+**Revision 2, 21 November 2026.** The owner decided to move closer to the assignment: the app has two modes;
+a staff member places the door and saves it to the server; a visitor's phone holds nothing but the app, and
+the door and the room come from the server; ReactVision Advanced VPS is added as a second way to connect.
+Sections 2, 4, 5.1, 5.2, 5.7, 5.8 and 6 carry this decision.
+
 Related documents: [competitors.md](competitors.md), [ui-spec.md](ui-spec.md), [mockups/](mockups/index.html).
 
 ## 1. What exists today
@@ -37,12 +42,13 @@ Checked in the code and the server contract on 21 November 2026.
 
 ## 2. What the product is
 
-A door that a place owns. Staff scan a room once and choose what is behind its doorway. From then on anyone
-with the app, on that network, sees a door in that doorway and can walk into another place.
+A door that a place owns. A staff member scans a room once, puts the door where it should stand, saves it
+and chooses what is behind it. From then on anyone with the app, on that network, sees the door in that
+place and can walk into another place. A visitor sets up nothing.
 
-What is different from other products (details in [competitors.md](competitors.md)): the door finds its real
-doorway by itself in every session, the room data stays on the customer's own machine, and there is no
-charge per use.
+What is different from other products (details in [competitors.md](competitors.md)): the door comes back to
+its saved place by itself in every session, on every phone; the server can suggest a real doorway for it;
+the room data stays on the customer's own machine; and there is no charge per use.
 
 ## 3. Who would pay: four scenarios
 
@@ -90,11 +96,13 @@ supported setup, visitors' own Android phones as a bonus, a server on a PC in th
 
 ## 4. Roles
 
+The app has two modes (owner's decision, 21 November 2026).
+
 | Role | Who | Sees |
 |---|---|---|
-| Visitor | A member of the public with a loaned or own phone | One welcome screen, the door, the space. No setup, no settings |
-| Host | Venue staff who set the place up | Home, scanning, rooms, spaces, settings |
-| Developer | Us | Everything the debug overlay shows today, behind developer options |
+| Visitor | A member of the public with a loaned or own phone | One screen: the camera, the door, the space. Nothing to set up and nothing to change. A fresh install starts here |
+| Staff | Venue staff who set the place up | Home, scanning, placing the door, rooms, spaces, settings. Entered with a PIN |
+| Developer | Us | Everything the debug overlay shows today, behind developer options inside staff mode |
 
 ## 5. Features
 
@@ -107,9 +115,10 @@ current code; "server" marks work outside the app.
 
 | Feature | Priority | Size | Notes |
 |---|---|---|---|
-| Three welcome cards, shown once | V1 | S | New. No sign-up |
-| Camera permission screen that says why and where the video goes | V1 | S | The permission gate exists; the explanation is new |
-| "Try a door now" without a server: the door is placed in front of the user and is not remembered | V1 | S | The manual placement provider exists. Gives a first impression in under a minute, before any scan |
+| Visitor: one welcome panel with **Start**, shown on the first launch; later launches open the camera at once | V1, first | S | New |
+| Staff: three welcome cards, shown once | V1 | S | Built |
+| Camera permission screen that says why and where the video goes | V1 | S | Built |
+| A door put in front of the user without a server | Developer tool only | — | The assignment rules out a door placed by hand at every launch, so this is not offered to users |
 | Hints in context instead of a tutorial (scan, find the room, walk through) | V1 | S | Texts in [ui-spec.md](ui-spec.md) |
 
 ### 5.2 Scanning a room
@@ -121,7 +130,8 @@ current code; "server" marks work outside the app.
 | Minimum before "Finish": 60 seconds, floor found, a few metres walked. Hard stop at 3 minutes | V1 | S | Prevents the too-short recordings that fail on the server |
 | Teal paint on captured walls and floor | V1 | S | Plane highlights exist; restyle. In the one device test no wall planes were found, so the depth mesh must carry the feedback if planes are missing |
 | Build screen with one percentage, five named steps and time left | V1 | S | Server gives progress, stage and estimate |
-| Room result: plan seen from above with the doorway marked; choose between doorways; reject and rescan | V1 | M | Server gives walls, corners, openings and a way to select one |
+| Room result: plan seen from above, found doorways marked, one button to place the door | V1 | S | Server gives walls, corners and openings |
+| **Place the door**: the staff member puts the door on the floor where they aim, adjusts it in 5 cm and 5° steps, sets width and height, and saves it to the server. A doorway the server found is offered as a suggestion. Move and remove for a saved door | V1, first | M | The server already accepts a door placed this way. It does not store the door's size yet |
 | "Room is ready" notification when the app is in the background | V1.x | S | Needs a notifications module |
 | Keep the scan on the phone until the build succeeds; "send again" after a failure | V1 | S | Captures are stored; the pointer to the last one is lost on restart today |
 | Refuse a too-short scan at upload | V1.x | S, server | Wanted in the server notes, not implemented |
@@ -174,7 +184,9 @@ The user can walk only as far as the real floor allows. Four measures, in order 
 
 | Feature | Priority | Size | Notes |
 |---|---|---|---|
-| Visitor mode: one welcome screen and a Start button; setup hidden behind a staff PIN | V1 | M | |
+| Visitor mode: one screen; the door comes only from the server; every failure ends in "ask a member of staff"; staff mode behind a PIN | V1, first | M | Built first, before the guided scan |
+| A visitor sees only doors that a staff member saved | V1, first | S | A doorway the server found by itself is a suggestion for staff |
+| Staff PIN kept on the server | V1.x | S, server | Until then anyone can create a PIN on their own phone. Acceptable while the venue lends the devices |
 | Venue name on the visitor screen, taken from the server's name | V1 | S | The server reports its name |
 | Welcome text and languages set by the host | V1.x | S | |
 | Phone locked to the app (Android screen pinning) | V1.x | S | A setup guide may be enough at first |
@@ -186,8 +198,8 @@ The user can walk only as far as the real floor allows. Four measures, in order 
 |---|---|---|---|
 | Server on the venue's network (as today) | V1 | — | |
 | Server installer for a non-developer, with a start icon and automatic firewall rule | V1 | M, server | Today: command line, six steps |
-| No server: door placed by hand, not remembered. For trying the app and for demos | V1 | S | Exists |
-| A ready-made cloud positioning service as a second way to keep the door in place, connected through the app's existing provider interface | Trial | M | Owner's decision, 21 November 2026: our own server stays the main way; we do not build cloud computing of our own, we learn to connect to an existing service. Explored in a separate chat. Such a service finds the room again; finding the doorway stays with our server, or the door is placed once by hand |
+| No server: door put in front of the camera, not remembered | Developer tool only | — | Exists. Labelled "Not tied to the room" |
+| **ReactVision Advanced VPS** as a second way to find the room, chosen by staff in Settings | V1, after the first full pass | M, app and server | Owner's decisions, 21 November 2026: our own server stays the main way; we do not build cloud computing of our own, we connect to an existing service; that service is ReactVision Advanced VPS. It needs the owner's account and a paid plan (from USD 25 a month). The same scan can go to both, which allows a side-by-side comparison on one room. Nothing about it has been tried yet |
 | A hosted copy of our own server, run by us | Not planned | L, server | Dropped by the same decision |
 | Hybrid: build the map on a rented machine, find the room on a small box in the venue | Later | L, server | The pattern larger vendors sell at a premium |
 | Finding the room on the phone, no network | Later | L | Research task |
@@ -233,13 +245,19 @@ The user can walk only as far as the real floor allows. Four measures, in order 
 us in the room:
 
 1. The redesigned interface with debug controls hidden.
-2. The guided scan with doorway approval.
-3. Home, rooms, a library of two or three spaces.
-4. Visitor mode with a PIN.
-5. Wall warning and "door is behind you".
-6. Photo and share.
-7. English and Croatian.
-8. A server installer, and room delete on the server.
+2. Two modes: visitor (one screen, door only from the server) and staff (behind a PIN).
+3. Staff place the door and save it to the server; move and remove.
+4. The guided scan.
+5. Home, rooms, a library of two or three spaces.
+6. Wall warning and "door is behind you".
+7. Photo and share.
+8. English and Croatian.
+9. A server installer, and room delete on the server.
+10. ReactVision Advanced VPS as a second connection method.
+
+Order (revision 2): items 2 and 3 come first, then a full pass on the phone (staff scan and place the door,
+the app is closed, a visitor opens it, the door is in place), then the rest. Details in
+[ui-spec.md](ui-spec.md), section 10.
 
 Before any of it: the core loop shown working in a real room on the test phone, and the project's own
 accuracy and repeat-visit tests run, so there are real numbers to put next to the vendors' claims.
@@ -266,4 +284,6 @@ accuracy and repeat-visit tests run, so there are real numbers to put next to th
 4. ~~Loaned devices or visitors' own phones~~ — decided on 21 November 2026: devices loaned by the venue
    are the main setup; visitors' own Android phones are an addition.
 5. ~~Whether a hosted server is wanted~~ — decided on 21 November 2026: our own server is the main way. No
-   cloud of our own. Connecting to an existing cloud service is tried in a separate chat.
+   cloud of our own. ReactVision Advanced VPS is added as a second connection method.
+6. For the ReactVision method: the account and the paid plan, and where the door's place is kept (on our own
+   server, as proposed, or in the vendor's editor).

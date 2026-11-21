@@ -21,16 +21,21 @@ marked **Check**.
 2. **Over the camera, almost nothing.** At most a close button, one label, one menu and one main control.
 3. **One instruction at a time**, in words a visitor understands. No codes, coordinates or internal names.
 4. **Every problem says what happened and offers one way forward.**
-5. **The app does the technical steps itself.** The user never chooses a provider, starts a recording by
-   hand or presses "upload".
+5. **The app does the technical steps itself.** Nobody starts a recording by hand or presses "upload". A
+   visitor chooses nothing at all. A staff member makes two choices: where the door stands and what is
+   behind it.
 6. **Everything technical lives in developer options**, off by default.
 7. **Say only what is true.** Counters show what the phone actually knows. Times come from measurements.
+8. **Staff tools may be denser.** Placing the door needs more controls than a visitor ever sees. They stay
+   folded away until asked for.
 
 ## 2. Words
 
 | Say | Meaning | Never show |
 |---|---|---|
 | door | the virtual door | portal, anchor |
+| place the door, save the door | what staff do once per room | set anchor, manual placement |
+| staff, visitor | the two kinds of user | host, admin, user |
 | doorway | the real opening in the wall | opening, portal pose |
 | room | a scanned place | map, map id |
 | space | the virtual place behind the door | world, environment, scene |
@@ -47,7 +52,7 @@ Sentence case everywhere. Buttons are verbs: "Open the door", "Scan this room", 
 Two meanings carry the whole interface:
 
 - **Teal is the real room as the app understands it**: scan paint, the room plan, wall warnings.
-- **Amber is the door and the main action**: the primary button, the doorway on the plan, rings to move to.
+- **Amber is the door and the main action**: the primary button, the door on the plan, rings to move to.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
@@ -57,7 +62,7 @@ Two meanings carry the whole interface:
 | `ink` | `#131A26` | `#EEF2F8` | text |
 | `ink2` | `#566074` | `#9AA6BA` | secondary text |
 | `line` | `#D7DCE5` | `#2A3445` | borders, dividers |
-| `amber` | `#FFB23E` | `#FFB84D` | primary button fill, doorway |
+| `amber` | `#FFB23E` | `#FFB84D` | primary button fill, the door on the plan |
 | `amberInk` | `#2A1A00` | `#2A1A00` | text on amber |
 | `amberText` | `#8F5400` | `#FFC873` | amber used as text or icon |
 | `amberSoft` | `#FFF0D6` | `#3A2A10` | selected option, amber tile |
@@ -76,7 +81,7 @@ Screens over the camera have one look in both themes, because they sit on live v
 | `hudDim` | `rgba(255,255,255,0.72)` | second line |
 | `hudLine` | `rgba(255,255,255,0.16)` | hairline border |
 | `scan` | `#3FE0D4` | scan paint, wall warning grid |
-| `door` | `#FFB84D` | doorway outline, rings |
+| `door` | `#FFB84D` | door outline on the floor, rings |
 | `hudDanger` | `rgba(120,30,22,0.82)` | "lost track" banner |
 
 The mockups blur the video behind HUD elements. Plain React Native has no blur without an extra native
@@ -121,7 +126,7 @@ fonts is postponed, the system font is an acceptable stand-in with the same size
 | Depth mesh | engine wireframe behind a debug button | on during scanning, thin `scan` lines. It carries the feedback when no wall planes are found |
 | Server room plan in AR (orange walls, white openings) | "Plan" toggle | developer option only. Users see the plan as a 2D drawing on the room result screen |
 | Orange box and blue sphere near the origin | always | removed (developer option) |
-| Door before its place is confirmed | shown at once, marked "not confirmed" in text | first placement in a session: an amber dashed outline of the doorway only. The door and the space fade in when the place is confirmed. **Check** |
+| Door before its place is confirmed | shown at once, marked "not confirmed" in text | first placement in a session: an amber dashed outline of the door only, then the door when the place is confirmed. A 300 ms fade-in is optional polish: inside the portal it has not been tried |
 | Door, confirmed | wooden casing sized to the opening | unchanged |
 | AR / VR badge | always | removed (developer option) |
 | Real walls while inside the space | nothing | `scan` grid on a real wall when the phone is within 0.6 m of it, full strength at 0.3 m. Drawn from the room plan the server returns with the position. **Check** that it can be drawn inside the portal's inner scene |
@@ -131,62 +136,65 @@ fonts is postponed, the system font is an acceptable stand-in with the same size
 
 ```mermaid
 flowchart TD
-  start([App start]) --> first{First run?}
-  first -- yes --> welcome[Welcome 1-3] --> permission[Camera permission] --> connect[Find the server]
-  first -- no --> mode{Visitor mode on?}
-  mode -- yes --> visitor[Visitor welcome]
-  mode -- no --> home[Home]
-  connect --> home
-  connect -- "Try a door without a server" --> ar
-  home -- "Open the door" --> ar[AR: finding the room]
-  visitor -- Start --> ar
-  home -- "Scan this room" --> prepare[Before you scan] --> scan[Scanning] --> build[Building the map] --> result[Room and doorway]
-  result -- "Use this doorway" --> ar
-  result -- "Scan again" --> prepare
-  ar --> door[AR: door in the room] <--> inside[Inside the space]
+  start([App start]) --> mode{Mode}
+  mode -- visitor --> visitor[Visitor screen: find the door]
+  visitor --> vdoor[Door in the room] <--> vinside[Inside the space]
+  visitor -. "lock, then staff PIN" .-> home
+  mode -- staff --> home[Home]
+  home -- "Scan this room" --> prepare[Before you scan] --> scan[Scanning] --> build[Building the map] --> result[Room result]
+  result -- "Place the door" --> place[Place the door]
+  home -- "Place the door" --> place
+  place -- "Save door" --> home
+  home -- "Open the door" --> ar[AR: find the room, door, inside]
+  home --> rooms[Rooms] -- "Move the door" --> place
   home --> spaces[Spaces]
-  home --> rooms[Rooms]
   home --> settings[Settings]
-  door -- space label --> spaces
-  settings --> connect
-  settings -- "Visitor mode" --> visitor
-  ar -. problem .-> problems[Problem screens]
-  build -. failure .-> problems
+  settings --> connect[Find the server]
+  settings -- "Switch to visitor mode" --> visitor
 ```
+
+A fresh install starts in visitor mode (4.3). The first time staff mode is opened: PIN, welcome cards (5.1),
+Find the server (5.3), Home.
 
 ### 4.1 Navigation without a navigation library
 
-The app has no navigation library, and one is not needed. Add a `screen` value to the app store:
+The app has no navigation library, and one is not needed. The app store holds a `screen` value:
 
 `welcome | permission | connect | home | scanPrepare | scan | build | roomResult | placeDoor | ar | spaces | rooms | settings | visitor | problem`
 
-- `ar` covers three situations of one screen: finding the room, door in the room, inside the space. They are
-  derived from the localisation status and the existing AR / VR mode, not separate screens.
+- `visitor` is the whole of visitor mode. `ar` is its staff counterpart. Each covers three situations of one
+  screen: finding the room, door in the room, inside the space. They are derived from the localisation
+  status and the existing AR / VR mode, not separate screens.
 - `problem` carries a `kind` (section 7).
-- The AR view (`ViroARSceneNavigator`) is mounted only on `scan` and `ar`. Other screens are plain React
-  Native views. **Check**: remounting the AR view restarts the AR session; if that proves unstable on the
-  phone, keep it mounted and cover it with an opaque screen.
+- The AR view (`ViroARSceneNavigator`) is mounted only on `scan`, `placeDoor`, `ar` and `visitor`. Other
+  screens are plain React Native views. Remounting the AR view restarts the AR session; this is built but
+  not seen on the phone. The developer option "Keep the AR view running" is the fallback. **Check**
 - A new AR session needs a new `session_id` for the server, as the server contract says.
 
 Android back button:
 
 | On | Back does |
 |---|---|
-| Home, Visitor welcome | leaves the app |
+| Visitor screen | leaves the app; if a sheet or the welcome panel is open over the camera, closes it |
+| Home | leaves the app |
 | Scanning | asks "Stop scanning? The scan will be discarded." with "Keep scanning" / "Stop" |
 | Building | goes Home; the build continues |
-| AR | goes Home (Visitor welcome in visitor mode) |
+| Place the door | if something changed, asks "Leave without saving?" (5.14); else goes back |
+| AR (staff) | goes Home |
 | A sheet or menu | closes it |
 | Anything else | goes to the previous screen |
 
 ### 4.2 What is remembered between launches
 
-New file next to the existing `server-connection.json` and `device-id.json`:
+In the app's own settings file (the existing `prefs`), next to `server-connection.json` and `device-id.json`:
 
 | Key | Purpose |
 |---|---|
-| `onboardingDone` | welcome cards shown once |
-| `visitorMode`, `pinHash` | visitor mode and its PIN |
+| `visitorMode` | the mode. `true` on a fresh install |
+| `pinHash` | the staff PIN, hashed. Absent until staff mode is opened for the first time |
+| `onboardingDone` | staff welcome cards shown once |
+| `visitorWelcomeDone` | the visitor welcome panel was passed once, so later launches open the camera at once |
+| `connection` | `server` (default) or `reactvision` (5.15) |
 | `developerOptions` | developer options switched on |
 | `lastRoomId` | room to try first |
 | `spaceByRoom` | chosen space per room, until the server stores it |
@@ -251,38 +259,46 @@ the permission screen (5.2) comes first.
 
 ### 5.2 Camera permission (`permission`)
 
+Rarely seen now: the visitor welcome panel (5.13) asks for the camera on the first launch. This screen is
+shown in staff mode when the camera is still not allowed.
+
 - Title: **Vrata needs your camera**. Body: "The camera shows the room and keeps the door in its place."
-- Three lines with icons:
-  - "When you scan a room, a short video of it goes to the Vrata server on this Wi‑Fi. It is used only to
-    build the room map."
-  - "Nothing leaves this network. No account, no ads."
-  - "You can delete a room and its video at any time."
-- **Allow camera** opens the Android dialog. Granted: go on to `connect`.
+- Lines with icons, by connection method (5.15):
+
+| Own server | ReactVision cloud |
+|---|---|
+| When you scan a room, a short video of it goes to the Vrata server on this Wi‑Fi. It is used only to build the room map. | When you scan a room, a short video of it goes to ReactVision's cloud, which builds the room map and keeps it. |
+| Nothing leaves this network. No account, no ads. | Finding the room afterwards happens on this phone. |
+| You can delete a room and its video at any time. (only once the server can: S1) | — |
+
+- **Allow camera** opens the Android dialog. Granted: go on to where the user was heading.
 - **Not now**, or a refusal: problem `camera`.
-- The third line may ship only when the server can delete a room (section 9, S1). Until then leave it out.
 - The existing permission logic (retry, re-check on return to the app, "blocked" state) stays.
+- The same lines appear on Before you scan (5.5) and in Settings under Privacy and data. Before a scan is
+  the moment they matter: that is when a video is recorded.
 
 ### 5.3 Find the server (`connect`)
 
-Starts searching at once. Reuses the existing connection states.
+Staff mode only. Visitors never see it: in visitor mode the search runs behind the coach line "One moment…"
+(5.13). Starts searching at once. Reuses the existing connection states.
 
 | State (existing) | Title | Body | Buttons |
 |---|---|---|---|
-| `searching`, `connecting` | Looking for a Vrata server | Checking this Wi‑Fi. This can take up to a minute. | ghost **Enter address instead**; text **Try a door without a server** |
+| `searching`, `connecting` | Looking for a Vrata server | Checking this Wi‑Fi. This can take up to a minute. | ghost **Enter address instead** |
 | one server found | Found “{server_name}” | A Vrata server on this Wi‑Fi with {n} scanned rooms. (n = 0: "…with no rooms yet.") | primary **Connect** |
 | several found | Choose a server | list of names | tap a row |
-| none found | No server on this Wi‑Fi | Vrata keeps a door in place with the help of a server on the same network. Then two checks: "Is the server PC switched on and Vrata Server running?" / "Is this phone on the same Wi‑Fi (not mobile data, not a guest network)?" | primary **Search again**; ghost **Enter address**; text **Try a door without a server** |
+| none found | No server on this Wi‑Fi | Vrata keeps a door in place with the help of a server on the same network. Then two checks: "Is the server PC switched on and Vrata Server running?" / "Is this phone on the same Wi‑Fi (not mobile data, not a guest network)?" | primary **Search again**; ghost **Enter address** |
 | phone not on Wi‑Fi | Connect this phone to Wi‑Fi | Vrata reaches the server over Wi‑Fi, not mobile data. | primary **Search again** |
 | `incompatible` | This server needs an update | The app and the server are different versions. Update both. | primary **Search again** |
 
 - "Enter address" opens a sheet with one field (label "Server address", hint "for example 192.168.1.20") and
   **Connect**. The existing validation messages stay.
 - After the first successful connection the app reconnects silently at launch, as today.
-- "Try a door without a server" switches to the manual placement provider and opens `ar`.
+- There is no "try a door without a server" here. A door that is not tied to the room is a developer tool.
 
 ### 5.4 Home (`home`)
 
-Top row: app name; server chip; settings icon.
+Staff mode only. Top row: app name; server chip; settings icon.
 
 Server chip:
 
@@ -293,32 +309,36 @@ Server chip:
 | unreachable | red dot + "Server offline" |
 | not set up | grey dot + "No server" |
 
-Tapping the chip opens Settings.
+Tapping the chip opens Settings. With the ReactVision cloud as the connection method the chip reads
+"ReactVision cloud" with a green dot when the phone is online.
 
 | Situation | Content | Primary | Secondary |
 |---|---|---|---|
-| Room ready | Card "THIS ROOM": tag "Ready", plan drawing, room name, "Scanned {date} · doorway {w} × {h} m", arrow to Rooms. Row "BEHIND THE DOOR": thumbnail, space name, "Change" | **Open the door** | text **Scan another room** |
-| No room on the server | Card: "No room here yet" / "Scan this room once and Vrata will remember where its doorway is. It takes about two minutes of walking." | **Scan this room** | text **Try a door without scanning** |
+| Room with a saved door | Card "THIS ROOM": tag "Ready", plan drawing with the door in amber, room name, "Door placed {date} · {w} × {h} m", arrow to Rooms. Row "BEHIND THE DOOR": thumbnail, space name, "Change" | **Open the door** | text **Switch to visitor mode** |
+| Room scanned, no door saved | The same card with the tag "No door yet" and the line "Put the door where visitors should find it." | **Place the door** | text **Scan again** |
+| No room on the server | Card: "No room here yet" / "Scan this room once, then put a door in it. It takes about two minutes of walking." | **Scan this room** | — |
 | A build is running | Card with room name, "Building the map · {p}%" | **See progress** | — |
-| Server offline, rooms known | Room card dimmed, line "The server is offline. Vrata needs it to find the door." | **Search again** | text **Try a door without a server** |
-| No server set up | Card "Not connected" / "Vrata keeps a door in place with the help of a server on the same Wi‑Fi." | **Find the server** | text **Try a door without a server** |
+| Server offline, rooms known | Room card dimmed, line "The server is offline. Vrata needs it to find the door." | **Search again** | — |
+| No server set up | Card "Not connected" / "Vrata keeps a door in place with the help of a server on the same Wi‑Fi." | **Find the server** | — |
 
-Plan drawing: walls as `teal` lines on `tealSoft`, corners as dots, the chosen doorway as a thick `amber`
-segment, other doorways grey. Data: `GET /maps/{id}/room`. If no plan exists, show a door icon instead.
+Plan drawing: walls as `teal` lines on `tealSoft`, corners as dots, the saved door as a thick `amber`
+segment, doorways the server found in grey. Data: `GET /maps/{id}/room` and `GET /maps/{id}/portal`. If no
+plan exists, show a door icon instead. "Scan another room" lives on the Rooms screen.
 
 ### 5.5 Before you scan (`scanPrepare`)
 
 - Top bar: back, "Scan a room". Title: **Before you start**.
 - Three rows:
   - **Turn on the lights** / "A bright room scans better."
-  - **Keep the doorway clear** / "Nothing standing in it. Open or closed is fine."
+  - **Keep the place for the door clear** / "Nothing standing where the door will be."
   - **Clear a path along the walls** / "You will walk around the room, not just turn."
 - Notice: "About 2 minutes of scanning, then 3–15 minutes while the server builds the map. You can use the
   phone meanwhile." Replace the second range with measured values once real builds exist.
 - If the room is new: a field "Room name" (default "Room 1"). It becomes the `label` and, made safe, the
   `map_id`.
 - Primary: **Start scanning**.
-- In host mode add a line: "Scan when no visitors are in the room. The video is stored on the server."
+- A line above the button: "Scan when no visitors are in the room." followed by the first privacy line of
+  5.2 for the connection method in use.
 
 ### 5.6 Scanning (`scan`)
 
@@ -338,7 +358,7 @@ Coach card. Warnings replace the step text while they apply:
 | tracking limited: insufficient light | It's too dark here | Turn on more lights. |
 | tracking limited: insufficient features | Point at something with detail | Plain walls are hard to follow. |
 | step 1 | Walk slowly along the walls | Point at where the wall meets the floor. |
-| step 2 | Now show the doorway | Step back until all of it fits, then look at it from a second spot. |
+| step 2 | Now show where the door will be | Look at that place from where visitors will stand, then from a second spot. |
 | step 3 | That’s enough | Keep going for a better map, or finish now. |
 
 Steps:
@@ -346,11 +366,12 @@ Steps:
 | Step | Starts when | Button |
 |---|---|---|
 | 1 Walls | recording starts | disabled, "Keep going · {s} s" counting down to 60 s |
-| 2 Doorway | 60 s passed, floor found, at least 6 m walked | ghost **I showed the doorway** |
+| 2 Door place | 60 s passed, floor found, at least 6 m walked | ghost **Done, I showed it** |
 | 3 Can finish | user confirmed | primary **Finish scan** |
 
-- In step 2, amber corner brackets frame the middle of the view as an aiming aid. The phone cannot detect a
-  doorway; the server does that later. The user confirms.
+- In step 2, amber corner brackets frame the middle of the view as an aiming aid. Visitors will later point
+  their phones at this part of the room, so it has to be in the scan from the side they will stand on. The
+  staff member confirms the step; the phone cannot check it.
 - If the 60 s have passed but floor or distance is missing, the coach says "Keep walking along the walls".
 - At 150 s the coach says "You can finish now". At 180 s the scan finishes by itself.
 - Counters: "Floor ✓ found" (a horizontal plane exists), "{n} walls found" (vertical planes; hide this counter
@@ -375,7 +396,7 @@ One percentage for upload and build together: `8 × uploadFraction`, then `8 + 9
 | Reading the scan | server stages `frames`, `features` | 17% |
 | Building the 3D map | `matching`, `sfm` | 82% |
 | Measuring the room | `depth` | 89% |
-| Finding the doorway | `room_plan`, `finalize` | 100% |
+| Drawing the room plan | `room_plan`, `finalize` | 100% |
 
 Time line:
 
@@ -415,35 +436,38 @@ mode only.
 
 ### 5.9 AR screen (`ar`)
 
+The staff view of the door: **Open the door** on Home. It behaves like the visitor screen (5.13) with a
+close button, a menu and staff wording in the problem sheets.
+
 #### Finding the room
 
 Close button (top left); room name pill (top right). The door is not shown.
 
 | Existing status / attempt | Coach line 1 | Line 2 | Extra |
 |---|---|---|---|
+| server connecting | Connecting… | Looking for the server on this Wi‑Fi. | |
 | `waiting-for-tracking` | Getting ready… | Move the phone a little. | |
 | `localizing`, attempt 1 | Point at the room and hold still | Finding your room… | |
 | attempts 2–3 | Try another view | Aim at furniture, shelves or pictures, not a bare wall. Hold still. | |
-| attempts 4–5 | Still looking | Turn on more lights, or stand where you stood during the scan. | ghost **This is a different room** |
+| attempts 4–5 | Still looking | Turn on more lights, or stand where you stood during the scan. | ghost **This is a different room** (once the Rooms list exists) |
 | retry reason "scale not known yet" | Take a step sideways | Then hold still again. | |
-| weak match, first placement | (keep the current line) | Checking the door’s position… | amber dashed outline at the doorway |
-| `localized` | — | — | the door fades in; hint "Walk through the door" for 5 s |
+| weak match, first placement | (keep the current line) | Checking the door’s position… | amber dashed outline of the door |
+| `localized` | — | — | the door appears; hint "Walk through the door" for 5 s |
 | `error` after the attempts | sheet, problem `unknown` | | |
 | `waiting-for-server` | problem `server` | | |
-| server has no room | go Home, "No room here yet" | | |
+| the room has no saved door | go to Place the door (5.14) | | |
+| the server has no room | go Home, "No room here yet" | | |
 
 Tracking warnings from section 5.6 replace the coach line while they apply.
 
-In visitor mode, "This is a different room" is replaced by "Ask a member of staff".
-
 #### Door in the room
 
-- Top: close; space name pill (opens Spaces; hidden in visitor mode); menu button.
+- Top: close; space name pill (opens Spaces); menu button.
 - Bottom: hint pill "Walk through the door" (fades after 5 s); shutter button.
-- Menu sheet: **Find the door again** / "If it has slipped out of the doorway" (the existing "Re-localize");
-  **Change the space**; **Use another doorway**. In visitor mode only the first item.
+- Menu sheet: **Find the door again** / "If it has slipped out of place" (the existing "Re-localize");
+  **Move the door**; **Remove the door**; **Change the space**.
 - Shutter: takes a photo of the view without the interface, saves it, then shows a small preview with
-  **Share** for 4 s. Uses the AR view's screenshot call. **Check**.
+  **Share** for 4 s. Uses the AR view's screenshot call. **Check**
 
 Small states, shown as a pill under the top row, never as a blocking screen:
 
@@ -451,7 +475,7 @@ Small states, shown as a pill under the top row, never as a blocking screen:
 |---|---|
 | position not confirmed after the checks | The door may be slightly off · **Find again** |
 | server offline while a door is standing | Server offline · the door stays where it is |
-| tracking lost | red banner: "Lost track of the room" / "Move the phone slowly over furniture or pictures." The door stays, dimmed |
+| tracking lost | red banner: "Lost track of the room" / "Move the phone slowly over furniture or pictures." Dimming the door while this shows is optional polish, not tried inside the portal |
 | tracking back | banner disappears; the existing confirm check runs |
 
 #### Inside the space
@@ -460,14 +484,17 @@ Small states, shown as a pill under the top row, never as a blocking screen:
 - Bottom: shutter.
 - Info sheet "About this place": eyebrow (place and date), name, one paragraph, credit line, **Close**.
 - Wall warning: coach "A real wall is close" / "The grid shows where your room ends." with the teal grid.
-- Version 1.x: amber rings on the floor and the hint "Tap a ring to move further in".
+- Later: amber rings on the floor and the hint "Tap a ring to move further in".
 - The existing rule stays: a door correction that arrives while the user is inside waits until they are out.
 
-#### Developer overlay
+#### Developer tools
 
-With developer options on, the AR screen also shows one line of small monospace text above the bottom
-controls: tracking state, provider, match quality, inliers, time, door size and confidence. The existing
-status panel and event log move to a "Diagnostics" screen opened from Settings.
+With developer options on, the staff AR screen also shows one line of small monospace text above the bottom
+controls (tracking state, provider, match quality, inliers, time, door size and confidence) and a **Tools**
+button. Tools opens the earlier debug interface over the live camera: provider and world switches, status,
+event log, the scan panel and the measurement mode. It stays over the camera because measuring needs the
+cross, the marks and the log on top of the picture. The switch "Door in front of the camera" lives here and
+is labelled "Not tied to the room".
 
 ### 5.10 Spaces (`spaces`)
 
@@ -484,16 +511,19 @@ status panel and event log move to a "Diagnostics" screen opened from Settings.
 
 ### 5.11 Rooms (`rooms`)
 
+Staff mode only.
+
 - Top bar: back, "Rooms". One row per room on the server: icon tile, name, state line, a menu button.
 
 | State | Line | Tile |
 |---|---|---|
-| ready | Ready · {n} doorway(s) · {space name} | teal |
+| door saved | Ready · {space name} | teal |
+| scanned, no door saved | No door yet · place the door | amber |
 | building | Building the map · {p}% (tap opens `build`) | amber |
 | failed to be found three sessions in a row | Scan again · the room has changed | red |
-| no doorway | No doorway · scan again or place the door | red |
 
-- Row menu: **Change doorway**, **Change the space**, **Scan again**, **Rename**, **Delete**.
+- Row menu: **Move the door** (or **Place the door**), **Remove the door**, **Change the space**,
+  **Scan again**, **Rename**, **Delete**.
 - Delete asks: "Delete “{name}”? Its map and video are removed from the server. This can’t be undone."
   with **Delete** / **Keep**.
 - Footer: "Rooms live on the server “{server_name}”. Every phone that connects to it sees the same rooms."
@@ -503,20 +533,24 @@ status panel and event log move to a "Diagnostics" screen opened from Settings.
 
 ### 5.12 Settings (`settings`)
 
+Staff mode only.
+
 | Row | Value / action |
 |---|---|
-| Server | dot + "{server_name} · connected"; opens `connect` |
+| Connection | "Vrata Server · {server_name} · connected" or "ReactVision cloud"; opens 5.15 |
 | Find servers automatically | switch |
-| Visitor mode | "Hide setup behind a PIN"; switch; asks for a new 4-digit PIN when turned on |
+| Switch to visitor mode | button. Asks "Switch to visitor mode? You will need the staff PIN to come back." with **Switch** / **Cancel** |
+| Change staff PIN | asks for the current PIN, then the new one twice |
 | Language | current language; opens a list |
-| Privacy and data | a page with the three statements from 5.2 and a link to Rooms for deleting |
+| Privacy and data | a page with the statements from 5.2 and a link to Rooms for deleting |
 | Credits and licences | spaces (model, author, licence) and software notices |
 | How it works | reopens the welcome cards |
 | Version line | "Vrata {version}"; seven taps switch developer options on |
 
-Developer options (visible only when on): Diagnostics on the AR screen; Localisation provider
-(self-hosted / manual); Door frame (casing / simple); Attach mode; Room plan in AR; Mesh lines; Test room;
-Test objects; Event log; Save mesh; Turn developer options off.
+Developer options (visible only when on): Diagnostics on the AR screen; Tools on the AR screen;
+Localisation provider (self-hosted / ReactVision / manual, the last one labelled "Not tied to the room");
+Door frame (casing / simple); Attach mode; Room plan in AR; Mesh lines; Test room; Test objects; Event log;
+Save mesh; Keep the AR view running; Turn developer options off.
 
 ### 5.13 Visitor screen (`visitor`)
 
@@ -655,23 +689,63 @@ Move and remove, for a room that already has a saved door:
 **Check** on the phone: saving right after the map is built, in a fresh AR session; the door's place after
 the app is closed and opened on a second phone.
 
+### 5.15 Connection method
+
+Decided by the owner on 21 November 2026: the venue's own server stays the main way; ReactVision Advanced
+VPS is added as a second way. Staff choose between them in Settings. Visitors never see the choice.
+
+Nothing about the cloud method has been tried: it needs the owner's ReactVision account and a paid plan.
+The facts below come from the library's code and the vendor's documentation, as summarised in the project's
+own review of the service.
+
+The Connection page has two options:
+
+| Option | Line under it |
+|---|---|
+| **Vrata Server on this network** (default) | Rooms and doors are kept on a PC in this building. Nothing leaves the network. |
+| **ReactVision cloud** | Rooms are kept in ReactVision's cloud. Finding the room needs no PC in the building. Requires a paid ReactVision plan. |
+
+- If the app was built without ReactVision keys, the second option is disabled with the line "Not set up in
+  this build."
+- Under the first option: the server row (name, state, **Search again**, **Enter address**), as in 5.3.
+- Under the second option: a switch "Recognise in the cloud", off by default, with the line "More reliable
+  after days or in different light. ReactVision charges for it by the minute."
+
+What changes behind the screens:
+
+| | Own server | ReactVision cloud |
+|---|---|---|
+| Finding the room | a short clip goes to the server (`/localize`) | the library's `ViroVPS` with `startTracking` for the room's location, or `"visual"`. Never `"auto"`: it relies on GPS |
+| Where the scan goes | to the server | the same recording goes to ReactVision. The upload needs a per-user key that the venue's server hands out (S12) |
+| Building the map | the server, with the five steps of 5.7 | ReactVision. Show the same screen with three steps: Sending the scan, Building the map in the cloud, Ready. How long it takes is not documented, so show no time estimate |
+| Where the door's place is kept | on the server | open decision for the owner: on the venue's server (proposed) or in the vendor's web editor. The screens are the same either way |
+| How the door is drawn | through the existing door placement | proposal from the service review: take the camera's place in the map (`onLocalized`) and place the door through the existing mechanism, so the rule "do not move the door while someone is inside" keeps working. **Check** on the phone |
+| Words on screen | as written in this document | the same. "Server" in problem texts becomes "the cloud service": "Can’t reach the cloud service" / "Check that this phone is online." |
+| Privacy lines | 5.2, left column | 5.2, right column |
+
+One scan can serve both methods. A room row in Rooms then shows two small tags, "Server" and "Cloud", and
+the row menu gains **Also build in the cloud**. This gives a side-by-side comparison of the two methods on
+one room.
+
+In visitor mode the phone uses the method saved on that device. A fresh install uses the venue's own server.
+
 ## 6. Where today's controls go
 
 | Today | Becomes |
 |---|---|
-| "Grant camera access" gate | Permission screen (5.2) |
-| Server chip and "Localization server" window | Home chip, `connect` screen, Settings row |
+| "Grant camera access" gate | the visitor welcome panel (5.13) and the permission screen (5.2) |
+| Server chip and "Localization server" window | Home chip, `connect` screen, Settings |
 | `Debug` / `Hide debug` | developer options |
-| `AR` / `VR` badge | removed; developer overlay |
-| Status panel (tracking, camera, floor, provider, door) | Diagnostics, developer only |
-| Event log, `Hide log`, `Clear log` | Diagnostics, developer only |
-| `Re-localize` / `Re-place door` | "Find the door again" in the AR menu, and "Find again" in the pill |
-| `Provider: manual / self-hosted` | chosen by the app: self-hosted when a server and a room exist, manual for "Try a door without a server". Manual switch in developer options |
+| `AR` / `VR` badge | removed; developer line |
+| Status panel, event log, `Hide log`, `Clear log` | Tools, developer only |
+| `Re-localize` | "Find the door again" in the staff AR menu, and "Find again" in the pill |
+| `Re-place door`, "Put the door in front of me" | Tools only, labelled "Not tied to the room". The real way to put a door somewhere is Place the door (5.14) |
+| `Provider: manual / self-hosted` | at start always the server (or the cloud service chosen in Settings). Manual only in developer options |
 | `World: sponza / test-room` | Spaces screen |
 | `Frame: casing / simple`, `Attach: direct / parent` | developer options |
-| `Scan room`, `Record`, `Upload as "room"`, `Cancel` | the guided scan (5.5–5.8) |
+| `Scan room`, `Record`, `Upload as "room"`, `Cancel` | the guided scan (5.5–5.8). Until it is built, the old panel inside Tools |
 | `Plan: on / off`, `Mesh lines`, `Save mesh`, `Reset mesh` | developer options |
-| Status banner "Starting / Waiting for the server / Looking for the room / Check the doorway / Cannot place the doorway" | coach card, pills and problem screens (5.9, 7) |
+| Status banner "Starting / Waiting for the server / Looking for the room / Check the doorway / Cannot place the doorway" | coach card, pills and problem screens (5.9, 5.13, 7) |
 
 ## 7. Problems
 
@@ -710,78 +784,116 @@ The server's `error.code` and `message` go to the device log, not to the screen.
 
 ### 7.3 In AR
 
+These are the staff texts. The visitor texts are in 5.13.
+
 | Kind | Trigger | Form | Text | Actions |
 |---|---|---|---|---|
-| `unknown` | room not recognised after the attempts | sheet | **This doesn’t look like {room name}** / "Vrata could not match what the camera sees to the scan. If the furniture or the light has changed a lot, a new scan helps." | **Keep looking**; **Choose another room**; **Scan this room** |
+| `unknown` | room not recognised after the attempts | sheet | **This doesn’t look like {room name}** / "Vrata could not match what the camera sees to the scan. If the furniture or the light has changed a lot, a new scan helps." | **Keep looking**; **Choose another room** and **Scan this room** once the Rooms list and the guided scan exist |
 | `tracking` | tracking lost for more than 1.5 s | red banner | **Lost track of the room** / "Move the phone slowly over furniture or pictures." | none; clears by itself |
 | not confirmed | weak matches only | pill | The door may be slightly off | **Find again** |
-| no doorway | server has a room without a doorway | sheet | **This room has no doorway yet** / "Scan it again and look at the whole doorway from two spots." | **Scan again**; **Place the door by hand** |
-
-In visitor mode the actions of `unknown` and "no doorway" are replaced by one line: "Please ask a member of staff."
+| no door | the room has no saved door | sheet | **This room has no door yet** / "Put the door where visitors should find it." | **Place the door** |
 
 ## 8. Technical notes for the app chat
 
 - No navigation library is required (4.1). No state library is required; extend the existing stores.
-- Put colours, type sizes and spacing in one theme file, and shared pieces (button, pill, sheet, row, coach
-  card) in `ui/`. Button styles are copied across three files today.
-- Move every user-facing text into one dictionary file per language, keyed by name. A small lookup function
-  is enough; no library is needed.
-- Additions that need a native rebuild, each optional and replaceable:
-  - safe-area insets;
-  - bundled fonts (3.2);
-  - vector drawing for the plan and the progress ring. A plan can also be drawn with rotated thin views,
-    and the ring replaced by a bar, if a drawing module is unwelcome;
-  - saving to the gallery and the share sheet, for photos;
-  - local notifications, for "room is ready".
+- Colours, type sizes and spacing live in one theme file, shared pieces in `ui/`, and every user-facing text
+  in one dictionary per language. This is built (steps 0–3). The name and the palettes sit in one file, so
+  renaming the product is one change.
+- Accepted for now, to be revisited when a native rebuild adds the modules:
+  - the system font in place of the two faces of 3.2;
+  - icons drawn from plain blocks in place of an outline icon set;
+  - top padding by the status bar height and a fixed 28 at the bottom, in place of real safe-area insets.
+    **Check** the bottom against the phone's navigation bar;
+  - no blur under HUD elements.
+- Additions that need a native rebuild, each optional and replaceable: safe-area insets; bundled fonts;
+  vector drawing for icons, the plan and the progress ring; saving to the gallery and the share sheet for
+  photos; local notifications for "room is ready".
+- "This phone can’t show AR" may stay a one-time, non-blocking notice until the phone check shows that the
+  AR engine's answer can be trusted.
 - The app sends requests over plain HTTP on the local network. That stays for version 1.
-- Keep the 85 unit tests green. New pure logic worth testing: the percentage and step mapping (5.7), the
-  scan step conditions (5.6), the status-to-text mapping (5.9, 7).
+- Keep the unit tests green. New pure logic worth testing: mode and start-screen choice (4.3), which doors a
+  visitor may see (4.3), the door's move, turn and size steps (5.14), the percentage and step mapping (5.7),
+  the scan step conditions (5.6), the status-to-text mapping (5.9, 5.13, 7).
 
 ## 9. What the server needs (for the server chat)
 
 Listed here so both chats see the same picture. None of it is part of the app work.
 
-| Id | Need | Used by |
-|---|---|---|
-| S1 | Delete a room: map, frames and the stored recording | Rooms, the privacy statement |
-| S2 | Rename a room (change its label) | Rooms |
-| S3 | Refuse a too-short recording at upload, with its own error code | 7.2 |
-| S4 | Stop exposing the maps folder path in `/health` | privacy |
-| S5 | Store the chosen space with the room, so all phones show the same one | Spaces, visitor mode |
-| S6 | Tell which of several rooms a frame belongs to, without the room being named | several rooms |
-| S7 | A list of downloadable spaces and their files | Spaces, version 1.x |
-| S8 | An installer and a start icon for a non-developer | selling to venues |
-| S9 | A rule for how long recordings and device logs are kept | privacy |
+| Id | Need | Used by | Needed for |
+|---|---|---|---|
+| S11 | Store `width` and `height` with a door saved by staff, and return them | Place the door, visitor screen | the first full pass, if the door is not 0.90 × 2.00 m |
+| S13 | Confirm that `PUT …/anchors/portal` with a `session_id` works right after the map is built, in a fresh AR session | Place the door | the first full pass |
+| S1 | Delete a room: map, frames and the stored recording | Rooms, the privacy statement | version 1 |
+| S2 | Rename a room (change its label) | Rooms | version 1 |
+| S3 | Refuse a too-short recording at upload, with its own error code | 7.2 | version 1 |
+| S4 | Stop exposing the maps folder path in `/health` | privacy | version 1 |
+| S5 | Store the chosen space with the room, so all phones show the same one | Spaces, visitor mode | version 1 |
+| S6 | Tell which of several rooms a frame belongs to, without the room being named | several rooms | version 1 |
+| S10 | Keep the staff PIN (hashed) on the server and check it there | visitors' own phones | before visitors use their own phones |
+| S12 | For the ReactVision method: keep the room's ReactVision location id and the door's place in that map; hand out the per-user upload key. The secret key stays on the server, outside the repository | 5.15 | the second connection method |
+| S7 | A list of downloadable spaces and their files | Spaces | later |
+| S8 | An installer and a start icon for a non-developer | selling to venues | version 1 |
+| S9 | A rule for how long recordings and device logs are kept | privacy | version 1 |
 
 ## 10. Order of work
 
-Each step ends with an app that can be installed and used. The check line says what to look at on the phone.
+Steps 0–3 of the first revision are built: theme and shared pieces, the staff AR screen, Home, Settings,
+Find the server, the problem screens, the welcome cards and the permission screen. None of it has been seen
+on a phone yet.
+
+The order from here follows the owner's decision of 21 November 2026: the two modes and the staff-placed
+door come first, then the full pass on the phone, then everything else. Each step ends with an app that can
+be installed and used.
 
 | Step | What | Needs | Check on the phone |
 |---|---|---|---|
-| 0 | Theme file, shared pieces, text dictionary, `screen` state, developer-options flag. Debug overlay off by default; test objects and the AR / VR badge hidden | — | The AR screen shows the camera, a close button and nothing else until the door is found. Seven taps bring the old controls back |
-| 1 | AR screen: coach card for finding the room, pills, "lost track" banner, menu with "Find the door again", problem sheet `unknown`. Provider chosen by the app | 0 | From launch to a door with no technical words on screen. Cover the camera: the banner appears and clears |
-| 2 | Home, Settings, `connect`, problem screens of 7.1 | 0 | Start with the server off, then on. The chip and Home follow |
-| 3 | Welcome cards and the permission screen | 2 | Fresh install runs welcome → permission → connect → Home once |
-| 4 | Guided scan: prepare, scanning with coach and conditions, automatic upload, `build` screen, problems of 7.2 | 2 | Scan a real room start to finish with one hand and no reading of documentation |
-| 5 | Room result: plan drawing, doorway choice | 4 | The plan matches the room. Choosing doorway B moves the door there |
-| 6 | Inside the space: "Door is behind you", info sheet, wall warning | 1 | Walk towards a real wall inside the space: the grid appears before the wall does |
-| 7 | Spaces screen, choice remembered per room; credits page | 2 | Change the space from Home and from the AR screen |
-| 8 | Photo and share | 1 | The photo shows the scene without buttons and can be shared |
-| 9 | Rooms list, several rooms | 5, S1, S2, S6 | Two rooms on one server; the app opens the right door in each |
-| 10 | Visitor mode with PIN; Croatian | 2, 7 | A person who has never seen the app gets through the door with no help |
-| Later | Notifications, rings to move to, downloadable spaces, threshold sound, more languages | | |
-
-Steps 0–3 change no behaviour of scanning or finding the room. They can go ahead while the core loop is
-still being proved on the phone.
+| A | Modes (4.3): a fresh install opens the visitor screen (5.13) with its welcome panel, coach lines and "ask a member of staff" sheets; lock and staff PIN; "Switch to visitor mode" in Settings. At start the app always finds the room through the server. A visitor sees only doors saved by staff. "Door in front of the camera" moves into Tools | steps 0–3 | A fresh install opens the visitor screen. With the server off: "The door isn’t ready". The PIN leads to Home, and the mode survives a restart |
+| B | Place the door (5.14): put it here, adjust, save to the server; Move and Remove; Home state "No door yet"; Room result with **Place the door** (5.8) | A; S13; S11 for sizes | A staff member places a door, saves it, closes the app, opens it again: the door is in the same place |
+| C | The full pass, using the old scan panel in Tools for the scan: staff scan the room, build the map, place and save the door; the app is closed; visitor mode opens; the door stands where it was saved. On a second phone as well, if there is one | A, B | This is the assignment's main question. Measure the door's offset and the time from launch to door |
+| D | Guided scan: Before you scan, Scanning with coach and conditions, automatic upload, Building the map, the scan problems (5.5–5.7, 7.2) | A | Scan a real room start to finish with one hand and no documentation |
+| E | Second connection method: ReactVision Advanced VPS (5.15) | the owner's ReactVision account and plan; S12 | The same room found by both methods; compare offset and time |
+| F | Inside the space: "Door is behind you", info sheet, wall warning | A | Walk towards a real wall inside the space: the grid appears before the wall does |
+| G | Spaces screen, choice remembered per room; credits page | A; S5 for all phones | Change the space; a second phone shows the same one |
+| H | Photo and share | A | The photo shows the scene without buttons and can be shared |
+| I | Rooms list, several rooms | B, S1, S2, S6 | Two rooms on one server; the app opens the right door in each |
+| J | Croatian; language chips on the visitor welcome panel | A | A person who has never seen the app gets through the door with no help |
+| Later | Notifications, rings to move to, downloadable spaces, threshold sound, more languages, staff PIN on the server | | |
 
 ## 11. Acceptance checks for the whole interface
 
+- A fresh install, with a server that has a room and a saved door, shows the door without any setup on the
+  phone: the user opens the app, allows the camera once and points it at the room.
+- In visitor mode nothing can be changed and nothing technical is shown. Every failure ends in a sheet with
+  plain words and **Try again**.
+- A visitor never sees a door that no staff member saved.
 - No screen has more than one amber button.
-- The AR screen never shows more than four controls, and no technical words, with developer options off.
-- Every state in sections 5.9 and 7 can be reached and has its text.
+- The visitor screen and the staff AR screen never show more than four controls, and no technical words,
+  with developer options off. Place the door shows three controls until **Adjust** is opened.
+- Every state in sections 5.9, 5.13, 5.14 and 7 can be reached and has its text.
 - Every waiting state names what is happening and, where known, how long it will take.
 - All text comes from the dictionary. Switching the phone to Croatian changes every screen.
 - Light and dark themes both work on every screen that is not over the camera.
 - Nothing is cut off on a 360-wide screen with the largest system font size.
-- With the server off, the app opens, explains and offers a way forward on every path.
+
+## 12. Answers to the app chat's report on steps 0–3
+
+The report listed 16 places where the built app differs from the first revision.
+
+| # | Difference | Answer |
+|---|---|---|
+| 1 | System font | Accepted for now (8) |
+| 2 | Icons drawn from plain blocks | Accepted for now (8) |
+| 3 | Fixed paddings in place of safe-area insets | Accepted for now; check the bottom edge on the phone (8) |
+| 4 | No blur over the camera | Accepted; the specification already allowed it |
+| 5 | The old interface kept as **Tools** over the camera | Accepted and now specified (5.9, Developer tools) |
+| 6 | The door appears at once, no fade, no dimming on tracking loss | Accepted. Both are optional polish now (3.4, 5.9) |
+| 7 | "Room not recognised" offers only **Keep looking** | Accepted until the Rooms list and the guided scan exist (7.3). Visitors get **Try again** and "ask a member of staff" (5.13) |
+| 8 | "Place the door by hand" not offered | Superseded: placing the door is now the main path (5.14) |
+| 9 | Menu item "Put the door in front of me" for a door without a server | To change in the app: remove it from the normal menu. It belongs in Tools, labelled "Not tied to the room" (4.3, 6) |
+| 10 | "Connecting…" shown while the server connects | Accepted and now specified: staff 5.9, visitors "One moment…" (5.13) |
+| 11 | "This phone can’t show AR" shown once, not blocking | Accepted until checked on the phone (8) |
+| 12 | Third privacy line left out | Correct: it waits for S1 |
+| 13 | Language, Visitor mode and Credits rows not shown | Mode switching is now step A; the other two rows follow in G and J |
+| 14 | "Scan this room" opens the old scan panel in Tools | Accepted until step D. The full pass (step C) uses it |
+| 15 | AR view created and destroyed with the screen, unverified | Accepted; "Keep the AR view running" is the documented fallback (4.1) |
+| 16 | A restart ends on Home, so "launch to door" includes Home | Resolved by visitor mode: a later launch opens the camera at once, so "launch to door" has no screen in between. Measure it in visitor mode |
