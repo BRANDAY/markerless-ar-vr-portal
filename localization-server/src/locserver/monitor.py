@@ -381,5 +381,6 @@ def usage_flow(devices: list[dict], maps: list[dict], jobs: list[dict], monitor:
         "portal": "Walk to the doorway shown in AR.",
     }
     return {"device_id": (dev or {}).get("device_id"), "map_id": map_id, "steps": steps,
-            "next": hints[nxt["key"]] if nxt else "Everything is in place - walk through the portal.",
+            "next": hints[nxt["key"]] if nxt else "Nothing: the user is inside the virtual room." if step == "inside"
+            else "Everything is in place - walk through the portal.",
             "device_step": step}

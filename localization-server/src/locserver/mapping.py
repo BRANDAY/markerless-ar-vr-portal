@@ -101,6 +101,26 @@ def choose_pairs(n: int, global_desc: np.ndarray, opts: BuildOptions) -> list[tu
     return sorted(pairs)
 
 
+def map_warnings(num_in_map: int, num_selected: int, alignment: dict | None, min_inlier_fraction: float = 0.6) -> list[str]:
+    """What the person who scanned has to know about a finished map: it is thin, or it contradicts the recording.
+
+    `alignment` is the map's `metric_alignment` block (None for a capture without metric poses).
+    """
+    out: list[str] = []
+    if num_in_map < 0.6 * num_selected:
+        out.append(
+            f"only {num_in_map} of {num_selected} selected frames ended up in the map (the others could not be reconstructed reliably): "
+            "parts of the room are missing - scan again: slower, with more overlap between views")
+    if alignment and alignment["inlier_fraction"] < min_inlier_fraction:
+        attempts = alignment.get("sfm_attempts", 1)
+        out.append(
+            f"the reconstruction disagrees with the recorded AR poses: only {alignment['inliers']} of {alignment['frames_with_pose']} cameras are "
+            f"within {alignment['threshold_m'] * 100:.0f} cm of where the recording says they were (median {alignment['median_m'] * 100:.0f} cm, "
+            f"{attempts} {'attempt' if attempts == 1 else 'attempts'}). "
+            "Localisation against this map can be wrong - scan again: slower, with more overlap between views")
+    return out
+
+
 def build_map(
     input_path: str | Path,
     map_dir: str | Path,
@@ -331,19 +351,9 @@ def build_map(
         raise RuntimeError("SfM failed: no model could be initialised (too little overlap or texture)")
     rec, reg, dropped, metric_info = best["rec"], best["reg"], best["dropped"], best["metric_info"]
     recs = range(best["num_models"])
-    build_warnings: list[str] = []
-    if len(reg) < 0.6 * len(names):
-        build_warnings.append(
-            f"only {len(reg)} of {len(names)} selected frames ended up in the map (the others could not be reconstructed reliably): "
-            "parts of the room are missing - scan again: slower, with more overlap between views")
     if "metric_alignment" in metric_info:
-        ma = metric_info["metric_alignment"]
-        ma["sfm_attempts"] = attempts
-        if best["fraction"] < opts.metric_min_inlier_fraction:
-            build_warnings.append(
-                f"the reconstruction disagrees with the recorded AR poses: only {ma['inliers']} of {ma['frames_with_pose']} cameras are within "
-                f"{ma['threshold_m'] * 100:.0f} cm of where the recording says they were (median {ma['median_m'] * 100:.0f} cm, {attempts} attempts). "
-                "Localisation against this map can be wrong - scan again: slower, with more overlap between views")
+        metric_info["metric_alignment"]["sfm_attempts"] = attempts
+    build_warnings = map_warnings(len(reg), len(names), metric_info.get("metric_alignment"), opts.metric_min_inlier_fraction)
 
     # 7. export --------------------------------------------------------------- #
     progress("sfm", 1.0, f"{len(reg)} of {len(names)} frames reconstructed")

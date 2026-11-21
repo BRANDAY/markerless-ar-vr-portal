@@ -85,6 +85,8 @@ def _room(lmap, spec: dict, report, warnings: list[str]) -> dict:
         warnings.append(room["reason"])
     if room["status"] == "unavailable":
         warnings.append(f"no room plan: {room['reason']}")
+    elif room["status"] == "partial" and room.get("reason"):
+        warnings.append(f"room plan is partial: {room['reason']}")
     save_room(lmap.path, room)
     return room
 

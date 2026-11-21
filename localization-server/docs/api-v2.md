@@ -659,3 +659,10 @@ notice; do not build the app on it.
   how the files are read; a recording that is too short or does not move is
   refused at upload with `X-Error-Code`; the minimum of 10 pose lines became
   30 lines and 3 s; mesh layout of the app confirmed.
+* 2026-11-21 — room plan with `status: "partial"`: `reason` now names what was
+  missing and what to do when wall-like surfaces were seen over too little of
+  their height (text for the user, e.g. "fewer than two walls were found: 2 more
+  wall-like surfaces were seen over less than 1.2 m of height ... tilt the phone
+  up and down so that the walls are seen from the floor to the ceiling"); the
+  same text is among the job's `warnings` as "room plan is partial: ...".
+  No field changed; show `reason` as it is.

@@ -93,6 +93,17 @@ def test_phone_like_recording_round_trip(tmp_path):
     assert max(np.diff(times)) > 3 * min(np.diff(times))
 
 
+def test_phone_like_recording_of_many_frames_keeps_its_times(tmp_path):
+    pytest.importorskip("imageio_ffmpeg")
+    n = 130  # more per-frame times than ffmpeg takes in one expression
+    times = phone_times(n)
+    rec = write_recording(tmp_path / "rec", upright_pictures(1) * n, walk(n), dict(fx=100.0, fy=104.0, cx=46.0, cy=66.0),
+                          rotation_cw=90, times_s=times)
+    frames = list(ViroRecordingCapture(rec).frames())
+    assert len(frames) == n and all(fr.T_world_from_arcam is not None for fr in frames)
+    assert np.abs(np.array([fr.timestamp for fr in frames]) - times).max() < 0.002
+
+
 def test_frames_and_poses_are_paired_by_time_when_the_counts_differ(tmp_path):
     pytest.importorskip("imageio_ffmpeg")
     n = 8

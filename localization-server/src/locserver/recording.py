@@ -282,20 +282,24 @@ def write_recording(
             # every frame gets its own time: PTS(n) = sum of the steps before frame n (the 1000 fps input clock
             # only sets the resolution of the time stamps: 1 ms)
             steps = np.diff(np.asarray(times_s, dtype=float))
-            pts = "+".join(f"gte(N\\,{k + 1})*{dt:.6f}" for k, dt in enumerate(steps)) or "0"
+            terms = [f"gte(N\\,{k + 1})*{dt:.6f}" for k, dt in enumerate(steps)] or ["0"]
+            # in portions: ffmpeg cannot evaluate one expression with hundreds of terms ("Cannot allocate memory")
+            parts = ["+".join(terms[i:i + 40]) for i in range(0, len(terms), 40)]
+            pts = ",".join(f"setpts={'PTS+' if j else ''}({part})/TB" for j, part in enumerate(parts))
             raw = tmp / "raw.mp4"
             head = [exe, "-y", "-loglevel", "error", "-framerate", "1000", "-i", str(tmp / "f%05d.png"),
-                    "-vf", f"settb=1/90000,setpts=({pts})/TB"]
+                    "-vf", f"settb=1/90000,{pts}"]
             tail = ["-pix_fmt", "yuv420p", "-video_track_timescale", "90000"]
             codecs = (["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-bf", "0"], ["-c:v", "mpeg4", "-q:v", "3"])
-            done = None
+            done = first = None
             # "-fps_mode" is the current name of the option, "-vsync" the one of ffmpeg before 5.1; x264 may be missing
             for cmd in [head + sync + tail + codec + [str(raw)] for sync in (["-fps_mode", "vfr"], ["-vsync", "vfr"]) for codec in codecs]:
                 done = subprocess.run(cmd, capture_output=True)
                 if done.returncode == 0:
                     break
+                first = first or done
             else:
-                raise RuntimeError("ffmpeg could not encode the recording: " + done.stderr.decode("utf-8", "replace")[-400:])
+                raise RuntimeError("ffmpeg could not encode the recording: " + first.stderr.decode("utf-8", "replace")[-400:])
             # ffmpeg's -display_rotation is counter-clockwise, the container tag of a phone is clockwise
             subprocess.run([exe, "-y", "-loglevel", "error", "-display_rotation", str(-rotation_cw), "-i", str(raw), "-c", "copy",
                             str(out / "video.mp4")], check=True, capture_output=True)

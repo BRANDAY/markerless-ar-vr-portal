@@ -68,6 +68,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bar > div { height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s; }
 .job { padding: 6px 0; border-bottom: 1px solid var(--line); } .job:last-child { border-bottom: 0; }
 .job .row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.job > .chip { display: flex; align-items: baseline; white-space: normal; overflow-wrap: anywhere; }
 .log { height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .log .ln { display: grid; grid-template-columns: 84px 118px minmax(70px, 150px) 1fr; gap: 8px; padding: 1.5px 0; border-bottom: 1px dotted var(--line); }
 .log .ln.req { grid-template-columns: 84px minmax(70px, 150px) 1fr 40px 70px; }
@@ -428,7 +429,8 @@ function drawPlan() {
   $("plansum").textContent = room.status === "unavailable" ? "No room plan: " + (room.reason || "not computed") + ". Showing the map's points and the camera path only."
     : "Plan " + room.status + " · " + room.walls.length + " walls · " + room.corners.length + " corners · " + room.openings.length + " openings" +
       (room.height ? " · ceiling height " + room.height.toFixed(2) + " m" : "") + (fl ? " · floor at " + fl.level.toFixed(2) + " m" : "") +
-      " · portal: " + po.source + (po.reason ? " (" + po.reason + ")" : "") + (room.sources && room.sources.length ? " · from: " + room.sources.join(", ") : "");
+      " · portal: " + po.source + (po.reason ? " (" + po.reason + ")" : "") + (room.sources && room.sources.length ? " · from: " + room.sources.join(", ") : "") +
+      (room.status !== "ok" && room.reason ? ". Why partial: " + room.reason + "." : "");
   const lg = $("legend"); if (!lg.childElementCount) {
     const item = (svg, text) => { const s = el("span"); s.innerHTML = svg; s.append(document.createTextNode(text)); return s; };
     lg.append(item('<svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="currentColor" stroke-width="3"/></svg>', "wall"),

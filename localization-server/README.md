@@ -34,7 +34,8 @@ independent project: the mobile app talks to it over HTTP on the local Wi-Fi.
 ```
 
 Contents: [Quick start](#quick-start-for-a-new-machine) · [Stack](#stack-and-licences) · [Setup](#setup-windows) ·
-[Build a map](#build-a-map) · [Run the server](#run-the-server) · [Connect a phone](#connect-a-phone) ·
+[Build a map](#build-a-map) · [Run the server](#run-the-server) · [Monitoring panel](#monitoring-panel) ·
+[Without a phone](#without-a-phone-the-simulator) · [Connect a phone](#connect-a-phone) ·
 [API](#api-reference) · [Conventions](#coordinate-conventions) ·
 [App integration](#how-the-mobile-app-is-expected-to-call-it) ·
 [Measured numbers](#measured-numbers) · [Limitations](#limitations-and-what-is-not-verified)
@@ -51,7 +52,7 @@ git clone <repository url> ; cd localization-server
 
 # 2. environment (Python 3.13 and all packages; ~3 GB download, ~10 GB disk)
 uv sync
-uv run pytest                               # 81 tests, no GPU needed
+uv run pytest                               # 144 tests, no GPU needed, about 5 minutes (4 of them need the phone captures and are skipped without them)
 
 # 3. a map: either your own room video ...
 uv run locserver-build-map data\input\room.mp4 --map-id room
@@ -59,12 +60,24 @@ uv run locserver-build-map data\input\room.mp4 --map-id room
 .\scripts\get_test_data.ps1
 uv run locserver-build-map data\datasets\tum_fr1_room\rgbd_dataset_freiburg1_room --map-id tum_room --every 8
 
-# 4. start the server; it prints the address to type into the app
-uv run locserver-serve
+# 4. start the server; it prints the address to type into the app.
+#    --panel also opens the monitoring panel in its own window
+uv run locserver-serve --panel
 
-# 5. phone cannot connect? this read-only check says why and prints the fix
+# 5. no phone at hand? a simulated one walks through the whole scenario
+#    (second PowerShell window; needs the test sequence of step 3; about 6 minutes)
+uv run python scripts\simulate_phone.py
+
+# 6. phone cannot connect? this read-only check says why and prints the fix
 uv run locserver-doctor
 ```
+
+**State of verification (2026-11-21).** Everything runs end to end with the
+simulated phone and with public test data. From a real phone the server has so
+far only read two accidental one-second captures (enough to settle the file
+format, see [Room plan](#room-plan-and-automatic-doorway-api-v2)); **a full
+recording of a real room has not been processed yet**, so map quality, room plan
+and doorway detection in a real room are unknown.
 
 Nothing is tied to a particular PC, user, drive or Wi-Fi network: all paths
 default to folders inside the project, and the address is whatever the PC has
@@ -136,7 +149,7 @@ COLMAP binary, ffmpeg, Docker or compiler is needed.
 ```powershell
 cd localization-server
 uv sync            # creates .venv and installs everything (~3 GB download)
-uv run pytest      # 81 tests, a few seconds, no GPU needed
+uv run pytest      # 144 tests, about 5 minutes, no GPU needed
 ```
 
 By default everything stays inside the project folder or in the normal
@@ -248,6 +261,7 @@ anchors are therefore moved aside to `anchors.stale.json` instead of being kept.
 
 ```powershell
 uv run locserver-serve                 # all network interfaces, port 8077, all maps in data\maps
+uv run locserver-serve --panel         # the same, and open the monitoring panel in its own window
 uv run locserver-serve --port 9000 --name "Lab laptop" --device cpu --maps-dir D:\maps
 ```
 
@@ -259,6 +273,8 @@ AR Portal localization server "MY-PC" - service arportal-localization-server, AP
     http://192.168.1.50:8077
   In the app: type that address into the server field, or tap "Find automatically".
   Check from the phone's browser: http://192.168.1.50:8077/health   (no answer? run: uv run locserver-doctor)
+
+  Monitoring panel on this PC: http://127.0.0.1:8077/ui   (own window: uv run locserver-panel)
 ```
 
 One line is printed per network interface; with several (Ethernet, Wi-Fi,
@@ -272,6 +288,131 @@ curl.exe http://localhost:8077/health
 curl.exe -F "image=@data\maps\tum_room\images\000404.jpg" -F "map_id=tum_room" http://localhost:8077/localize   # a mapping frame: must be "good"
 uv run locserver-localize some_photo.jpg --map-id tum_room      # same thing without the server
 ```
+
+---
+
+## Monitoring panel
+
+A page that shows, live, what the server and the phones are doing. It is served
+by the server itself, so there is nothing to install or build: no Node, no
+separate program, and nothing is loaded from the internet (it works on a PC
+without internet access).
+
+```powershell
+uv run locserver-serve --panel                       # server + panel window in one command
+uv run locserver-panel                               # panel window for a server that is already running
+uv run locserver-panel --port 9000                   # ... on another port
+uv run locserver-panel --url http://192.168.1.50:8077   # ... on another PC of the network
+```
+
+`locserver-panel` opens the page in an "app window" of Microsoft Edge or Google
+Chrome (no tabs, no address bar); without either of them, or with `--tab`, it
+opens a tab of the default browser. Or simply open `http://localhost:8077/ui`
+in any browser. If the server does not answer, the command says so and how to
+start it.
+
+![The panel after a run of the simulated phone](docs/panel/panel-overview.png)
+
+| Block | What it shows |
+|---|---|
+| **How it is used** (top strip) | the six steps of the scenario - connect the phone, scan the room, build the map, find the doorway, localise the phone, portal in place - each marked done / now / to do / needs attention, and one line "Next: ..." with what to do. Derived from what the server sees (requests, jobs, maps, localisations) and from the step the app reports. With several devices it follows the one selected in the device list |
+| **Server** | name, version, GPU or CPU, GPU memory, processor, uptime, the addresses to type into the app (with a Copy button), the models, and whether the server ever stopped answering ("Stalls", see below) |
+| **Devices** | every client that has contacted the server: name, address, last seen, the server's handling time, the round-trip time the app measured, the app's current step and tracking state, request and error counts. **online** while the last request is less than 10 s old, otherwise **lost** (with a Forget button). A client that does not send the device headers appears as "unnamed client" under its IP address. Click a row to filter the logs and the strip to that device |
+| **Maps** and **Jobs** | the loaded maps (images, 3D points, room plan, where the portal comes from); the running build with its progress bar, step and time left; finished builds with their result, warnings and errors |
+| **Room plan** | the selected map from above: walls with length, corners, door openings with their confidence, the portal anchor with an arrow into the room, the map's 3D points, the camera path of the scan, and where the phone was at the last successful localisation. `3D` tilts the view; drag to turn, wheel to zoom, hover for details. Without a room plan it shows the points and the camera path only |
+| **Localizations** | the last 30 `/localize` requests: time, device, map, result (good / weak / failed), inliers, time taken, alignment state, portal source, reason of a failure |
+| **Device log** | the events the app sends (`POST /devices/{id}/log`): app, connection, tracking, scan, upload, job, localisation, portal, errors. Filter by device and level; hover a line for its data. Every event is also appended to `work\device-logs\<device_id>.jsonl` |
+| **Server requests** | every request with device, status and time; the periodic polls are hidden by default |
+
+Everything refreshes once a second. The panel is read-only except for
+"Forget"; it keeps the last 2,000 events per device and the last 200
+localisations in memory - after a restart of the server it starts empty (the
+log files stay). The light or dark theme follows the system and can be
+switched with the button at the top right. The address can carry start-up
+choices: `/ui#view=3d&theme=dark&map=<map id>&device=<device id>`.
+
+More pictures: [during a build](docs/panel/panel-building.png) ·
+[room plan in 3D](docs/panel/panel-plan-3d.png) (the map of the whole test
+sequence) · [dark theme](docs/panel/panel-dark.png).
+
+What the app has to send for the device list and the log is section 9 of
+[`docs/api-v2.md`](docs/api-v2.md): four HTTP headers on every request and
+small batches of log events.
+
+**Stalls.** Twice during development the server stopped answering for 13-17 s
+and then went on as if nothing had happened; the cause was not found. Since
+0.3.0 a watchdog notices when the server is silent for more than 2 s, writes
+what every thread was doing at that moment to `work\stalls.log` and counts the
+stalls in the panel's Server block. Disk writes were also moved out of the
+places where they could hold up other requests. During the runs for this
+README: none - four runs of the simulator with three complete builds, about 40 minutes of server time, and the server always answered within 2 s..
+
+**Verified:** by the tests (`tests/test_monitor.py`) and by watching the page
+through complete runs of the simulated phone below. **Not verified:** a log
+sent by the real app from a phone - how its events read in the panel is still
+to be seen (the app's own PC-side client has sent batches; they were accepted).
+A phone running an app version without the headers shows up as an "unnamed
+client" with its requests only.
+
+---
+
+## Without a phone: the simulator
+
+`scripts/simulate_phone.py` plays the phone. It makes the same requests the app
+makes, in the same order, with files of the same shape, so the server, the
+build, the room plan and the panel can be watched end to end without a device:
+
+```powershell
+.\scripts\get_test_data.ps1                      # once: the public test sequence (782 MB)
+uv run locserver-serve --panel                   # window 1
+uv run python scripts\simulate_phone.py          # window 2: the whole scenario, about 6 minutes
+uv run python scripts\simulate_phone.py --keep-map   # again, reusing the map: connect + localise only (1 minute)
+uv run python scripts\simulate_phone.py --device-id sim-2 --name "Second phone" --keep-map   # a second device
+```
+
+What happens, and what you see in the panel:
+
+1. **Connect** - `/health` with the device headers; the device appears as *online*.
+2. **Scan** - 10 s of "recording" (log events and the app step `scanning`; there is no camera).
+3. **Upload** - `POST /maps/sim_room/recording` with `video.mp4` + `session.jsonl`.
+4. **Build** - polls `/jobs/{id}` once a second; the job bar moves through its seven steps.
+5. **Room plan** - reads `/maps/sim_room/room` and `/portal`; the plan is drawn
+   (on this short clip often without walls - see the table below).
+6. **Localise** - up to six clips of 2.5 s (video + `session.jsonl`, as the app records
+   them) go to `/localize`, as a *new* AR session that is turned by 35° and moved
+   by about 1.5 m against the scan. The list fills, the phone marker moves on the plan.
+7. **Portal** - when the alignment is accepted the step becomes `portal_placed`;
+   if the server found no doorway it is sure about, the simulator does what the
+   user would do and places the portal by hand (`PUT /maps/sim_room/anchors/portal`).
+   Then `inside` for 20 s, and back out.
+
+At the end it prints how far the server's alignment is from the offset the
+script applied. It is also the reference client for the device log (section 9
+of the API document) - `class Phone` in the script is the whole of it.
+
+**What is real and what is not.** The files have the shape of the files a phone
+writes (checked against captures of a Xiaomi 14 Ultra): H.264 frames stored in
+the sensor's orientation with a 90-degree rotation tag, intrinsics for those
+stored pixels, one pose line per frame for the camera of the upright picture,
+33 / 67 ms between frames, `gravity` zero in the first pose line. The pictures
+are a 10 s stretch of the public TUM `fr1_room` sequence (640 x 480, not
+1920 x 1080) with the motion-capture ground truth in the role of the ARCore
+poses; the clips for `/localize` use frames of the same walk that are not in
+the uploaded recording (`--clips-from 1230` takes them from the end of the
+sequence instead, when the camera comes back to where it started). So the
+requests and the computation are real, the "phone" is not: no ARCore drift, no
+hand-held motion blur at 1080p, no change of light between scan and visit.
+
+Result on the development PC (GTX 1050 Ti), 2026-11-21:
+
+| | Result |
+|---|---|
+| Recording | 188 frames in 9.97 s, 2.6 MB; upload 0.1 s |
+| Build, three builds of the same recording | 226 / 225 / 246 s; 32 key frames in the map each time; 31 of 32 cameras within 10 cm of their recorded positions (median 2 cm); one reconstruction attempt each |
+| Room plan | **differs between the builds.** First build: 2 walls (3.1 and 3.9 m), 1 corner, a closed-door candidate with confidence 0.51 - just above the 0.5 limit, so the portal came from the server (`source: "auto"`); whether there is a door at that place of the room is not known. Second and third build: no wall - both walls are seen over only 0.8-1.1 m of their height, the plan asks for 1.2 m. The server reports exactly that, and the simulator placed the portal by hand, as the app does |
+| Localisation right after the scan (6 clips of the same walk, frames not in the recording) | 6 of 6 good in every run, 628-855 inliers, 1.5-3.2 s per clip. Alignment against the offset the script applied: 0.39 / 0.69 / 0.77 deg and 5.8 / 6.7 / 7.0 cm at the camera |
+| Localisation from the end of the sequence (`--keep-map --clips-from 1230`, 2 clips fit) | 2 of 2 good, 497 and 719 inliers, 3.6-4.5 s per clip; 0.88 deg and 5.6 cm |
+| Server during these runs | no stall; no failed request |
 
 ---
 
@@ -332,7 +473,7 @@ automatically", which asks every address of the phone's own /24 network for
 
    ```
    [info] LAN address: http://192.168.1.50:8077   (Wi-Fi)
-   [ OK ] Server "MY-PC" is running on port 8077 (version 0.2.0, API v1, maps: room).
+   [ OK ] Server "MY-PC" is running on port 8077 (version 0.3.0, API v1, maps: room).
    [info] Network "CampusNet" on Wi-Fi: profile Public
    [FIX ] No firewall rule lets inbound TCP 8077 through on Public networks, ...
               New-NetFirewallRule -DisplayName "AR Portal localization server (TCP 8077)" ...
@@ -436,12 +577,14 @@ the same code fed with the Kinect's measured depth instead of the depth network.
 | Floor level (true value 0 in this dataset) | 7 cm (network depth), 5 cm (Kinect depth) |
 | Door detector on the 40 key frames | at score 0.30 it also fires on monitors, windows with blinds and posters (0.33-0.40); wooden-framed glass panels reach 0.48-0.53; the one real open doorway in view scores 0.58 - hence the 0.42 threshold and the three-frames rule |
 | Time for the room plan (GTX 1050 Ti, 40 key frames) | 65-190 s |
-| End to end through the running server: a synthetic recording in the ViroReact format cut from the same sequence (29 frames used), uploaded with `scripts\demo_room_upload.py` | upload, 7 stages with percentages, map + plan after 134-160 s; the plan comes out in the +Y-up frame of the recording: 2 walls, 1 corner, one open-doorway candidate with confidence 0.46 - below 0.5, so the portal honestly reports `source: "none"` ("not confident enough") |
-| Repeatability: the same recording built twice (SfM is not deterministic) | floor level -0.815 / -0.814 m, wall lengths within 4 cm. The second build first reported "floor not found" (26 supporting points, limit then 30): the floor is barely visible in this desk-level footage; the rule was loosened afterwards |
+| End to end through the running server: a recording in the phone's file shape cut from the same sequence (10 s, 188 frames, 32 used), sent by `scripts\simulate_phone.py` | upload, 7 stages with percentages, map + plan after 225-246 s; numbers in [Without a phone](#without-a-phone-the-simulator) |
+| Repeatability: that recording built three times (SfM is not deterministic) | the map is the same every time (31 of 32 cameras within 10 cm of the recording; floor level -0.07 / -0.04 / -0.05 m). The plan is not: 2 walls + 1 corner + a door candidate (0.51) once, no wall twice - the two walls are seen over 0.8-1.1 m of height, at the 1.2 m limit. On a short desk-level clip the plan is a coin toss; the job result and the panel now say why |
+| (correction, 2026-11-21) | two rows that stood here before were measured with a test recording whose vertical axis was wrong (z-up poses declared as y-up - an error in the test data, not in the server) and were removed |
 | Server responsiveness during a build | 514 polls of `/health` + `/jobs/{id}` during one build: worst 139 ms and 22 ms. In the very first build a single poll took 17 s; it was not reproduced and its cause was not found |
 
-**What this says about a real room: nothing yet.** No recording from the phone
-exists so far. Expect the result to depend mostly on how the room was filmed
+**What this says about a real room: nothing yet.** No full recording from a
+phone exists so far (two accidental captures of one second settled the file
+format, nothing more). Expect the result to depend mostly on how the room was filmed
 (see below) and on how much bare wall is visible.
 
 ### Recording advice (what makes or breaks the plan)
@@ -451,6 +594,8 @@ exists so far. Expect the result to depend mostly on how the room was filmed
   per cent and the walls move with it. An arc or loop of a few metres is enough.
 * Show the floor-wall edges and the whole door (both jambs, the top, the floor
   in front of it) from at least two positions 1.5 m or more away.
+* Tilt the phone up and down along every wall: a wall counts only when it is
+  seen over at least 1.2 m of its height (lower things are taken for furniture).
 * Record the door in the state it will have later: an open doorway is found by
   geometry, a closed door only by the detector.
 
@@ -458,7 +603,8 @@ exists so far. Expect the result to depend mostly on how the room was filmed
 
 ## API reference
 
-Endpoints for the room recording, jobs, room plan and portal are described in
+Endpoints for the room recording, jobs, room plan and portal, and for the
+device list and device log (`/devices`, section 9), are described in
 [`docs/api-v2.md`](docs/api-v2.md); everything below is v1 and unchanged.
 
 All responses are JSON. Errors use HTTP status codes with `{"detail": "..."}`
@@ -474,18 +620,22 @@ what the app's automatic search and its "connected" indicator call.
 {"status": "ok",
  "service": "arportal-localization-server",
  "api_version": 1,
- "server_version": "0.2.0",
+ "api_revision": 2,
+ "capabilities": ["recording_upload", "jobs", "room_plan", "auto_portal", "device_log", "monitor_ui"],
+ "server_version": "0.3.0",
  "server_name": "MY-PC",
- "version": "0.2.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
+ "version": "0.3.0", "device": "cuda", "device_name": "NVIDIA GeForce GTX 1050 Ti",
  "vram_mb": {"allocated": 56, "peak": 527},
  "models": {"extractor": "aliked-n16", "matcher": "lightglue-aliked", "max_keypoints": 2048},
- "maps": ["tum_room"], "maps_dir": "C:\\...\\data\\maps", "sessions": 0, "uptime_s": 12.3}
+ "maps": ["tum_room"], "maps_dir": "C:\\...\\data\\maps", "sessions": 0, "uptime_s": 12.3,
+ "jobs": {"running": 0, "queued": 0}}
 ```
 
 | Field | Meaning |
 |---|---|
 | `service` | constant `"arportal-localization-server"`; a client must reject a host that answers anything else |
 | `api_version` | integer, increased only when the API changes incompatibly |
+| `api_revision`, `capabilities` | what was added since without breaking anything: check a capability name before using a v2 feature ([`docs/api-v2.md`](docs/api-v2.md)) |
 | `server_version` | version of this package (`version` is the same value, kept for older clients) |
 | `server_name` | the PC's host name, or `--name` / `LOCSERVER_NAME` — shown in the app's status indicator |
 | `status` | `"ok"` whenever the server answers |
@@ -1044,16 +1194,38 @@ RGB-D SLAM Systems", IROS 2012.
 
 ## Limitations and what is not verified
 
-* **Nothing here has run against a real phone yet.** The ViroReact side
-  (image source, pose pairing, image orientation, field of view of the frames)
-  is implemented from documentation and from the open-source renderer code.
-* **ViroReact recording reader** (`src/locserver/recording.py`): the
-  `session.jsonl` schema was taken from the writer's source
-  (`ARSessionRecorder.java` in ReactVision/virocore) and the reader is tested
-  on synthetic recordings in that schema, including the container rotation tag.
-  Still to confirm on a device (marked `TODO(device)` in the file): that the
-  display-oriented pose matches the upright-rotated sensor image, the sign of
-  the orientation hint, and frame/pose pairing when the encoder drops frames.
+* **No full recording of a real room has been processed.** From a phone
+  (Xiaomi 14 Ultra) the server has read two accidental captures of about one
+  second (15 and 18 frames). They settled the file format - frames stored
+  landscape with a 90-degree rotation tag, poses of the upright picture, one
+  pose line per frame at a variable frame rate, quaternion order, mesh layout -
+  and `tests/test_device_capture.py` checks the reader against them (the tests
+  are skipped where those files are not present; they are not in the
+  repository). They are far too short for a map, and the server now refuses
+  such a recording at upload with the reason. Everything about map quality,
+  room plan and doorway in a real room is therefore still unknown, as are: a
+  recording of one to two minutes (size, upload time, build time), a phone held
+  in landscape, an encoder that drops frames, and the uploaded mesh together
+  with a recording.
+* **A build can still produce a poor map.** Structure from motion is not
+  deterministic; on a hard stretch of the test sequence one build put half of
+  the cameras 0.3-3 m away from their recorded positions and localisation
+  against it was wrong by 8 degrees and 26 cm. The builder now repeats the
+  reconstruction when fewer than 60 % of the cameras agree with the recording,
+  leaves out single images that are far off, and reports a poor or thin map as
+  a warning (job result and panel). The limits of the rule are tested
+  (`tests/test_mapping_warnings.py`); every build since then came out good, so
+  the warning itself has not been seen again.
+* **The room plan of a short scan is not repeatable.** Three builds of the same
+  10 s test clip gave the same map and three times the same localisation, but
+  two walls, a corner and a door candidate once and no wall twice: both walls
+  are seen over only 0.8-1.1 m of their height, right at the 1.2 m the plan
+  asks of a wall (the rule that keeps furniture out). The server now says so
+  in the plan's `reason`, in the job warnings and in the panel, with what to do
+  ("tilt the phone up and down so that the walls are seen from the floor to
+  the ceiling"). Whether a real scan with a phone held upright - which sees
+  far more of a wall's height than this 640 x 480 clip - has the same
+  weakness is not known.
 * **Whether `onCameraTransformUpdate` delivers degrees** was verified in source
   only for `getCameraOrientationAsync`; sending `forward` + `up` avoids the
   question.
@@ -1089,6 +1261,14 @@ RGB-D SLAM Systems", IROS 2012.
   a few hundred map images, not for a building. One localisation runs at a time
   (4 GB VRAM); requests queue.
 * **No authentication, no TLS.** Intended for a trusted local network only
-  (see "Connect a phone").
+  (see "Connect a phone"). That includes the monitoring panel: anyone in the
+  network who knows the address can open `/ui` and read the device logs.
+* **The panel has only seen a simulated phone** and the app's PC-side test
+  client. Its layout and the usage strip were checked with
+  `scripts/simulate_phone.py`. The strip's "portal in place" and "inside" steps
+  rely on what the app reports - the server cannot see them itself.
+* **The server stopped answering for 13-17 s twice** during development; the
+  cause is not known. A watchdog now records such moments (see "Monitoring
+  panel").
 * Timings on the development PC were measured while another application was
   using the same GPU (see the note in "Measured numbers").

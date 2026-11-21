@@ -211,8 +211,14 @@ def _cells(u: np.ndarray, h: np.ndarray, size: float = 0.1) -> np.ndarray:
     return np.unique(np.stack([np.floor(u / size), np.floor(h / size)], 1).astype(np.int64), axis=0)
 
 
-def fit_walls(q: np.ndarray, n2: np.ndarray, floor: float, top: float, opts: PlanOptions) -> list[Wall]:
-    """Vertical planes among wall points ``q`` (plan frame, Nx3) with 2D unit normals ``n2``."""
+def fit_walls(q: np.ndarray, n2: np.ndarray, floor: float, top: float, opts: PlanOptions,
+              too_low: list[dict] | None = None) -> list[Wall]:
+    """Vertical planes among wall points ``q`` (plan frame, Nx3) with 2D unit normals ``n2``.
+
+    ``too_low`` collects the surfaces that are long enough for a wall but were seen
+    over too little of their height (a wall behind furniture, or a scan that never
+    looked up and down): the caller tells the user about them.
+    """
     rng = np.random.default_rng(opts.seed)
     cos_n = np.cos(np.radians(opts.wall_normal_deg))
     alive = np.ones(len(q), bool)
@@ -261,6 +267,9 @@ def fit_walls(q: np.ndarray, n2: np.ndarray, floor: float, top: float, opts: Pla
             hspan = np.percentile(hp, 97) - np.percentile(hp, 3)
             ncell = len(_cells(up_, hp))
             if u1 - u0 < opts.wall_min_length_m or hspan < opts.wall_min_height_m or ncell < opts.wall_min_cells:
+                if too_low is not None and u1 - u0 >= 2 * opts.wall_min_length_m and ncell >= opts.wall_min_cells:
+                    too_low.append({"length_m": round(float(u1 - u0), 2), "seen_height_m": round(float(hspan), 2),
+                                    "seen_from_m": round(float(np.percentile(hp, 3) - floor), 2), "_n": n, "_d": d})
                 continue
             h1 = top if np.isfinite(top) else float(np.percentile(hp, 98))
             area = max((u1 - u0) * (h1 - floor), 1e-6)
@@ -772,7 +781,13 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     wall_pts = (np.abs(qn[:, 2]) < opts.vertical_cos) & (q[:, 2] > floor + 0.25) & (q[:, 2] < (top if ceiling else floor + 2.6) - 0.05)
     n2 = qn[wall_pts, :2]
     n2 = n2 / np.linalg.norm(n2, axis=1, keepdims=True)
-    walls = fit_walls(q[wall_pts], n2, floor, top, opts)
+    seen_low: list[dict] = []
+    walls = fit_walls(q[wall_pts], n2, floor, top, opts, seen_low)
+    too_low: list[dict] = []  # one entry per surface: depth images that disagree show the same wall as several layers
+    for c in sorted(seen_low, key=lambda c: -c["length_m"]):
+        same = lambda o: o["_n"] @ c["_n"] > 0.9 and abs(o["_d"] - c["_d"]) < 0.6  # noqa: E731
+        if not any(same(o) for o in too_low) and not any(w.n @ c["_n"] > 0.9 and abs(w.d - c["_d"]) < 0.6 for w in walls):
+            too_low.append(c)
     walls = _drop_furniture(_drop_duplicates(drop_outside_walls(walls, views, B, opts), opts), opts)
     refined = refine_walls(walls, np.asarray(sparse_points, float) @ B.T, opts) if sparse_points is not None and len(sparse_points) else 0
     walls, corners = snap_walls(walls, opts)
@@ -801,7 +816,11 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     conf_f = round(float(np.clip(fl[1] / 400.0, 0.2, 1.0)), 3)
     room.update(
         status="ok" if len(walls) >= 2 else "partial",
-        reason=None if len(walls) >= 2 else "fewer than two walls were found",
+        reason=None if len(walls) >= 2 else "fewer than two walls were found" + (
+            f": {len(too_low)} more wall-like {'surface was' if len(too_low) == 1 else 'surfaces were'} seen over less than "
+            f"{opts.wall_min_height_m:.1f} m of height (the longest: {max(t['length_m'] for t in too_low):.1f} m long, "
+            f"{max(too_low, key=lambda t: t['length_m'])['seen_height_m']:.1f} m of it seen) - scan again and tilt the phone up and down "
+            "so that the walls are seen from the floor to the ceiling" if too_low else ""),
         floor={"level": round(floor, 4), "point": _v(P3(centre[0], centre[1], floor)), "normal": _v(up3),
                "outline": [_v(P3(p[0], p[1], floor)) for p in outline] if outline is not None else None, "confidence": conf_f},
         ceiling=None if ceiling is None else {"level": round(ceiling, 4), "point": _v(P3(centre[0], centre[1], ceiling)),
@@ -829,7 +848,8 @@ def compute_room_plan(views: list[DepthView], up, extra_points: np.ndarray | Non
     if openings and openings[0]["confidence"] >= opts.auto_portal_min_confidence:
         room["best_opening_id"] = "o0"
     room["thresholds"] = {"auto_portal_min_confidence": opts.auto_portal_min_confidence}
-    room["stats"] = {"views": len(views), "points": int(len(pts)), "walls_refined_with_map_points": int(refined), "options": {k: v for k, v in asdict(opts).items() if k != "seed"}}
+    room["stats"] = {"views": len(views), "points": int(len(pts)), "walls_refined_with_map_points": int(refined),
+                     "wall_candidates_seen_too_low": [{k: v for k, v in t.items() if not k.startswith("_")} for t in too_low], "options": {k: v for k, v in asdict(opts).items() if k != "seed"}}
     return room
 
 
