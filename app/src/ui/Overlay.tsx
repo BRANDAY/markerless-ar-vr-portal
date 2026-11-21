@@ -4,7 +4,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SELECTABLE_PROVIDER_IDS } from '../localization';
 import { formatVec3 } from '../localization/math';
 import type { LocalizationStatus } from '../localization/types';
+import { measureController, useMeasure } from '../measure/measureController';
 import { appActions, useAppState } from '../state/appStore';
+import { Crosshair, MeasurePanel } from './MeasurePanel';
 import { ScanPanel } from './ScanPanel';
 import { ServerChip } from './ServerPanel';
 
@@ -18,9 +20,12 @@ const TRACKING_COLORS = {
 export function Overlay() {
   const overlayVisible = useAppState((s) => s.overlayVisible);
   const mode = useAppState((s) => s.mode);
+  const measuring = useMeasure((s) => s.visible);
 
   return (
     <View style={styles.root} pointerEvents="box-none">
+      {/* First, so that everything else is drawn over it. */}
+      {overlayVisible ? <Crosshair /> : null}
       <View style={styles.topRow} pointerEvents="box-none">
         <View style={[styles.modeBadge, mode === 'VR' ? styles.modeVr : styles.modeAr]}>
           <Text style={styles.modeText}>{mode}</Text>
@@ -37,7 +42,7 @@ export function Overlay() {
           <StatusPanel />
           <View style={styles.spacer} pointerEvents="none" />
           <EventLog />
-          <ScanPanel />
+          {measuring ? <MeasurePanel /> : <ScanPanel />}
           <Controls />
         </>
       ) : null}
@@ -155,6 +160,7 @@ function Controls() {
   const logVisible = useAppState((s) => s.logVisible);
   const environment = useAppState((s) => s.environment);
   const frame = useAppState((s) => s.frame);
+  const measuring = useMeasure((s) => s.visible);
 
   const nextProvider = () => {
     // From a provider that is not in the list (a stub) the switch goes to the first one.
@@ -181,6 +187,7 @@ function Controls() {
         label={`Frame: ${frame}`}
         onPress={() => appActions.setFrame(frame === 'casing' ? 'simple' : 'casing')}
       />
+      <Button label={measuring ? 'Measuring: on' : 'Measuring'} onPress={measureController.toggleVisible} />
       <Button label={logVisible ? 'Hide log' : 'Show log'} onPress={appActions.toggleLog} />
       <Button label="Clear log" onPress={appActions.clearLog} />
     </View>

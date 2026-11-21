@@ -62,6 +62,12 @@ test('log lines are sorted into the categories of the contract', () => {
   assert.deepEqual(classifyLogLine('server: localize: good, 120 inliers'), { type: 'localize', level: 'info' });
   assert.deepEqual(classifyLogLine('something failed badly'), { type: 'error', level: 'error' });
   assert.deepEqual(classifyLogLine('hello'), { type: 'app', level: 'info' });
+  // Measurement mode: a test result is not a fault of the app, whatever its wording.
+  assert.deepEqual(classifyLogLine('measure restart #3 check: door 4.2 cm from the real opening - inside the tolerance of 10 cm / 5 deg'), { type: 'portal', level: 'info' });
+  assert.deepEqual(classifyLogLine('measure restart #4 check: door 14.0 cm from the real opening - OUTSIDE the tolerance of 10 cm / 5 deg'), { type: 'portal', level: 'warn' });
+  assert.deepEqual(classifyLogLine('measure lighting #1 not-found: no door on screen'), { type: 'portal', level: 'warn' });
+  assert.deepEqual(classifyLogLine('measure-data {"v":1,"e":"not-found"}'), { type: 'portal', level: 'debug' });
+  assert.deepEqual(classifyLogLine('measure: left corner marked at [0.10, -1.20, -2.00]'), { type: 'portal', level: 'info' });
 });
 
 test('queue: numbering, batches, acknowledgement and the size limit', () => {

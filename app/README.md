@@ -28,7 +28,7 @@ New here? Go through [Setup on Windows](#setup-on-windows), then
 | 2. Recognise a previously scanned room without markers | **Written; half of it seen on a device.** The app scans the room (planes, room mesh, video with camera poses) and sends the recording to the localization server, which builds the map and the room plan; in a later session a short clip sent to `/localize` finds the room again. Seen on the phone: mesh, recording, upload, build progress, the server's refusal of a one-second recording shown in words. Not seen: a successful build from a phone recording, and finding the room again ([the scenario](#the-scenario-step-by-step)) |
 | 3. Doorway at the same real-world pose in every session | **Written, not yet run on a device.** The portal is placed in the real door opening the server found in the scanned room, with the door casing built to the size of that opening (`self-hosted` provider). Against the server on the PC, with a test recording that lies there, the app's client code gets a doorway back from `/localize` 2.3 cm from where it should be - a doorway set by hand in a test map, not one the server found ([End-to-end check without a phone](#end-to-end-check-without-a-phone)) |
 | 4. See a virtual world through the doorway, walk in and back out | Implemented (`src/ar/DoorPortal.tsx`); the walk-through was confirmed on a device with the stage-1 test room, one visual defect at the crossing (see below). The world behind the door is now the atrium of the Sponza Palace with a wooden door casing (`src/environments/`): both load on the phone without an error, **nobody has looked at them yet** |
-| 5. Tests: restart, angles, lighting, tracking loss | **Behaviour written, tests on a device not started.** What the app does when tracking is lost and comes back, how often it asks the server again and what it does with weak answers is implemented and unit-tested ([Keeping the doorway in place](#keeping-the-doorway-in-place)); the measurements themselves need a device |
+| 5. Tests: restart, angles, lighting, tracking loss | **Tools and procedure written, tests on a device not started.** What the app does when tracking is lost and comes back, how often it asks the server again and what it does with weak answers is implemented and unit-tested ([Keeping the doorway in place](#keeping-the-doorway-in-place)). A measurement mode records every localisation and compares the door with the marked corners of the real opening, in centimetres and degrees ([Measuring where the door stands](#measuring-where-the-door-stands)); the procedure for the five checks is in [`docs/test-protocol.md`](docs/test-protocol.md). **No trial has been run on a phone** |
 
 ## Stack
 
@@ -176,10 +176,11 @@ adb reverse tcp:8081 tcp:8081
 npx expo start
 ```
 
-Other scripts: `npm run typecheck` (TypeScript), `npm test` (85 unit tests of the pure
+Other scripts: `npm run typecheck` (TypeScript), `npm test` (101 unit tests of the pure
 modules, run in Node), `npm run build:android` (the Gradle build above),
 `npm run e2e:server` (the app's client against a real server,
-[without a phone](#end-to-end-check-without-a-phone)), `npm run assets` (regenerate
+[without a phone](#end-to-end-check-without-a-phone)), `npm run measure:report` (summary of the
+[door measurements](#measuring-where-the-door-stands)), `npm run assets` (regenerate
 textures and the simple door model).
 
 ## Using the app
@@ -216,6 +217,7 @@ Buttons of the debug overlay:
 | **Provider: manual / self-hosted** | who decides where the doorway stands. `manual` (the default): in front of the camera, no server needed. `self-hosted`: in the real door opening the server found. The two stubs (`reactvision-vps`, `arcore-cloud-anchor`) exist in the code but are not offered |
 | **World: sponza / test-room** | what is behind the door. `sponza` (the default) is the atrium; `test-room` is the small violet room of stage 1, kept to tell a portal problem from a problem with the big model |
 | **Frame: casing / simple** | the door frame, see [How the portal works](#how-the-portal-works) |
+| **Measuring** / **Measuring: on** | measurement mode: the scan panel is replaced by the measurement panel, a crosshair marks the middle of the screen. See [Measuring where the door stands](#measuring-where-the-door-stands) |
 | **Hide log**, **Clear log** | the event log |
 
 The shortest way to see the virtual world, without a server: start the app, move the
@@ -406,7 +408,7 @@ a broadcast or announcing itself with mDNS); the server does not offer that toda
 ### How it is built
 
 - `src/server/core/` is plain TypeScript without React Native imports and is unit-tested
-  in Node (`npm test`; 85 tests in all with those of `src/room/` and `src/localization/core/`, including a local mock of the server contract):
+  in Node (`npm test`; 101 tests in all with those of `src/room/`, `src/localization/core/` and `src/measure/core/`, including a local mock of the server contract):
   `address.ts` (parsing what the user types), `subnet.ts` (which addresses to probe),
   `health.ts` (validation of the `/health` answer), `client.ts` (**the only module that
   makes HTTP requests** — stage 2b adds `POST /localize` there), `discovery.ts` (paced scan
@@ -546,6 +548,41 @@ What it cannot cover, because it needs React Native or a camera: how the phone e
 the upload from file paths, the upload progress, the recorder, the 2.5 s clip, and
 everything that is drawn.
 
+### Measuring where the door stands
+
+For the checks of assignment task 5 the app keeps a record of every localisation and can
+compare the door with the real opening. **Written and unit-tested on the PC, never run on
+a phone.** The procedure, the buttons and the record format are in
+[`docs/test-protocol.md`](docs/test-protocol.md); the shot list of the demo video is in
+[`docs/demo-video.md`](docs/demo-video.md).
+
+- **Always, without pressing anything**: when a search for the doorway ends, a record is
+  written - what happened (`placed`, `moved`, `confirmed`, `kept`, `not-found`,
+  `no-doorway`), the door pose in the session's frame, the server's quality and inlier
+  count, the time the search took, the time since app start and the number of attempts.
+- **Measurement mode** (**Measuring** in the debug overlay): choose the test with
+  **Test: ...** (`baseline`, `restart`, `angle`, `lighting`, `tracking-loss`,
+  `walk-through`; the choice survives a restart of the app), mark the two bottom corners
+  of the real door opening with **Mark left** and **Mark right** (crosshair on the corner
+  where the jamb meets the floor; a thin post appears on each mark), press **Measure**.
+  The panel and the log then say how far the door is from the real opening: position
+  along and across the wall and in height, heading, width, and whether that is inside
+  the tolerance of **10 cm and 5 degrees - our assumption, the assignment gives none**.
+- Sessions have different coordinate frames, so the corners are marked again in every
+  session; the comparison is always door against marks of the same session.
+- Every record goes to the event log (and with it to the server's panel and its
+  `work/device-logs/<device>.jsonl`), and to `measurements/<run id>.jsonl` in the app's
+  documents directory.
+
+```powershell
+npm run measure:report -- <file or folder> [--trials]
+```
+
+prints a table per test from any of those files: trials, how often the door came back,
+how many trials are inside the tolerance, median / mean / maximum of position, heading
+and times. Code: `src/measure/` (`core/measurement.ts` is the arithmetic and the format,
+with tests).
+
 ## Project structure
 
 ```
@@ -553,7 +590,7 @@ App.tsx                       camera permission gate, AR navigator + overlay
 index.ts                      entry point
 app.json                      Expo config: ViroReact plugin options, build limits
 metro.config.js               adds .obj (and other 3D formats) to Metro's asset types
-tsconfig.test.json            compiles the pure modules and their tests for Node (`npm test`, `npm run e2e:server`)
+tsconfig.test.json            compiles the pure modules and their tests for Node (`npm test`, `npm run e2e:server`, `npm run measure:report`)
 plugins/
   withAndroidBuildTuning.js   config plugin: Gradle limits, JS bundle embedded in debug
 modules/
@@ -572,6 +609,7 @@ src/
     VirtualRoom.tsx           the stage-1 test room (primitives, own lights), kept as a fallback
     RoomScanLayer.tsx         highlights of the planes and corners the phone detects
     ServerRoomLayer.tsx       the room plan computed by the server
+    MeasureLayer.tsx          posts on the marked corners of the real door opening
     doorGeometry.ts           door / room dimensions, light bit masks
     materials.ts              ViroMaterials and animations
   localization/
@@ -585,6 +623,10 @@ src/
     index.ts                  provider registry
   environments/               worlds behind the portal and the door casing (maintained separately):
                               SponzaAtrium.tsx, DoorCasing.tsx
+  measure/
+    core/measurement.ts       door against marked corners, record format, summary per test (unit-tested)
+    core/report.cli.ts        `npm run measure:report`: the summary on the PC
+    measureController.ts      measurement mode: marks, records, the file on the phone
   room/
     roomGeometry.ts           room model from plane anchors: walls, floor, corners (unit-tested)
     roomStore.ts              state of the scan, upload and server plan
@@ -603,8 +645,11 @@ src/
   ui/Overlay.tsx              mode badge, status banner, status panel, event log, buttons
   ui/ServerPanel.tsx          server status chip and server settings
   ui/ScanPanel.tsx            room-scan buttons, numbers, upload and build progress
+  ui/MeasurePanel.tsx         measurement mode: test, marks, result, crosshair
 docs/
   capture-format.md           what a capture contains (for the server's upload handler)
+  test-protocol.md            the five persistence checks of task 5, step by step
+  demo-video.md               shot list of the demo video
 ```
 
 ## Localization provider interface
@@ -853,7 +898,7 @@ exercised:
 | Self-hosted provider without a map | Says "the server has no map "room" yet - scan the room first" |
 | Typing a server address | **Not confirmed** (asked for, not done) |
 
-The 85 unit tests, the client against `scripts/mock-server.mjs` and against the real
+The unit tests (85 at that time), the client against `scripts/mock-server.mjs` and against the real
 server on `localhost`, and `usesCleartextTraffic="true"` in the merged manifests of the
 debug and release variants were checked on the development PC.
 
@@ -861,8 +906,8 @@ debug and release variants were checked on the development PC.
 
 Everything in this list is written but has not been seen working on a phone. The build
 on the phone at the time of writing is `546697d`; what was added later (device log, mesh
-as PLY, tracking loss, status banner, the reduced provider switch) has never been
-installed.
+as PLY, tracking loss, status banner, the reduced provider switch, the measurement mode)
+has never been installed.
 
 - **a map built from a real room recording**: a one-to-two-minute recording, its upload
   (size, time, progress), the build, the server's room plan drawn in the session, the
@@ -873,6 +918,10 @@ installed.
 - **tracking loss**: that a loss longer than 1.5 s is noticed, that the door stays, that
   the room is looked for again and the door confirmed or corrected; that switching the
   scan mode does not count as a loss;
+- **the measurement mode**: whether the crosshair is the middle of the camera image,
+  how repeatable a mark is (the protocol starts with that check), the posts staying on
+  the marked corners, the records and their file, the lines reaching the server; and
+  every one of the five checks themselves ([`docs/test-protocol.md`](docs/test-protocol.md));
 - **walls in the scan**: whether the phone finds vertical planes in a normal room, the
   orientation of their highlights, the corner markers, the direction of wall normals
   (the last open point of the capture format), highlights staying in place when turning;

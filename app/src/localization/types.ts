@@ -96,6 +96,37 @@ export type ProviderId =
   | 'arcore-cloud-anchor'
   | 'self-hosted';
 
+/**
+ * How one search for the doorway ended, for the measurement log (`measure/`). Reported
+ * AFTER the pose (if any) has been emitted, so the door on screen is already the new one.
+ */
+export interface LocalizationReport {
+  /**
+   *  - `placed`: a door was put where there was none; `moved`: the door on screen was moved;
+   *  - `confirmed`: a new answer agreed with the door on screen;
+   *  - `kept`: the search gave nothing better, the trusted door stays;
+   *  - `not-found`: the room was not recognised, the attempts are used up;
+   *  - `no-doorway`: the room was recognised, but it has no door opening.
+   */
+  event: 'placed' | 'moved' | 'confirmed' | 'kept' | 'not-found' | 'no-doorway';
+  /** Why the doorway was looked for: start, recovery, manual, confirm, build, by-hand. */
+  reason: string;
+  /** Requests to the back-end this search took (0 when none was needed). */
+  attempts: number;
+  /** From the start of the search to this result; null when nothing was searched. */
+  elapsedMs: number | null;
+  /** False for a pose that is shown but still being confirmed. */
+  trusted: boolean;
+  /** The back-end's own description of its answer, when there is a back-end. */
+  server?: {
+    quality: string;
+    inliers: number | null;
+    /** How the back-end knows the doorway ("auto", "manual"...). */
+    source: string | null;
+    confidence: number | null;
+  };
+}
+
 export type Unsubscribe = () => void;
 
 /**
@@ -119,6 +150,8 @@ export interface LocalizationContext {
   getArSceneNavigator(): unknown;
   /** Writes a line to the on-screen event log. */
   log(message: string): void;
+  /** Tells the measurement log how a search for the doorway ended. */
+  reportLocalization(report: LocalizationReport): void;
 }
 
 export interface LocalizationProvider {

@@ -171,5 +171,6 @@ export class ManualPlacementProvider extends BaseProvider {
       },
     });
     this.setStatus('localized', floorIsPlausible ? 'floor from plane' : 'floor assumed');
+    context.reportLocalization({ event: 'placed', reason: 'by-hand', attempts: 0, elapsedMs: null, trusted: true });
   }
 }

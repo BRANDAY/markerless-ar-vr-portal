@@ -71,6 +71,11 @@ ViroMaterials.createMaterials({
   planOpeningLine: { ...SCAN_LINE, diffuseColor: '#ffffff' },
   planFloorLine: { ...SCAN_LINE, diffuseColor: '#ffd166' },
   planCorner: { lightingModel: 'Constant', diffuseColor: '#ffd166' },
+
+  // ---- Measurement mode: posts on the marked corners of the real door opening ----
+  measureLeft: { lightingModel: 'Constant', diffuseColor: '#ff2bd6' },
+  measureRight: { lightingModel: 'Constant', diffuseColor: '#00e5ff' },
+  measureStale: { lightingModel: 'Constant', diffuseColor: '#9aa0a6' },
 });
 
 ViroAnimations.registerAnimations({

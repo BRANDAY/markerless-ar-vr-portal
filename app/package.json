@@ -25,7 +25,8 @@
     "typecheck": "tsc --noEmit",
     "assets": "node scripts/generate-assets.mjs",
     "test": "tsc -p tsconfig.test.json && node --test \".test-build/**/*.test.js\"",
-    "e2e:server": "tsc -p tsconfig.test.json && node .test-build/server/core/server.e2e.js"
+    "e2e:server": "tsc -p tsconfig.test.json && node .test-build/server/core/server.e2e.js",
+    "measure:report": "tsc -p tsconfig.test.json && node .test-build/measure/core/report.cli.js"
   },
   "private": true
 }

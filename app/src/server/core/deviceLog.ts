@@ -91,6 +91,15 @@ const MESSAGE_MAX = 500;
  */
 export function classifyLogLine(text: string): { type: LogType; level: LogLevel } {
   const lower = text.toLowerCase();
+  if (lower.startsWith('measure')) {
+    // Lines of the measurement mode: their wording ("not-found", "outside the tolerance")
+    // describes a test result, not a fault of the app.
+    if (lower.startsWith('measure-data')) {
+      return { type: 'portal', level: 'debug' };
+    }
+    const attention = /outside the tolerance| not-found| no-doorway|cannot mark|could not save|interrupted/.test(lower);
+    return { type: 'portal', level: attention ? 'warn' : 'info' };
+  }
   let type: LogType = 'app';
   if (lower.startsWith('tracking')) {
     type = 'tracking';

@@ -17,12 +17,27 @@ import {
   TrackingWatch,
   wantsAnotherAttempt,
 } from './core/relocalization';
-import type { LocalizationContext, ProviderId, TrackingState, Unsubscribe } from './types';
+import type { LocalizationContext, LocalizationReport, ProviderId, TrackingState, Unsubscribe } from './types';
 
 /** While a scan recording runs the recorder is busy; look again after this long. */
 const RECORDER_BUSY_RETRY_MS = 2000;
 /** Pause before a weak pose is checked again. */
 const CONFIRM_DELAY_MS = 3000;
+
+/** One search for the room: a limited number of attempts for one reason. */
+interface Episode {
+  reason: EpisodeReason;
+  /** Reason of the search this one continues (a `confirm` episode follows another one). */
+  origin: EpisodeReason;
+  attempt: number;
+  /** Attempts of the episodes this one continues. */
+  earlier: number;
+  lastWhy: string;
+  /** `Date.now()` when the search began. */
+  startedAt: number;
+  /** The server's description of its latest answer in this search. */
+  server?: LocalizationReport['server'];
+}
 
 const HOW_TO_LOOK = 'Look at a part of the room that was scanned (not a bare wall) and press "Re-localize"';
 
@@ -71,7 +86,7 @@ export class SelfHostedServerProvider extends BaseProvider {
   /** The plan this provider has dealt with last (so that the store's echo is ignored). */
   private handledPlan: ServerPlan | null = null;
 
-  private episode: { reason: EpisodeReason; attempt: number; lastWhy: string } | null = null;
+  private episode: Episode | null = null;
   private busy = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -177,16 +192,20 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.handledPlan = plan;
     this.cancelEpisode();
     const door = candidateFrom(plan.portal, true);
+    const server = {
+      quality: 'build',
+      inliers: null,
+      source: plan.portal?.source ?? null,
+      confidence: plan.portal?.confidence ?? null,
+    };
     if (!door) {
       this.reportNoDoorway(plan);
+      this.report('no-doorway', null, server);
       return;
     }
-    if (this.interrupted) {
-      // Built from a recording of a frame that has been interrupted since: show, do not trust.
-      this.place(door, plan, false, 'this scan');
-      return;
-    }
-    this.place(door, plan, true, 'this scan');
+    // Built from a recording of a frame that has been interrupted since: show, do not trust.
+    this.place(door, plan, !this.interrupted, 'this scan');
+    this.report('placed', null, server);
   }
 
   private onTracking(state: TrackingState): void {
@@ -259,7 +278,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     }
     this.clearRetryTimer();
     this.generation++;
-    this.episode = { reason, attempt: 0, lastWhy: '' };
+    this.episode = { reason, origin: reason, attempt: 0, earlier: 0, lastWhy: '', startedAt: Date.now() };
     this.scheduleAttempt(0);
   }
 
@@ -336,6 +355,12 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     const { outcome, plan } = result;
+    episode.server = {
+      quality: outcome.quality,
+      inliers: outcome.numInliers,
+      source: outcome.portal?.source ?? null,
+      confidence: outcome.portal?.confidence ?? null,
+    };
     const door = outcome.alignmentStatus === 'ok' ? candidateFrom(outcome.portal, outcome.quality === 'good') : null;
     const decision = decide(this.shown, this.trusted, {
       quality: outcome.quality,
@@ -345,11 +370,7 @@ export class SelfHostedServerProvider extends BaseProvider {
     this.afterDecision(episode, decision, plan);
   }
 
-  private afterDecision(
-    episode: { reason: EpisodeReason; attempt: number; lastWhy: string },
-    decision: Decision,
-    plan: ServerPlan | null,
-  ): void {
+  private afterDecision(episode: Episode, decision: Decision, plan: ServerPlan | null): void {
     const log = (text: string) => this.context?.log(`self-hosted: ${text}`);
     switch (decision.action) {
       case 'retry':
@@ -361,10 +382,12 @@ export class SelfHostedServerProvider extends BaseProvider {
         if (plan) {
           this.reportNoDoorway(plan);
         }
+        this.report('no-doorway', episode);
         return;
       case 'place':
         if (plan) {
           this.place(decision.door, plan, decision.door.strong, 'recognised room');
+          this.report('placed', episode);
         }
         break;
       case 'move':
@@ -374,12 +397,14 @@ export class SelfHostedServerProvider extends BaseProvider {
         );
         if (plan) {
           this.place(decision.door, plan, decision.door.strong, 'recognised room, corrected', episode.reason !== 'manual');
+          this.report('moved', episode);
         }
         break;
       case 'keep':
         this.trusted = true;
         log(`doorway confirmed: the new answer is ${(decision.distanceM * 100).toFixed(0)} cm from the shown one`);
         this.setStatus('localized', 'doorway confirmed by a second look');
+        this.report('confirmed', episode);
         break;
       case 'ignore':
         episode.lastWhy = 'only weak matches that disagree with the doorway shown';
@@ -394,7 +419,15 @@ export class SelfHostedServerProvider extends BaseProvider {
     // A weak pose is on screen: the remaining attempts only confirm it.
     let current = episode;
     if ((decision.action === 'place' || decision.action === 'move') && episode.reason !== 'confirm') {
-      current = { reason: 'confirm', attempt: 0, lastWhy: 'the match was weak' };
+      current = {
+        reason: 'confirm',
+        origin: episode.origin,
+        attempt: 0,
+        earlier: episode.earlier + episode.attempt,
+        lastWhy: 'the match was weak',
+        startedAt: episode.startedAt,
+        server: episode.server,
+      };
       this.episode = current;
     }
     if (current.attempt >= MAX_ATTEMPTS[current.reason]) {
@@ -406,11 +439,12 @@ export class SelfHostedServerProvider extends BaseProvider {
   }
 
   /** The attempts of an episode are used up. Nothing on screen changes; the status says what to do. */
-  private giveUp(episode: { reason: EpisodeReason; attempt: number; lastWhy: string }): void {
+  private giveUp(episode: Episode): void {
     this.episode = null;
     const why = episode.lastWhy ? ` (${episode.lastWhy})` : '';
     if (this.shown && this.trusted) {
       this.setStatus('localized', 'doorway kept: the new look did not give a better position');
+      this.report('kept', episode);
       return;
     }
     if (this.shown) {
@@ -418,9 +452,27 @@ export class SelfHostedServerProvider extends BaseProvider {
         'lost',
         `the doorway is shown where it was, but its position could not be confirmed${why}. ${HOW_TO_LOOK}`,
       );
+      this.report('kept', episode); // `trusted: false` says that it is not confirmed
       return;
     }
     this.setStatus('lost', `room not recognised after ${episode.attempt} attempts${why}. ${HOW_TO_LOOK}`);
+    this.report('not-found', episode);
+  }
+
+  /** Tells the measurement log how a search ended. `episode` is null for a plan straight from a build. */
+  private report(
+    event: LocalizationReport['event'],
+    episode: Episode | null,
+    server: LocalizationReport['server'] = episode?.server,
+  ): void {
+    this.context?.reportLocalization({
+      event,
+      reason: episode ? episode.origin : 'build',
+      attempts: episode ? episode.earlier + episode.attempt : 0,
+      elapsedMs: episode ? Date.now() - episode.startedAt : null,
+      trusted: this.trusted,
+      server,
+    });
   }
 
   // ---- outputs --------------------------------------------------------------------------

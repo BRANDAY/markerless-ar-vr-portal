@@ -77,7 +77,9 @@ export interface AppState {
 }
 
 const MAX_LOG_ENTRIES = 200;
-const startedAtMs = Date.now();
+/** `Date.now()` when the app's JavaScript started (about a second after the icon was tapped). */
+export const APP_STARTED_AT_MS = Date.now();
+const startedAtMs = APP_STARTED_AT_MS;
 
 let state: AppState = {
   trackingState: 'unavailable',
@@ -150,6 +152,16 @@ export const appActions = {
     console.log(`[portal] ${entry.t.toFixed(1)}s ${text}`);
     const log = [...state.log, entry];
     setState({ log: log.length > MAX_LOG_ENTRIES ? log.slice(-MAX_LOG_ENTRIES) : log });
+  },
+
+  /**
+   * A machine-readable line for the device log and logcat only: it would only clutter
+   * the small log on the screen.
+   */
+  logData(text: string): void {
+    const now = Date.now();
+    logListeners.forEach((listener) => listener(text, now));
+    console.log(`[portal] ${((now - startedAtMs) / 1000).toFixed(1)}s ${text}`);
   },
 
   setTracking(trackingState: TrackingState, trackingReason: string): void {

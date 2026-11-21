@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { PortalARScene } from './src/ar/PortalARScene';
+import { measureController } from './src/measure/measureController';
 import { useRoomScan } from './src/room/roomStore';
 import { deviceLogger } from './src/server/deviceLogger';
 import { serverConnection } from './src/server/ServerConnection';
@@ -133,6 +134,8 @@ export default function App() {
   // The device's identity is loaded first, so that every request to the server carries it.
   useEffect(() => {
     void deviceLogger.start(appActions.log).then(() => serverConnection.start(appActions.log));
+    // The test condition chosen in the previous run (a restart is one of the tests).
+    void measureController.start();
   }, []);
 
   // The AR view is mounted only once the camera permission is granted: starting an

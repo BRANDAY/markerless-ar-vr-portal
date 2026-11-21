@@ -19,12 +19,14 @@ import type {
   TrackingState,
   Vec3,
 } from '../localization/types';
+import { measureController } from '../measure/measureController';
 import { toPlaneAnchorData } from '../room/roomGeometry';
 import { roomActions } from '../room/roomStore';
 import { scanController } from '../room/scanController';
 import { appActions, getAppState, useAppState } from '../state/appStore';
 import { DoorPortal } from './DoorPortal';
 import { LIGHT_MASK_AR } from './doorGeometry';
+import { MeasureLayer } from './MeasureLayer';
 import { RoomScanLayer } from './RoomScanLayer';
 import { ServerRoomLayer } from './ServerRoomLayer';
 import './materials';
@@ -108,6 +110,9 @@ export function PortalARScene(props: SceneProps) {
     }
   }, []);
 
+  /** A correction of the doorway that arrived while the user was inside the virtual world. */
+  const heldPoseRef = useRef<PoseUpdate | null>(null);
+
   // ---- what providers may ask from the AR session -------------------------------------
   const context = useMemo<LocalizationContext>(
     () => ({
@@ -122,14 +127,15 @@ export function PortalARScene(props: SceneProps) {
       getFloorY: () => floorYRef.current,
       getArSceneNavigator: () => navigatorRef.current,
       log: appActions.log,
+      reportLocalization: (report) => measureController.onLocalization(report, heldPoseRef.current !== null),
     }),
     [],
   );
 
+  useEffect(() => measureController.attach(context), [context]);
+
   // ---- provider life cycle ------------------------------------------------------------
   const providerRef = useRef<LocalizationProvider | null>(null);
-  /** A correction of the doorway that arrived while the user was inside the virtual world. */
-  const heldPoseRef = useRef<PoseUpdate | null>(null);
 
   const applyPose = useCallback((update: PoseUpdate) => {
     // The one and only place where a provider result moves the portal.
@@ -319,6 +325,7 @@ export function PortalARScene(props: SceneProps) {
 
       <RoomScanLayer />
       <ServerRoomLayer />
+      <MeasureLayer />
 
       {door ? (
         // `key` re-mounts the portal when the attach mode, the world or the frame changes, so each

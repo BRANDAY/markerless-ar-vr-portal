@@ -23,6 +23,14 @@ import { join } from 'node:path';
 
 import { decide } from '../../localization/core/relocalization';
 import {
+  compactLine,
+  compareDoor,
+  describeRecord,
+  doorCorners,
+  type MeasurementRecord,
+  parseTrials,
+} from '../../measure/core/measurement';
+import {
   getJob,
   getPortal,
   getRoom,
@@ -171,9 +179,11 @@ async function main(): Promise<number> {
   clip.append('session_id', `${identity.sessionId}-w0`);
   clip.append('device_id', identity.deviceId);
   clip.append('include_room', 'true');
+  let measured: MeasurementRecord | null = null;
   const t0 = Date.now();
   const located = await localize(baseUrl, clip);
-  check(located.ok, `localize answered in ${Date.now() - t0} ms${located.ok ? '' : `: ${located.reason}`}`);
+  const localizeMs = Date.now() - t0;
+  check(located.ok, `localize answered in ${localizeMs} ms${located.ok ? '' : `: ${located.reason}`}`);
   if (located.ok) {
     const outcome = located.value;
     console.log(`      quality ${outcome.quality}, ${outcome.numInliers} inliers, alignment ${outcome.alignmentStatus}${outcome.reason ? `, reason ${outcome.reason}` : ''}`);
@@ -198,6 +208,7 @@ async function main(): Promise<number> {
         // Where the doorway has to be in the clip's AR frame: the map position as it is
         // (a map built from this very recording), or moved by the known transform.
         let expected = portal.value.position;
+        let turnDeg = 0;
         let how = 'where the map has it';
         const expectedFile = join(recording, 'expected.json');
         if (localizeOnly && existsSync(expectedFile)) {
@@ -206,6 +217,7 @@ async function main(): Promise<number> {
           if (t) {
             const p = portal.value.position;
             expected = [0, 1, 2].map((r) => t[r][0] * p[0] + t[r][1] * p[1] + t[r][2] * p[2] + t[r][3]) as [number, number, number];
+            turnDeg = (Math.atan2(t[0][2], t[0][0]) * 180) / Math.PI;
             how = "where the recording's known transform puts it";
           }
         }
@@ -213,6 +225,42 @@ async function main(): Promise<number> {
         console.log(`      doorway from /localize ${fmt(door.position)} vs expected ${fmt(expected)}: ${(d * 100).toFixed(1)} cm apart`);
         check(decision.action === 'place', 'the app would place the doorway');
         check(d < 0.25, `the doorway comes back within 25 cm of ${how}`);
+        if (portal.value.rotation) {
+          // The same answer as the app's measurement mode would record it, with the
+          // expected doorway standing in for the corners a user marks in the room.
+          const widthM = portal.value.width ?? 0.9;
+          const pose = { position: door.position, yawDeg: door.rotation[1], widthM };
+          const reference = doorCorners({ position: expected, yawDeg: portal.value.rotation[1] + turnDeg, widthM });
+          measured = {
+            v: 1,
+            kind: 'door-measurement',
+            run: identity.sessionId,
+            device: identity.deviceId,
+            seq: 1,
+            time: new Date().toISOString(),
+            condition: 'restart',
+            event: 'check',
+            provider: 'self-hosted',
+            tracking: 'normal',
+            placement: {
+              event: 'placed',
+              reason: 'start',
+              attempts: 1,
+              elapsedMs: localizeMs,
+              sinceStartMs: localizeMs,
+              trusted: outcome.quality === 'good',
+              quality: outcome.quality,
+              inliers: outcome.numInliers,
+              source: outcome.portal?.source ?? null,
+              confidence: outcome.portal?.confidence ?? null,
+            },
+            door: { ...pose, heightM: portal.value.height ?? 2, sizeFromServer: portal.value.width !== null },
+            reference: { ...reference, method: 'expected', beforeInterruption: false },
+            comparison: compareDoor(pose, reference),
+            held: false,
+          };
+          console.log(`      as a measurement record: ${describeRecord(measured)}`);
+        }
       } else {
         console.log('      no doorway in this map: the app would report "no door opening found" and place nothing');
         check(decision.action === 'no-doorway', 'no doorway -> nothing is placed');
@@ -223,6 +271,11 @@ async function main(): Promise<number> {
   if (caps.includes('device_log')) {
     queue.acknowledge(2);
     queue.add(`server: client test finished with ${failures} failed checks`, Date.now());
+    if (measured) {
+      queue.add(describeRecord(measured), Date.now());
+      queue.add(compactLine(measured), Date.now());
+    }
+    const lastSeq = measured ? 5 : 3;
     const body = buildLogBody(
       identity,
       queue.nextBatch(),
@@ -231,7 +284,21 @@ async function main(): Promise<number> {
       null,
     );
     const receipt = await postDeviceLog(baseUrl, identity.deviceId, body);
-    check(receipt.ok && receipt.value.lastSeq === 3, `closing device log batch: ${JSON.stringify(receipt)}`);
+    check(receipt.ok && receipt.value.lastSeq === lastSeq, `closing device log batch: ${JSON.stringify(receipt)}`);
+    if (measured) {
+      // The measurement must be readable from the server afterwards (the panel, the report).
+      try {
+        const back = await fetch(`${baseUrl}/devices/${identity.deviceId}/log?limit=100`);
+        const events = ((await back.json()) as { events?: unknown[] }).events ?? [];
+        const trials = parseTrials(events.map((event) => JSON.stringify(event)).join('\n'));
+        check(
+          trials.length === 1 && trials[0].positionCm === measured.comparison?.positionCm,
+          `the measurement record reads back from the server's device log (${trials.length} found among ${events.length} events)`,
+        );
+      } catch (error) {
+        check(false, `the device log could not be read back: ${String(error)}`);
+      }
+    }
   }
 
   console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`);
