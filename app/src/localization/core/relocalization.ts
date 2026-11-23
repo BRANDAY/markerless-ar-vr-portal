@@ -82,7 +82,14 @@ export type EpisodeReason =
   /** The user pressed "Re-localize". */
   | 'manual'
   /** A weak answer was accepted and is being confirmed. */
-  | 'confirm';
+  | 'confirm'
+  /**
+   * The user walked out of the space: the place of the door is checked once. While the
+   * user was inside, ARCore may have corrected its map without announcing a loss of
+   * tracking (second pass on a phone, 2026-11-22: the planes were dropped and found again,
+   * the door - a point in ARCore's frame - stayed on the old numbers and stood off).
+   */
+  | 'exit';
 
 /** Automatic attempts of one episode; after that the user is told what to do. */
 export const MAX_ATTEMPTS: Record<EpisodeReason, number> = {
@@ -90,6 +97,8 @@ export const MAX_ATTEMPTS: Record<EpisodeReason, number> = {
   recovery: 5,
   manual: 3,
   confirm: 2,
+  /** One look and one more: the door stays where it is when neither gives a good answer. */
+  exit: 2,
 };
 
 /** Pause before attempt number `attempt` (1 = first). Later attempts wait longer. */
@@ -219,4 +228,51 @@ export function wantsAnotherAttempt(decision: Decision): boolean {
     case 'no-doorway':
       return false;
   }
+}
+
+// ---- after the way out of the space -------------------------------------------------------
+
+/**
+ * What to check once the user is back in the room. After an announced loss of tracking the
+ * door is no longer trusted and is looked for as after any loss (`recovery`); otherwise
+ * its place is checked once (`exit`). Nothing without a door on screen.
+ */
+export function checkAfterExit(input: { doorShown: boolean; afterLoss: boolean }): 'recovery' | 'exit' | null {
+  if (!input.doorShown) {
+    return null;
+  }
+  return input.afterLoss ? 'recovery' : 'exit';
+}
+
+/**
+ * A check after the way out moves the door only on a good answer: a weak one, or a
+ * refusal, leaves the door where it is (no alarm, see `exitCheckGaveUp`). Null: the
+ * answer may go on to the door layer.
+ */
+export function exitCheckGate(quality: string): Decision | null {
+  return quality === 'good' ? null : { action: 'retry', why: `a ${quality || 'missing'} answer does not move the door after the way out` };
+}
+
+/** The log line of a check after the way out: how far the door was off and whether it was moved. */
+export function describeExitCheck(decision: Decision): string {
+  const cm = (metres: number) => `${Math.round(metres * 100)} cm`;
+  switch (decision.action) {
+    case 'keep':
+      return `the doorway was in place (${cm(decision.distanceM)} off, within ${cm(SAME_POSE_DISTANCE_M)}) - not moved`;
+    case 'move':
+      return `the doorway was ${cm(decision.distanceM)} off (${decision.angleDeg.toFixed(1)} deg) - moved to the recognised place`;
+    case 'ignore':
+      return `a weak answer ${cm(decision.distanceM)} away - not moved`;
+    case 'place':
+      return 'the doorway was placed';
+    case 'no-doorway':
+      return 'the room was recognised, but its map has no doorway - the doorway is kept';
+    case 'retry':
+      return `no good answer (${decision.why}) - not moved`;
+  }
+}
+
+/** The checks after the way out are used up: the door stays, the screen says nothing alarming. */
+export function exitCheckGaveUp(attempts: number): string {
+  return `back in the room - no good answer in ${attempts} look(s), the doorway is kept where it was`;
 }

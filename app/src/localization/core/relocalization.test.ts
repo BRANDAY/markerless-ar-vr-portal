@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  checkAfterExit,
   decide,
+  describeExitCheck,
+  exitCheckGate,
+  exitCheckGaveUp,
   type DoorCandidate,
   INTERRUPTION_GRACE_MS,
   type LocalizeAnswer,
@@ -126,4 +130,31 @@ test('decision: after tracking loss even a weak answer corrects the door', () =>
   const decision = decide(SHOWN, false, answer({ at: [1.5, 0, -2], quality: 'weak' }));
   assert.equal(decision.action, 'move');
   assert.ok(wantsAnotherAttempt(decision), 'the weak correction is checked once more');
+});
+
+test('after the way out: the door is checked every time, after a loss as before', () => {
+  assert.equal(checkAfterExit({ doorShown: true, afterLoss: false }), 'exit');
+  assert.equal(checkAfterExit({ doorShown: true, afterLoss: true }), 'recovery');
+  assert.equal(checkAfterExit({ doorShown: false, afterLoss: false }), null);
+  assert.equal(checkAfterExit({ doorShown: false, afterLoss: true }), null);
+  // one look and one more, no loop
+  assert.equal(MAX_ATTEMPTS.exit, 2);
+});
+
+test('after the way out: only a good answer may move the door', () => {
+  assert.equal(exitCheckGate('good'), null);
+  for (const quality of ['weak', 'failed', '']) {
+    const gate = exitCheckGate(quality);
+    assert.equal(gate?.action, 'retry', quality);
+    assert.ok(gate && wantsAnotherAttempt(gate));
+  }
+  // a good answer: the door shown 40 cm off is moved, 8 cm off is kept
+  const moved = decide(SHOWN, true, answer({ at: [1.4, 0, -2] }));
+  assert.equal(moved.action, 'move');
+  assert.match(describeExitCheck(moved), /^the doorway was 40 cm off \(0\.0 deg\) - moved/);
+  const kept = decide(SHOWN, true, answer({ at: [1.08, 0, -2] }));
+  assert.equal(kept.action, 'keep');
+  assert.match(describeExitCheck(kept), /^the doorway was in place \(8 cm off, within 15 cm\) - not moved/);
+  assert.match(describeExitCheck({ action: 'retry', why: 'the view was not recognised' }), /not moved/);
+  assert.match(exitCheckGaveUp(2), /no good answer in 2 look\(s\), the doorway is kept/);
 });

@@ -11,9 +11,13 @@ import { serverConnection } from '../server/ServerConnection';
 import { getAppState, subscribeAppState } from '../state/appStore';
 import { BaseProvider } from './BaseProvider';
 import {
+  checkAfterExit,
   decide,
   type Decision,
+  describeExitCheck,
   type EpisodeReason,
+  exitCheckGate,
+  exitCheckGaveUp,
   INTERRUPTION_GRACE_MS,
   MAX_ATTEMPTS,
   retryDelayMs,
@@ -359,22 +363,30 @@ export class SelfHostedServerProvider extends BaseProvider {
       return;
     }
     this.exitedAt = Date.now();
-    if (this.checkAfterExit) {
-      this.scheduleExitCheck(CHECK_AFTER_EXIT_MS);
+    // Every way out: ARCore may have corrected its map while the user was inside without
+    // announcing a loss of tracking (second pass on a phone, 2026-11-22), and the door is a
+    // point in ARCore's frame. After an announced loss it is looked for as before.
+    const check = checkAfterExit({ doorShown: this.door.shown !== null, afterLoss: this.checkAfterExit });
+    if (check) {
+      this.scheduleExitCheck(CHECK_AFTER_EXIT_MS, check);
     }
   }
 
-  private scheduleExitCheck(delayMs: number): void {
+  private scheduleExitCheck(delayMs: number, reason: 'recovery' | 'exit' = 'recovery'): void {
     this.clearExitTimer();
     this.exitTimer = setTimeout(() => {
       this.exitTimer = null;
-      if (this.stopped || !this.checkAfterExit || getAppState().mode === 'VR') {
+      if (this.stopped || getAppState().mode === 'VR') {
         return;
       }
+      // A loss announced in the meantime makes it a recovery.
+      const what = this.checkAfterExit ? 'recovery' : reason;
       this.checkAfterExit = false;
       if (this.door.shown && !this.episode && !this.interrupted) {
-        this.context?.log('self-hosted: back in the room - checking the doorway position');
-        this.begin('recovery');
+        this.context?.log(
+          `self-hosted: back in the room - checking the doorway position (${what === 'exit' ? 'after every way out of the space' : 'after a loss of tracking'})`,
+        );
+        this.begin(what);
       }
     }, Math.max(0, delayMs));
   }
@@ -463,7 +475,10 @@ export class SelfHostedServerProvider extends BaseProvider {
     if (this.door.shown && episode.reason !== 'manual' && getAppState().mode === 'VR') {
       // Nobody asked for this check, and from inside the space it can only fail.
       this.episode = null;
-      this.checkAfterExit = true;
+      // Every way out brings a check of its own; a dropped check after a loss is kept for it.
+      if (episode.origin !== 'exit') {
+        this.checkAfterExit = true;
+      }
       this.setStatus('localized', 'doorway kept while the user is in the space');
       return;
     }
@@ -522,6 +537,12 @@ export class SelfHostedServerProvider extends BaseProvider {
       const decision = decide(null, false, { quality: outcome.quality, alignmentStatus: outcome.alignmentStatus, door: null });
       return { decision, portal: null };
     }
+    if (episode.reason === 'exit') {
+      const gate = exitCheckGate(outcome.quality);
+      if (gate) {
+        return { decision: gate, portal: null };
+      }
+    }
     if (!outcome.transform) {
       return { decision: { action: 'retry', why: 'the server did not say where the room is (no T_arworld_from_map)' }, portal: null };
     }
@@ -550,6 +571,9 @@ export class SelfHostedServerProvider extends BaseProvider {
 
   /** What the door layer made of an answer decides whether the search goes on. */
   private afterDecision(episode: Episode, decision: Decision): void {
+    if (episode.reason === 'exit') {
+      this.context?.log(`self-hosted: back in the room, look ${episode.attempt}: ${describeExitCheck(decision)}`);
+    }
     switch (decision.action) {
       case 'retry':
         episode.lastWhy = decision.why;
@@ -622,6 +646,13 @@ export class SelfHostedServerProvider extends BaseProvider {
   /** The attempts of an episode are used up. Nothing on screen changes; the status says what to do. */
   private giveUp(episode: Episode): void {
     this.episode = null;
+    if (episode.origin === 'exit') {
+      // No alarm after the way out: the door stays where it was.
+      this.context?.log(`self-hosted: ${exitCheckGaveUp(episode.earlier + episode.attempt)}`);
+      this.setStatus('localized', 'doorway kept: no good answer after the way out');
+      this.report('kept', episode);
+      return;
+    }
     const why = episode.lastWhy ? ` (${episode.lastWhy})` : '';
     if (this.door.shown && this.door.trusted) {
       this.setStatus('localized', 'doorway kept: the new look did not give a better position');
