@@ -55,34 +55,49 @@ puts the door back at the saved place. The server also tries to find a real door
 the room and offers it as a suggestion; on the recordings tried so far it has not found one
 reliably.
 
-## Status (21 November 2026)
+## Status (23 November 2026)
 
-"On the phone" means a Xiaomi 14 Ultra (Android 16, ARCore 1.57).
+"On the phone" means a Xiaomi 14 Ultra (Android 16, ARCore 1.57); the room is a living room
+with an open kitchen, scanned on 22 November.
 
 | Part | State |
 |---|---|
 | AR scene with camera feed and 3D objects | Done, checked on the phone |
-| Walk-through portal, AR ↔ VR switching | Done, checked on the phone with the first test room |
-| Virtual space behind the door: atrium of the Sponza Palace (Dubrovnik) with a wooden door casing | Implemented; the models load on the phone without errors, the look has not been reviewed on the device yet |
-| Phone ↔ server connection over Wi-Fi | Done, checked on the phone: automatic search and reconnection work; typing the address by hand has not been confirmed on the device |
-| Localisation server: map building, `/localize`, evaluation | Done and tested on a public indoor dataset (TUM RGB-D `freiburg1_room`) |
-| Room scan in the app (guided scan, depth mesh, recording, upload with progress) | Implemented; on the phone the depth mesh, the recording and the upload work, a full room scan has not been made yet |
-| Two modes: staff (scan the room, place and save the door) and visitor (open the app, the door comes from the server) | Implemented and run end to end against the server with a phone simulator; not checked on the phone |
-| Door stored once per room on the server and restored by recognition on any phone | Implemented; on the simulator a second "device" got the door 8.6 cm from where it was placed; not checked on the phone |
-| Room plan on the server (floor, walls, corners) and a suggested door opening | Implemented; on the recordings tried so far the plan is often partial and no opening was found reliably, so it is only a suggestion to the staff member |
-| Keeping the doorway in place (tracking loss, repeated localisation) | Implemented, not checked on the phone |
+| Walk-through portal, AR ↔ VR switching | Done, checked on the phone: the virtual space is seen through the doorway before entering, the user walks in and back out |
+| Virtual space behind the door: atrium of the Sponza Palace (Dubrovnik) with a wooden door casing | Done, seen on the phone |
+| Phone ↔ server connection over Wi-Fi | Done, checked on the phone: a visitor's camera opens only after the saved server answered and the link is good (1.6–2.4 s) |
+| Localisation server: map building, `/localize`, room plan, coloured 3D model of the room, door editing in the monitoring panel | Done (server 0.8.0); used with the real room on 22–23 November |
+| Room scan in the app (guided walk around the room, depth mesh, recording, upload with progress) | Done, checked on the phone: a 2-minute walk was rated "good" by the server (3.9 × 3.4 m covered, looked from −67° to +52°); the map took 21 minutes to build |
+| Two modes: staff (scan the room, place and save the door) and visitor (open the app, the door comes from the server) | Done, checked on the phone |
+| Door stored once per room on the server and restored by recognition | Checked on the phone: after reopening the app in another room, the door stood in place 11 s after the visitor entered the room; one recognition attempt takes about 3.5 s. The door positions given by the frames of one clip agree within about 2 cm; the real position has not been measured with a tape |
+| 3D model and plan of the room | Done: 113 000 vertices, median distance to the map's triangulated points 1.7 cm; 4 walls at right angles. At the frosted sliding doors the suggested opening lies about 0.5 m in front of the real surface, so the door should be checked in the 3D view of the panel before it is saved |
+| Keeping the doorway in place | Seen on the phone: inside the virtual space, close to smooth glass, ARCore may lose or silently re-correct its tracking, and the door was then off after the way back. Now the door's place is checked after every way out; a correction larger than 0.5 m / 15° without an announced loss of tracking is not applied, and the visitor has a "Find the door again" button that starts a new AR session (`f36fd5d`, installed on the phone, not yet tried there) |
 | Server monitoring panel and phone simulator | Done |
-| Ready-made localisation services (ReactVision Advanced VPS, ARCore Cloud Anchors) | Studied from the documentation; provider code is written but was never run against the services (no paid account), and is not part of the main path |
-| Full pass on a real phone in a real room (scan → map → door → restart → door in place) | Not done yet |
-| Persistence tests (restart, angles, lighting, tracking loss) | Protocol written ([`app/docs/test-protocol.md`](app/docs/test-protocol.md)), tests not run yet |
+| Ready-made localisation services (ReactVision Advanced VPS, ARCore Cloud Anchors) | Studied from the documentation and the library code; provider code is written but was never run against the services (no paid account), and is not part of the main path |
+| Full pass on a real phone in a real room (scan → map → door → restart → door in place) | Done on 22 November |
+| Persistence tests (restart, angles, lighting, tracking loss) | Protocol written ([`app/docs/test-protocol.md`](app/docs/test-protocol.md)); restart, other positions and tracking loss were observed during the passes, but the measured trials of the protocol and the lighting change have not been run |
+
+## Open the projects in an editor
+
+The file [`vr-fesb.code-workspace`](vr-fesb.code-workspace) opens both projects in one
+**Visual Studio Code** window: double-click it, or *File → Open Workspace from File…*. VS Code
+then offers the recommended extensions (Python, React Native Tools). How to work on each project:
+
+- **App** — edit the TypeScript in VS Code; build and run with the commands of
+  [`app/README.md`](app/README.md#setup-on-windows), or open the generated native project in
+  **Android Studio** as described in
+  [Open in VS Code and Android Studio](app/README.md#open-in-vs-code-and-android-studio).
+- **Server** — VS Code with the Python extension, interpreter from the server's environment; see
+  [Open in VS Code](https://github.com/BRANDAY/arportal-localization-server#open-in-vs-code) in the
+  server README.
 
 ## Quick start
 
 1. **Server** — on a Windows PC: follow the
    [server README](https://github.com/BRANDAY/arportal-localization-server#readme) (the same file is
    `localization-server/README.md` after a clone with submodules)
-   (install with `uv`, start the server, allow the port in the firewall). The server prints
-   the addresses it can be reached at.
+   (install with `uv`, start the server with a double click on `Start AR Portal Server.cmd`,
+   allow the port in the firewall). The server window shows the address to type into the app.
 2. **App** — follow [`app/README.md`](app/README.md) to build the debug APK and install it on an
    ARCore-capable Android phone (a real device is required; emulators are not supported).
 3. Put the phone and the PC on the same Wi-Fi, open the app and use the server status chip to

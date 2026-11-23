@@ -1,0 +1,27 @@
+{
+  "folders": [
+    { "name": "app (React Native + ViroReact)", "path": "app" },
+    { "name": "localization-server (Python)", "path": "localization-server" },
+    { "name": "docs", "path": "docs" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/android/app/build": true,
+      "**/.gradle": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true
+    },
+    "search.exclude": {
+      "**/android": true,
+      "**/.venv": true,
+      "**/data": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "msjsdiag.vscode-react-native"
+    ]
+  }
+}
