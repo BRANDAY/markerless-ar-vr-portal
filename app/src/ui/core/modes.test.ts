@@ -145,3 +145,8 @@ test('visitor: every sheet has its texts, and "Try again" unless the spec says o
   assert.equal(visitorSheetText('device').button, null);
   assert.equal(visitorSheetText('noDoor').button, 'retry');
 });
+
+test('visitor: "the door may have moved" is offered with a new AR session', () => {
+  assert.equal(visitorView(visitor({ status: 'localized', hasDoor: true, meta: { code: 'door-suspect' } })).doorMoved, true);
+  assert.equal(visitorView(visitor({ status: 'localized', hasDoor: true })).doorMoved, false);
+});

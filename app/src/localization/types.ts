@@ -80,6 +80,8 @@ export interface StatusMeta {
     | 'unconfirmed'
     | 'tracking-lost'
     | 'scale-unknown'
+    /** A good answer asked for a jump of a trusted door without a loss of tracking: not taken. */
+    | 'door-suspect'
     /** ReactVision: the service cannot be reached, or it refused (plan, limit, no map). */
     | 'cloud-offline'
     /** ReactVision: this build has no keys, or the room has no location id at the service. */

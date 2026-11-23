@@ -323,12 +323,18 @@ function OverCamera({ searched, onSearch, onHelp }: { searched: boolean; onSearc
             <DoorBehindPill />
             {space.about ? <HudButton icon="info" label={t('ar.inside.about')} onPress={() => setAboutOpen(true)} /> : null}
           </>
-        ) : null}
+        ) : (
+          // "Find the door again": a new AR session and a new search, as closing and opening does.
+          <HudButton icon="search" label={t('visitor.findAgain')} onPress={appActions.restartArSession} />
+        )}
         <HudButton icon="help" label={t('visitor.help')} onPress={onHelp} />
       </View>
 
       <View style={styles.under} pointerEvents="box-none">
         {view.lostBanner ? <CoachCard danger line1={t('ar.lost.title')} line2={t('ar.lost.body')} /> : null}
+        {view.doorMoved && view.situation === 'door' ? (
+          <HudPill text={t('ar.pill.moved')} action={t('ar.pill.findAgain')} onPress={appActions.restartArSession} />
+        ) : null}
       </View>
 
       <View style={styles.spacer} pointerEvents="none" />

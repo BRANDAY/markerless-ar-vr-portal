@@ -171,6 +171,9 @@ export function ArScreen() {
           <HudPill text={t('ar.pill.off')} action={t('ar.pill.findAgain')} onPress={appActions.requestRelocalize} />
         ) : null}
         {view.pill === 'offline' ? <HudPill text={t('ar.pill.offline')} /> : null}
+        {view.pill === 'moved' ? (
+          <HudPill text={t('ar.pill.moved')} action={t('ar.pill.findAgain')} onPress={appActions.restartArSession} />
+        ) : null}
       </View>
 
       <View style={styles.spacer} pointerEvents="none" />

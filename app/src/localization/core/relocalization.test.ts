@@ -11,6 +11,8 @@ import {
   INTERRUPTION_GRACE_MS,
   type LocalizeAnswer,
   MAX_ATTEMPTS,
+  MAX_JUMP_DEG,
+  MAX_JUMP_M,
   retryDelayMs,
   TrackingWatch,
   wantsAnotherAttempt,
@@ -157,4 +159,24 @@ test('after the way out: only a good answer may move the door', () => {
   assert.match(describeExitCheck(kept), /^the doorway was in place \(8 cm off, within 15 cm\) - not moved/);
   assert.match(describeExitCheck({ action: 'retry', why: 'the view was not recognised' }), /not moved/);
   assert.match(exitCheckGaveUp(2), /no good answer in 2 look\(s\), the doorway is kept/);
+});
+
+test('a jump without a loss of tracking: 1.52 m / 53 deg is not taken, 0.3 m / 5 deg is', () => {
+  // the fourth video: the door shown was right, a good answer asked for 1.52 m and 53 deg
+  const far = answer({ at: [1 + 1.52 * Math.cos(0.3), 0, -2 + 1.52 * Math.sin(0.3)], yaw: 30 + 53 });
+  const suspect = decide(SHOWN, true, far, { limitJump: true });
+  assert.equal(suspect.action, 'suspect');
+  assert.ok(!wantsAnotherAttempt(suspect), 'no loop: the user is offered a new session');
+  assert.match(describeExitCheck(suspect), /NOT moved/);
+  // a correction within the limit is still made
+  const near = decide(SHOWN, true, answer({ at: [1.3, 0, -2], yaw: 35 }), { limitJump: true });
+  assert.equal(near.action, 'move');
+  // the limit is on distance or turn alone
+  assert.equal(decide(SHOWN, true, answer({ at: [1.6, 0, -2] }), { limitJump: true }).action, 'suspect');
+  assert.equal(decide(SHOWN, true, answer({ yaw: 30 + 20 }), { limitJump: true }).action, 'suspect');
+  // after an announced loss (the door is not trusted) and on request the old rule stands
+  assert.equal(decide(SHOWN, false, far, { limitJump: true }).action, 'move');
+  assert.equal(decide(SHOWN, true, far).action, 'move');
+  assert.equal(MAX_JUMP_M, 0.5);
+  assert.equal(MAX_JUMP_DEG, 15);
 });

@@ -310,6 +310,10 @@ export function PortalARScene(props: SceneProps) {
       }
     });
     if (lowest !== floorYRef.current) {
+      if (lowest === null && floorYRef.current !== null) {
+        // No tracking loss is reported for this; the next "first horizontal plane" follows.
+        appActions.log(`ARCore rebuilt its map: all horizontal planes were dropped (mode ${getAppState().mode})`);
+      }
       const first = floorYRef.current === null && lowest !== null;
       floorYRef.current = lowest;
       appActions.setFloorY(lowest);

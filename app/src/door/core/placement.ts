@@ -117,6 +117,8 @@ export function settle(
   record: ServerPortal,
   strong: boolean,
   always = false,
+  /** Nobody asked for this look: a jump beyond `MAX_JUMP_*` is not taken (see `decide`). */
+  limitJump = false,
 ): Settled {
   const portal = portalInSession(room, record);
   const door = doorCandidate(portal, strong);
@@ -127,7 +129,7 @@ export function settle(
     quality: strong ? 'good' : 'weak',
     alignmentStatus: 'ok',
     door: door ? { position: door.position, rotation: door.rotation } : null,
-  });
+  }, { limitJump });
   return { portal, decision };
 }
 

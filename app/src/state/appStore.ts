@@ -113,6 +113,8 @@ export interface AppState {
   relocalizeNonce: number;
   /** Incremented to make the search for the room start from nothing (a new provider run). */
   providerRun: number;
+  /** True for a moment while the AR view is taken down to start a new AR session. */
+  arRestarting: boolean;
 
   attachMode: AttachMode;
   environment: EnvironmentId;
@@ -123,6 +125,8 @@ export interface AppState {
 }
 
 const MAX_LOG_ENTRIES = 200;
+/** "Find the door again": how long the AR view stays down between the old session and the new one. */
+const AR_RESTART_PAUSE_MS = 700;
 /** `Date.now()` when the app's JavaScript started (about a second after the icon was tapped). */
 export const APP_STARTED_AT_MS = Date.now();
 const startedAtMs = APP_STARTED_AT_MS;
@@ -151,6 +155,7 @@ let state: AppState = {
   providerMeta: {},
   relocalizeNonce: 0,
   providerRun: 0,
+  arRestarting: false,
 
   attachMode: 'direct',
   environment: 'sponza',
@@ -335,6 +340,22 @@ export const appActions = {
    */
   restartProvider(): void {
     setState({ providerRun: state.providerRun + 1 });
+  },
+
+  /**
+   * "Find the door again": take the AR view down and put it up again - a new ARCore
+   * session and a new search, as when the screen is closed and opened. A new look in the
+   * same session is not enough: after ARCore has rebuilt its map its numbers no longer
+   * fit the door (second pass, 2026-11-23: closing and opening gave the right door in 7.6 s).
+   */
+  restartArSession(): void {
+    if (state.arRestarting) {
+      return;
+    }
+    appActions.log('find the door again: a new AR session (the AR view is taken down and put up again)');
+    setState({ arRestarting: true, door: null, mode: 'AR', providerStatus: 'idle', providerDetail: '', providerMeta: {} });
+    // A pause between the two: the camera of the old session is let go before the new one opens.
+    setTimeout(() => setState({ arRestarting: false }), AR_RESTART_PAUSE_MS);
   },
 
   setAttachMode(attachMode: AttachMode): void {

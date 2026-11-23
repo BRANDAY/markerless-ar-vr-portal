@@ -598,6 +598,9 @@ export class SelfHostedServerProvider extends BaseProvider {
       case 'ignore':
         episode.lastWhy = 'only weak matches that disagree with the doorway shown';
         break;
+      case 'suspect':
+        this.report('kept', episode); // the door layer has said what to do
+        break;
     }
 
     if (!wantsAnotherAttempt(decision)) {

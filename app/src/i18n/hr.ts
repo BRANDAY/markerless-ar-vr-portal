@@ -295,6 +295,8 @@ export const hr: Record<TextKey, string> = {
   'ar.menu.otherDoorway': 'Upotrijebi drugi otvor za vrata',
   'ar.pill.off': 'Vrata su možda malo pomaknuta',
   'ar.pill.findAgain': 'Pronađi ponovno',
+  'ar.pill.moved': 'Vrata su se možda pomaknula',
+  'visitor.findAgain': 'Ponovno pronađi vrata',
   'ar.pill.offline': 'Poslužitelj nedostupan · vrata ostaju gdje jesu',
   'ar.lost.title': 'Prostorija je izgubljena iz vida',
   'ar.lost.body': 'Polako pomičite telefon preko namještaja ili slika.',

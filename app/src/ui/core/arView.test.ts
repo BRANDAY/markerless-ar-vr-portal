@@ -132,3 +132,10 @@ test('a door placed by hand: only "getting ready" before it stands', () => {
   assert.equal(arView(input({ source: 'free', status: 'localizing', meta: {} })).coach?.line1, 'ar.coach.ready.1');
   assert.equal(arView(input({ source: 'free', status: 'localizing', meta: {} })).offerOtherRoom, false);
 });
+
+test('a door that may have moved (a jump not taken): a calm pill that offers a new AR session', () => {
+  const moved = arView(input({ status: 'localized', hasDoor: true, meta: { code: 'door-suspect' } }));
+  assert.deepEqual([moved.situation, moved.pill, moved.coach, moved.sheet], ['door', 'moved', null, null]);
+  // inside the space nothing is said
+  assert.equal(arView(input({ status: 'localized', hasDoor: true, mode: 'VR', meta: { code: 'door-suspect' } })).pill, null);
+});

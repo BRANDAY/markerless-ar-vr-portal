@@ -283,6 +283,8 @@ export const en = {
   'ar.menu.otherDoorway': 'Use another doorway',
   'ar.pill.off': 'The door may be slightly off',
   'ar.pill.findAgain': 'Find again',
+  'ar.pill.moved': 'The door may have moved',
+  'visitor.findAgain': 'Find the door again',
   'ar.pill.offline': 'Server offline · the door stays where it is',
   'ar.lost.title': 'Lost track of the room',
   'ar.lost.body': 'Move the phone slowly over furniture or pictures.',

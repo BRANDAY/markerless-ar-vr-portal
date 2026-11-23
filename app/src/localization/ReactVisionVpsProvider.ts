@@ -374,6 +374,7 @@ export class ReactVisionVpsProvider extends BaseProvider {
         }
         break;
       case 'ignore':
+      case 'suspect':
         break;
     }
   }

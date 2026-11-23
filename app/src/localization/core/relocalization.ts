@@ -134,6 +134,16 @@ export interface LocalizeAnswer {
 export const SAME_POSE_DISTANCE_M = 0.15;
 export const SAME_POSE_ANGLE_DEG = 6;
 
+/**
+ * Without an announced loss of tracking the door stands where it was believed; a strong
+ * answer that would move it further than this is not taken. The room does not move: such
+ * a jump comes from ARCore having rebuilt its map in the same session (fourth video of
+ * the second pass, 2026-11-23: a good answer, 639 inliers, asked for 1.52 m and 53 deg,
+ * the door had been right). The user is offered a new AR session instead ("Find again").
+ */
+export const MAX_JUMP_M = 0.5;
+export const MAX_JUMP_DEG = 15;
+
 export type Decision =
   /** No usable answer: try again (or give up when the attempts are used up). */
   | { action: 'retry'; why: string }
@@ -147,6 +157,11 @@ export type Decision =
    * were weak.
    */
   | { action: 'keep'; distanceM: number }
+  /**
+   * A strong answer far from a trusted door with no loss of tracking in between
+   * (`MAX_JUMP_M`, `MAX_JUMP_DEG`): the door is not moved; the session is suspect.
+   */
+  | { action: 'suspect'; door: DoorCandidate; distanceM: number; angleDeg: number }
   /** The answer is better than what is shown and differs from it: move the door. */
   | { action: 'move'; door: DoorCandidate; distanceM: number; angleDeg: number }
   /** A weak answer contradicts a trusted pose: ignore the answer. */
@@ -185,6 +200,8 @@ export function decide(
   shown: DoorCandidate | null,
   shownTrusted: boolean,
   answer: LocalizeAnswer,
+  /** `limitJump`: nobody asked for this look - a jump beyond `MAX_JUMP_*` is not taken. */
+  options: { limitJump?: boolean } = {},
 ): Decision {
   if (answer.alignmentStatus !== 'ok' || answer.quality === 'failed') {
     const why =
@@ -208,6 +225,9 @@ export function decide(
   if (distanceM <= SAME_POSE_DISTANCE_M && angleDeg <= SAME_POSE_ANGLE_DEG) {
     return { action: 'keep', distanceM };
   }
+  if (strong && shownTrusted && options.limitJump && (distanceM > MAX_JUMP_M || angleDeg > MAX_JUMP_DEG)) {
+    return { action: 'suspect', door: candidate, distanceM, angleDeg };
+  }
   if (strong || !shownTrusted) {
     // A strong answer always wins; so does any answer against a pose nobody trusts.
     return { action: 'move', door: candidate, distanceM, angleDeg };
@@ -226,6 +246,7 @@ export function wantsAnotherAttempt(decision: Decision): boolean {
       return !decision.door.strong; // a weak pose is shown, and confirmed by another look
     case 'keep':
     case 'no-doorway':
+    case 'suspect':
       return false;
   }
 }
@@ -263,6 +284,11 @@ export function describeExitCheck(decision: Decision): string {
       return `the doorway was ${cm(decision.distanceM)} off (${decision.angleDeg.toFixed(1)} deg) - moved to the recognised place`;
     case 'ignore':
       return `a weak answer ${cm(decision.distanceM)} away - not moved`;
+    case 'suspect':
+      return (
+        `a good answer asked for ${cm(decision.distanceM)} and ${decision.angleDeg.toFixed(1)} deg - ` +
+        `NOT moved (more than ${cm(MAX_JUMP_M)} / ${MAX_JUMP_DEG} deg without a loss of tracking: the AR session is suspect)`
+      );
     case 'place':
       return 'the doorway was placed';
     case 'no-doorway':

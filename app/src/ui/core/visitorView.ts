@@ -45,6 +45,8 @@ export interface VisitorView {
   outline: boolean;
   lostBanner: boolean;
   sheet: VisitorSheet | null;
+  /** "The door may have moved - Find again" (a new AR session). */
+  doorMoved: boolean;
 }
 
 const MOMENT: CoachLines = { line1: 'visitor.coach.moment.1', line2: 'visitor.coach.moment.2' };
@@ -73,6 +75,7 @@ export function visitorView(input: VisitorInput): VisitorView {
     outline: staff.outline,
     lostBanner: staff.lostBanner,
     sheet: null,
+    doorMoved: staff.pill === 'moved',
   };
   if (input.cameraRefused) {
     view.sheet = 'camera';

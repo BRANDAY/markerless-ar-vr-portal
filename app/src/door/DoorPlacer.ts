@@ -1,4 +1,4 @@
-import type { Decision, DoorCandidate } from '../localization/core/relocalization';
+import { type Decision, type DoorCandidate, MAX_JUMP_DEG, MAX_JUMP_M } from '../localization/core/relocalization';
 import type { LocalizationStatus, PoseUpdate, RoomFix, StatusMeta } from '../localization/types';
 import { getRoomScanState, roomActions, type ServerPlan } from '../room/roomStore';
 import type { ServerPortal } from '../server/core/roomPlan';
@@ -117,7 +117,7 @@ export class DoorPlacer {
     if (read.from === 'kept') {
       this.out.log('the server did not answer - using the door record kept on this phone');
     }
-    const { portal, decision } = settle(this.shownDoor, this.isTrusted, fix.transform, read.record, fix.strong, how.always);
+    const { portal, decision } = settle(this.shownDoor, this.isTrusted, fix.transform, read.record, fix.strong, how.always, !how.requested);
     const plan: ServerPlan = {
       mapId: fix.mapId,
       origin: fix.fromRecording ? 'build' : 'localize',
@@ -160,6 +160,14 @@ export class DoorPlacer {
         break;
       case 'ignore':
         this.out.log(`weak answer ${decision.distanceM.toFixed(2)} m away from the trusted doorway ignored`);
+        break;
+      case 'suspect':
+        this.out.log(
+          `doorway NOT moved: a good answer asked for ${decision.distanceM.toFixed(2)} m and ${decision.angleDeg.toFixed(0)} deg ` +
+            `without a loss of tracking (limit ${MAX_JUMP_M} m / ${MAX_JUMP_DEG} deg) - the AR session may have rebuilt its map; ` +
+            'offering "Find again" (a new AR session)',
+        );
+        this.out.setStatus('localized', 'the doorway may have moved - a new AR session finds it again', { code: 'door-suspect' });
         break;
       case 'retry':
         break;

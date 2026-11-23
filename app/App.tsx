@@ -301,7 +301,8 @@ export default function App() {
       setArShown(true);
     }
   }, [cameraScreen]);
-  const arMounted = permission === 'granted' && (cameraScreen || (keepArView && arShown));
+  const arRestarting = useAppState((state) => state.arRestarting);
+  const arMounted = permission === 'granted' && (cameraScreen || (keepArView && arShown)) && !arRestarting;
   // Without the AR view there is no AR session: the next one counts anew for its room.
   useEffect(() => {
     if (!arMounted) {

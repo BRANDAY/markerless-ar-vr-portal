@@ -41,7 +41,8 @@ export interface ArView {
   /** Draw the amber dashed outline of the doorway instead of the door. */
   outline: boolean;
   /** The small state under the top row. */
-  pill: 'off' | 'offline' | null;
+  /** `moved`: the door may have moved (`door-suspect`); "Find again" starts a new AR session. */
+  pill: 'off' | 'offline' | 'moved' | null;
   /** The red "Lost track of the room" banner. */
   lostBanner: boolean;
   /**
@@ -127,7 +128,9 @@ export function arView(input: ArInput): ArView {
 
   if (hasDoor) {
     view.situation = 'door';
-    if (status === 'lost' && meta.code === 'unconfirmed') {
+    if (meta.code === 'door-suspect') {
+      view.pill = 'moved';
+    } else if (status === 'lost' && meta.code === 'unconfirmed') {
       view.pill = 'off';
     } else if (input.source === 'room' && (input.connection === 'unreachable' || input.connection === 'not-configured')) {
       view.pill = 'offline';
