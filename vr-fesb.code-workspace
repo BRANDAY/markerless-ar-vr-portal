@@ -1,7 +1,9 @@
 {
+  // Opens the app and the localization server in one VS Code window.
+  // Terminal -> Run Task... lists the tasks below (build, install on the phone, start the server, tests).
   "folders": [
-    { "name": "app (React Native + ViroReact)", "path": "app" },
-    { "name": "localization-server (Python)", "path": "localization-server" },
+    { "name": "app", "path": "app" },
+    { "name": "localization-server", "path": "localization-server" },
     { "name": "docs", "path": "docs" }
   ],
   "settings": {
@@ -10,18 +12,106 @@
       "**/android/app/build": true,
       "**/.gradle": true,
       "**/__pycache__": true,
-      "**/.pytest_cache": true
+      "**/.pytest_cache": true,
+      "**/.test-build": true
     },
     "search.exclude": {
       "**/android": true,
       "**/.venv": true,
       "**/data": true
-    }
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell"
   },
   "extensions": {
     "recommendations": [
       "ms-python.python",
       "msjsdiag.vscode-react-native"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "App: type check",
+        "type": "shell",
+        "command": "npm run typecheck",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "problemMatcher": "$tsc"
+      },
+      {
+        "label": "App: unit tests",
+        "type": "shell",
+        "command": "npm test",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "group": "test",
+        "problemMatcher": []
+      },
+      {
+        "label": "App: generate the Android project (expo prebuild)",
+        "type": "shell",
+        "command": "npm run prebuild",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "App: build the debug APK",
+        "type": "shell",
+        "command": ".\\gradlew.bat assembleDebug --console=plain",
+        "options": { "cwd": "${workspaceFolder:app}/android" },
+        "group": { "kind": "build", "isDefault": true },
+        "problemMatcher": []
+      },
+      {
+        "label": "App: install on the phone and start",
+        "type": "shell",
+        "command": "& \"$env:ANDROID_HOME\\platform-tools\\adb.exe\" install -r android\\app\\build\\outputs\\apk\\debug\\app-debug.apk; & \"$env:ANDROID_HOME\\platform-tools\\adb.exe\" shell monkey -p hr.fesb.arportal -c android.intent.category.LAUNCHER 1",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "App: build, install and start",
+        "dependsOrder": "sequence",
+        "dependsOn": ["App: build the debug APK", "App: install on the phone and start"],
+        "problemMatcher": []
+      },
+      {
+        "label": "App: Metro (development loop, phone on USB)",
+        "type": "shell",
+        "command": "& \"$env:ANDROID_HOME\\platform-tools\\adb.exe\" reverse tcp:8081 tcp:8081; npx expo start",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "App: phone log (logcat)",
+        "type": "shell",
+        "command": "& \"$env:ANDROID_HOME\\platform-tools\\adb.exe\" logcat -s ReactNativeJS:V AndroidRuntime:E",
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "Server: start (with the panel)",
+        "type": "shell",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\start-server.ps1",
+        "options": { "cwd": "${workspaceFolder:localization-server}" },
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "Server: tests",
+        "type": "shell",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \". .\\env.ps1; uv run pytest\"",
+        "options": { "cwd": "${workspaceFolder:localization-server}" },
+        "group": "test",
+        "problemMatcher": []
+      },
+      {
+        "label": "Server: check why a phone cannot connect (doctor)",
+        "type": "shell",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \". .\\env.ps1; uv run locserver-doctor\"",
+        "options": { "cwd": "${workspaceFolder:localization-server}" },
+        "problemMatcher": []
+      }
     ]
   }
 }
