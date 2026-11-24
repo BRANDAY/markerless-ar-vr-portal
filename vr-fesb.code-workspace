@@ -114,21 +114,6 @@
         "problemMatcher": []
       },
       {
-        "label": "Emulator: start (AR_Portal_API_36)",
-        "type": "shell",
-        "command": "& \"$env:ANDROID_HOME\\emulator\\emulator.exe\" -avd AR_Portal_API_36",
-        "isBackground": true,
-        "problemMatcher": []
-      },
-      {
-        "label": "App: build, install and start on the emulator",
-        "type": "shell",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-on-phone.ps1 -Emulator",
-        "options": { "cwd": "${workspaceFolder:app}" },
-        "group": "build",
-        "problemMatcher": []
-      },
-      {
         "label": "App: Metro (development loop, phone on USB)",
         "type": "shell",
         "command": "& \"$env:ANDROID_HOME\\platform-tools\\adb.exe\" reverse tcp:8081 tcp:8081; npx expo start",

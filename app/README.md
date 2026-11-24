@@ -273,13 +273,15 @@ no x86_64 renderer, so this translation is also the only way its scenes can star
 
 1. **Hardware virtualization.** The emulator runs only with Intel VT-x (AMD-V) switched on in
    the BIOS/UEFI. Check: `systeminfo` → *Virtualization Enabled In Firmware: Yes*. On the
-   development laptop it was *No* on 24 November: BIOS (F2 at start) → *Advanced* → *CPU
-   Configuration* → *Intel Virtualization Technology* → *Enabled*.
+   development laptop it is *No* and stays so (its power settings are managed with Intel XTU),
+   so there the app runs only on the phone; the emulator packages were installed and removed
+   again on 24 November. On another PC: BIOS → *Advanced* → *CPU Configuration* → *Intel
+   Virtualization Technology* → *Enabled*.
 2. **A hypervisor for the emulator**, after step 1: run, as administrator,
    `%LOCALAPPDATA%\Android\Sdk\extras\google\Android_Emulator_Hypervisor_Driver\silent_install.bat`
    (or turn on *Windows Hypervisor Platform* in *Turn Windows features on or off*). Check:
    `& "$env:ANDROID_HOME\emulator\emulator.exe" -accel-check`.
-3. **SDK packages** (installed on the development laptop): `emulator`,
+3. **SDK packages**: `emulator`,
    `system-images;android-36;google_apis_playstore;x86_64`,
    `extras;google;Android_Emulator_Hypervisor_Driver`.
 4. **The virtual phone** `AR_Portal_API_36` (Pixel 10, Android 16 with Google Play, 2 GB RAM,
@@ -287,10 +289,10 @@ no x86_64 renderer, so this translation is also the only way its scenes can star
    `avdmanager create avd -n AR_Portal_API_36 -k "system-images;android-36;google_apis_playstore;x86_64" -d pixel_10`,
    then `hw.camera.back=virtualscene` and `hw.ramSize=2048` in its `config.ini`; or in Android
    Studio, *Device Manager* → *+*.
-5. **Start it**: VS Code task *Emulator: start (AR_Portal_API_36)*, or *Device Manager* → ▶ in
-   Android Studio. **Run the app**: task *App: build, install and start on the emulator*, or
-   *Run 'app'* in Android Studio with the emulator chosen. `scripts/run-on-phone.ps1` takes
-   the emulator by itself when no phone is connected.
+5. **Start it**: `& "$env:ANDROID_HOME\emulator\emulator.exe" -avd AR_Portal_API_36`, or
+   *Device Manager* → ▶ in Android Studio. **Run the app**: Ctrl+Shift+B in VS Code
+   (`scripts/run-on-phone.ps1` takes the emulator when no phone is connected; `-Emulator`
+   prefers it), or *Run 'app'* in Android Studio with the emulator chosen.
 6. **The server** on the same PC is `http://10.0.2.2:8077` from inside the emulator (the
    emulator's name for the PC); type it in if *Find automatically* does not find it.
 7. **ARCore** in the emulator needs *Google Play Services for AR* from the Play Store in the
