@@ -81,8 +81,10 @@ with an open kitchen, scanned on 22 November.
 
 The file [`vr-fesb.code-workspace`](vr-fesb.code-workspace) opens both projects in one
 **Visual Studio Code** window: double-click it, or *File → Open Workspace from File…*. VS Code
-then offers the recommended extensions (Python, React Native Tools). *Terminal → Run Task…* lists
-ready commands: type check and unit tests of the app, build the debug APK, install it on the phone
+then offers the recommended extensions (Python, React Native Tools). **Ctrl+Shift+B** (or F5,
+*Demo: server, then the app on the phone*) starts the server with its panel and then builds, installs
+and starts the app on the phone connected over USB. *Terminal → Run Task…* lists the separate
+commands: type check and unit tests of the app, build the debug APK, install it on the phone
 and start it, Metro, the phone's log, start the server with its panel, the server's tests and its
 connection check. How to work on each project:
 

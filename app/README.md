@@ -228,6 +228,11 @@ textures and the simple door model).
 3. VS Code offers the recommended extension *React Native Tools* (optional).
 4. Work loop: edit, then `npm run typecheck` and `npm test` in the terminal of VS Code, then
    build and install as in steps 4–5 above, or use the development loop with Metro.
+5. One key in the workspace: **Ctrl+Shift+B** starts the server (with its panel), waits until it
+   answers, then builds the debug APK, installs it on the phone connected over USB and starts the
+   app. *Run and Debug* (F5) has the same as *Demo: server, then the app on the phone*, and the app
+   alone as *App: build, install and start on the phone*. Both run
+   [`scripts/run-on-phone.ps1`](scripts/run-on-phone.ps1), which checks the phone before it builds.
 
 **Android Studio** — for the native side: Gradle build, installing on the phone, Logcat,
 debugging native code.
@@ -240,7 +245,8 @@ debugging native code.
    build uses 21, so pick 21 to share one build. If the command-line builds used
    `scripts/env.ps1 -CacheRoot <folder>`, set *Gradle user home* on the same page to
    `<folder>\gradle-home`; otherwise Android Studio downloads all dependencies again into
-   `%USERPROFILE%\.gradle` (about 4 GB).
+   `%USERPROFILE%\.gradle` (about 4 GB). A user environment variable `GRADLE_USER_HOME` with
+   that folder does the same for Android Studio, VS Code and every terminal at once.
 4. Wait for the Gradle sync; the first one downloads a lot (see the build times above). The
    React Native Gradle plugin calls Node.js. If the sync says that `node` is not found, start
    Android Studio from a terminal in which `node -v` works.

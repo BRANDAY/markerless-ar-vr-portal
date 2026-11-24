@@ -1,6 +1,7 @@
 {
   // Opens the app and the localization server in one VS Code window.
-  // Terminal -> Run Task... lists the tasks below (build, install on the phone, start the server, tests).
+  // One key: Ctrl+Shift+B starts the server and then builds, installs and starts the app on the phone (USB);
+  // the same from Run and Debug (F5). Terminal -> Run Task... lists every task below.
   "folders": [
     { "name": "app", "path": "app" },
     { "name": "localization-server", "path": "localization-server" },
@@ -26,6 +27,38 @@
     "recommendations": [
       "ms-python.python",
       "msjsdiag.vscode-react-native"
+    ]
+  },
+  // Run and Debug (F5): these only start the tasks below - the app runs on the phone, the server in a terminal.
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Demo: server, then the app on the phone",
+        "type": "node",
+        "request": "launch",
+        "preLaunchTask": "Demo: server, then the app on the phone",
+        "cwd": "${workspaceFolder:app}",
+        "runtimeArgs": ["-e", "console.log('The server runs (its terminal and its panel), the app is started on the phone.')"],
+        "console": "internalConsole",
+        "rootPath": "${workspaceFolder:app}",
+        "sourceMaps": false,
+        "outFiles": [],
+        "resolveSourceMapLocations": []
+      },
+      {
+        "name": "App: build, install and start on the phone",
+        "type": "node",
+        "request": "launch",
+        "preLaunchTask": "App: build, install and start",
+        "cwd": "${workspaceFolder:app}",
+        "runtimeArgs": ["-e", "console.log('The app is installed and started on the phone.')"],
+        "console": "internalConsole",
+        "rootPath": "${workspaceFolder:app}",
+        "sourceMaps": false,
+        "outFiles": [],
+        "resolveSourceMapLocations": []
+      }
     ]
   },
   "tasks": {
@@ -58,7 +91,7 @@
         "type": "shell",
         "command": ".\\gradlew.bat assembleDebug --console=plain",
         "options": { "cwd": "${workspaceFolder:app}/android" },
-        "group": { "kind": "build", "isDefault": true },
+        "group": "build",
         "problemMatcher": []
       },
       {
@@ -70,8 +103,10 @@
       },
       {
         "label": "App: build, install and start",
-        "dependsOrder": "sequence",
-        "dependsOn": ["App: build the debug APK", "App: install on the phone and start"],
+        "type": "shell",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-on-phone.ps1",
+        "options": { "cwd": "${workspaceFolder:app}" },
+        "group": "build",
         "problemMatcher": []
       },
       {
@@ -95,6 +130,22 @@
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\start-server.ps1",
         "options": { "cwd": "${workspaceFolder:localization-server}" },
         "isBackground": true,
+        // the server keeps running; this only tells VS Code when it is ready, so that a task waiting for it goes on
+        "problemMatcher": {
+          "owner": "arportal-server",
+          "pattern": { "regexp": "^__never_matches__$" },
+          "background": {
+            "activeBegins": true,
+            "beginsPattern": "STARTING",
+            "endsPattern": "SERVER IS RUNNING|COULD NOT START"
+          }
+        }
+      },
+      {
+        "label": "Demo: server, then the app on the phone",
+        "dependsOrder": "sequence",
+        "dependsOn": ["Server: start (with the panel)", "App: build, install and start"],
+        "group": { "kind": "build", "isDefault": true },
         "problemMatcher": []
       },
       {
