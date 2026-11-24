@@ -58,8 +58,10 @@ All npm dependencies are pinned to exact versions in `package.json` and locked i
 `package-lock.json`. ViroReact 3.2.x requires exactly React Native 0.88 / Expo SDK 58;
 the 3.1.x line (React Native 0.86 / Expo SDK 57) was the fallback and was not needed.
 
-Android only: the development machine is Windows, and ViroReact does not run in the
-Android emulator — **a real ARCore-capable phone is required**.
+Android only: the development machine is Windows. **The AR part needs a real ARCore-capable
+phone** in the scanned room. The Android emulator on the PC runs the app's screens and its
+connection to the server; whether AR works there was not tried (see
+[Android emulator](#android-emulator)).
 
 ## Setup on Windows
 
@@ -260,6 +262,41 @@ debugging native code.
 Do not edit files under `android/` in Android Studio: `expo prebuild` writes them again. Change
 `app.json` or `plugins/` instead. The *SDK Manager* of Android Studio can install the SDK
 packages listed in step 1.
+
+### Android emulator
+
+For trying the screens without a phone. The AR scene is not the point here: the emulator's
+camera shows a built-in virtual room, which the server does not know. The emulator is x86_64;
+the app is built for `arm64-v8a` only, and the Android 16 image runs it by translating ARM
+code (`ro.dalvik.vm.native.bridge=libndk_translation.so` in its `build.prop`). ViroReact has
+no x86_64 renderer, so this translation is also the only way its scenes can start there.
+
+1. **Hardware virtualization.** The emulator runs only with Intel VT-x (AMD-V) switched on in
+   the BIOS/UEFI. Check: `systeminfo` → *Virtualization Enabled In Firmware: Yes*. On the
+   development laptop it was *No* on 24 November: BIOS (F2 at start) → *Advanced* → *CPU
+   Configuration* → *Intel Virtualization Technology* → *Enabled*.
+2. **A hypervisor for the emulator**, after step 1: run, as administrator,
+   `%LOCALAPPDATA%\Android\Sdk\extras\google\Android_Emulator_Hypervisor_Driver\silent_install.bat`
+   (or turn on *Windows Hypervisor Platform* in *Turn Windows features on or off*). Check:
+   `& "$env:ANDROID_HOME\emulator\emulator.exe" -accel-check`.
+3. **SDK packages** (installed on the development laptop): `emulator`,
+   `system-images;android-36;google_apis_playstore;x86_64`,
+   `extras;google;Android_Emulator_Hypervisor_Driver`.
+4. **The virtual phone** `AR_Portal_API_36` (Pixel 10, Android 16 with Google Play, 2 GB RAM,
+   back camera = virtual scene) — made with
+   `avdmanager create avd -n AR_Portal_API_36 -k "system-images;android-36;google_apis_playstore;x86_64" -d pixel_10`,
+   then `hw.camera.back=virtualscene` and `hw.ramSize=2048` in its `config.ini`; or in Android
+   Studio, *Device Manager* → *+*.
+5. **Start it**: VS Code task *Emulator: start (AR_Portal_API_36)*, or *Device Manager* → ▶ in
+   Android Studio. **Run the app**: task *App: build, install and start on the emulator*, or
+   *Run 'app'* in Android Studio with the emulator chosen. `scripts/run-on-phone.ps1` takes
+   the emulator by itself when no phone is connected.
+6. **The server** on the same PC is `http://10.0.2.2:8077` from inside the emulator (the
+   emulator's name for the PC); type it in if *Find automatically* does not find it.
+7. **ARCore** in the emulator needs *Google Play Services for AR* from the Play Store in the
+   emulator (after signing in). Its emulator build is x86, the app's AR code is translated ARM
+   code, so AR may well not start there; the app itself starts without ARCore (optional in the
+   manifest) and shows its screens. Not tried yet.
 
 ## The interface
 
@@ -1741,5 +1778,6 @@ has never been installed.
 - `npm ci` reports 4 moderate advisories in transitive development dependencies; they
   were left as they are (the fix npm proposes, `npm audit fix --force`, includes breaking
   changes).
-- Only `arm64-v8a` is built. 32-bit phones and x86 emulators are not supported (the
-  emulator cannot run ViroReact AR anyway).
+- Only `arm64-v8a` is built. 32-bit phones are not supported. The x86_64 emulator runs the
+  same APK by translating ARM code (Android 11+ images); ViroReact has no x86_64 renderer, so
+  an `x86_64` build would not help.

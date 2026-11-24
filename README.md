@@ -104,7 +104,8 @@ connection check. How to work on each project:
    (install with `uv`, start the server with a double click on `Start AR Portal Server.cmd`,
    allow the port in the firewall). The server window shows the address to type into the app.
 2. **App** — follow [`app/README.md`](app/README.md) to build the debug APK and install it on an
-   ARCore-capable Android phone (a real device is required; emulators are not supported).
+   ARCore-capable Android phone (AR needs a real device; the Android emulator on the PC is only
+   for the screens, see [Android emulator](app/README.md#android-emulator)).
 3. Put the phone and the PC on the same Wi-Fi, open the app and use the server status chip to
    find the server automatically or enter its address.
 

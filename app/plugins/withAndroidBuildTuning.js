@@ -6,7 +6,9 @@
 //      - Gradle daemon heap capped (default option: 3 GB),
 //      - at most N parallel Gradle workers (default: 4),
 //      - native code built for the listed ABIs only (default: arm64-v8a, i.e. real
-//        phones; add "x86_64" etc. in app.json if another ABI is ever needed).
+//        phones; the x86_64 Android emulator runs it too, translating ARM code -
+//        do not add "x86_64": ViroReact has no x86_64 renderer, and with x86_64
+//        libraries in the APK the emulator would load those and miss Viro's).
 //
 // 2. Makes the DEBUG APK self-contained: the JS bundle is embedded, so the app
 //    starts without a Metro dev server (an AR app is tested by walking around a
