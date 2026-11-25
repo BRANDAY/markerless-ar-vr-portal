@@ -30,7 +30,12 @@
       "ms-python.python",
       "msjsdiag.vscode-react-native",
       "expo.vscode-expo-tools",
-      "ms-vscode.powershell"
+      "ms-vscode.powershell",
+      "charliermarsh.ruff",
+      "tamasfe.even-better-toml",
+      "yoavbls.pretty-ts-errors",
+      "christian-kohler.path-intellisense",
+      "usernamehw.errorlens"
     ]
   },
   // Run and Debug (F5): these only start the tasks below - the app runs on the phone, the server in a terminal.
